@@ -687,6 +687,18 @@ show_summary() {
         echo "NetworkManager:  inactive"
     fi
 
+    if [[ "$HYPRLAND_STATUS" != "Unknown" ]]; then
+        echo "Hyprland:        $HYPRLAND_STATUS"
+    fi
+
+    if [[ "$SDDM_STATUS" != "Unknown" ]]; then
+        echo "SDDM:            $SDDM_STATUS"
+    fi
+
+    if [[ "$SDDM_THEME_STATUS" != "Unknown" ]]; then
+        echo "ML4W SDDM theme: $SDDM_THEME_STATUS"
+    fi
+
     echo
 }
 
@@ -728,8 +740,185 @@ install_ml4w() {
     read -rp "Press Enter to continue to application selection..."
 }
 
+
 # ============================================================
-# 13. APPLICATION MENU
+# 13. SDDM / GRAPHICAL LOGIN
+# ============================================================
+
+HYPRLAND_STATUS="Unknown"
+SDDM_STATUS="Unknown"
+SDDM_THEME_STATUS="Unknown"
+
+setup_sddm() {
+
+    echo
+    echo "========================================"
+    echo "       GRAPHICAL LOGIN (SDDM)"
+    echo "========================================"
+    echo
+
+    # --------------------------------------------------------
+    # Verify Hyprland was installed by ML4W
+    # --------------------------------------------------------
+
+    if pacman -Q hyprland &>/dev/null; then
+        HYPRLAND_STATUS="installed"
+        success "Hyprland is installed."
+    else
+        HYPRLAND_STATUS="missing"
+        warning "Hyprland is not installed after ML4W."
+        warning "SDDM will still be configured, but Hyprland may not be available."
+    fi
+
+    # --------------------------------------------------------
+    # Install SDDM and required ML4W dependencies
+    # --------------------------------------------------------
+
+    if pacman -Q sddm &>/dev/null; then
+        success "SDDM is already installed."
+    else
+        info "Installing SDDM and required Qt components..."
+
+        if sudo pacman -S --needed \
+            sddm \
+            qt6-svg \
+            qt6-virtualkeyboard \
+            qt6-multimedia-ffmpeg; then
+            success "SDDM installed successfully."
+        else
+            warning "Failed to install SDDM."
+            SDDM_STATUS="installation failed"
+            return
+        fi
+    fi
+
+    # --------------------------------------------------------
+    # Disable conflicting display managers
+    # --------------------------------------------------------
+
+    local conflicting_dms=(gdm lightdm lxdm xdm mdm slim wdm)
+
+    for dm in "${conflicting_dms[@]}"; do
+        if systemctl is-enabled --quiet "$dm" 2>/dev/null; then
+            info "Disabling conflicting display manager: $dm"
+            sudo systemctl disable "$dm" || \
+                warning "Could not disable $dm."
+        fi
+    done
+
+    # --------------------------------------------------------
+    # Enable and start SDDM
+    # --------------------------------------------------------
+
+    if systemctl is-enabled --quiet sddm; then
+        success "SDDM service is already enabled."
+    else
+        info "Enabling SDDM service..."
+
+        if sudo systemctl enable sddm; then
+            success "SDDM service enabled."
+        else
+            warning "Failed to enable SDDM."
+            SDDM_STATUS="enable failed"
+            return
+        fi
+    fi
+
+    # Start it now where possible. On a running graphical session,
+    # SDDM may not take over immediately; the important part is that
+    # it is enabled for the next boot.
+    if systemctl is-active --quiet sddm; then
+        success "SDDM service is already running."
+    else
+        if sudo systemctl start sddm; then
+            success "SDDM service started."
+        else
+            warning "SDDM could not be started in the current session."
+            warning "It should start automatically after reboot."
+        fi
+    fi
+
+    # --------------------------------------------------------
+    # Install ML4W SDDM theme if it is missing
+    # --------------------------------------------------------
+
+    local theme_dir="/usr/share/sddm/themes/ml4w"
+    local sddm_config="/etc/sddm.conf"
+    local temp_dir
+
+    if [[ -d "$theme_dir" ]]; then
+        success "ML4W SDDM theme is already installed."
+        SDDM_THEME_STATUS="installed"
+    else
+        info "ML4W SDDM theme is not installed."
+        info "Downloading the official ML4W SDDM theme..."
+
+        temp_dir=$(mktemp -d -t ml4w-sddm-XXXXXX)
+
+        if git clone --depth 1 \
+            https://github.com/mylinuxforwork/ml4w-sddm \
+            "$temp_dir/ml4w-sddm"; then
+
+            sudo mkdir -p "$theme_dir"
+            sudo cp -rf "$temp_dir/ml4w-sddm/." "$theme_dir/"
+            rm -rf "$temp_dir"
+
+            success "ML4W SDDM theme installed."
+            SDDM_THEME_STATUS="installed"
+        else
+            rm -rf "$temp_dir"
+            warning "Failed to download the ML4W SDDM theme."
+            SDDM_THEME_STATUS="installation failed"
+        fi
+    fi
+
+    # --------------------------------------------------------
+    # Configure the ML4W SDDM theme
+    # --------------------------------------------------------
+
+    if [[ -d "$theme_dir" ]]; then
+
+        info "Checking SDDM configuration..."
+
+        if [[ -f "$sddm_config" ]]; then
+            sudo cp -n "$sddm_config" "${sddm_config}.bak" 2>/dev/null || true
+        else
+            sudo touch "$sddm_config"
+        fi
+
+        # Ensure [Theme] exists and Current=ml4w is configured.
+        if grep -q '^\[Theme\]' "$sddm_config"; then
+            if grep -q '^Current=' "$sddm_config"; then
+                sudo sed -i '/^\[Theme\]$/{n;s/^Current=.*/Current=ml4w/;}' "$sddm_config"
+            else
+                sudo sed -i '/^\[Theme\]$/a Current=ml4w' "$sddm_config"
+            fi
+        else
+            printf '\n[Theme]\nCurrent=ml4w\n' | sudo tee -a "$sddm_config" >/dev/null
+        fi
+
+        # Configure the Qt virtual keyboard required by the ML4W theme.
+        if ! grep -q '^InputMethod=qtvirtualkeyboard' "$sddm_config"; then
+            printf '\n[General]\nInputMethod=qtvirtualkeyboard\n' | sudo tee -a "$sddm_config" >/dev/null
+        fi
+
+        if ! grep -q '^GreeterEnvironment=.*QML2_IMPORT_PATH=/usr/share/sddm/themes/ml4w/components/' "$sddm_config"; then
+            printf 'GreeterEnvironment=QML2_IMPORT_PATH=/usr/share/sddm/themes/ml4w/components/,QT_IM_MODULE=qtvirtualkeyboard\n' |
+                sudo tee -a "$sddm_config" >/dev/null
+        fi
+
+        success "ML4W SDDM theme configured."
+    fi
+
+    if systemctl is-enabled --quiet sddm; then
+        SDDM_STATUS="enabled"
+    else
+        SDDM_STATUS="not enabled"
+    fi
+}
+
+# ============================================================
+# 14. APPLICATION MENU
 # ============================================================
 
 declare -A APPLICATIONS=(
@@ -812,7 +1001,7 @@ select_applications() {
 }
 
 # ============================================================
-# 14. APPLICATION INSTALLATION
+# 15. APPLICATION INSTALLATION
 # ============================================================
 
 install_selected_applications() {
@@ -905,7 +1094,7 @@ install_selected_applications() {
 }
 
 # ============================================================
-# 15. TAILSCALE
+# 16. TAILSCALE
 # ============================================================
 
 configure_tailscale() {
@@ -999,7 +1188,7 @@ configure_tailscale() {
 }
 
 # ============================================================
-# 16. FINAL SUMMARY
+# 17. FINAL SUMMARY
 # ============================================================
 
 show_final_summary() {
@@ -1061,11 +1250,31 @@ show_final_summary() {
         echo -e "  Tailscale:       ${YELLOW}not installed${NC}"
     fi
 
+    if pacman -Q hyprland &>/dev/null; then
+        echo -e "  Hyprland:        ${GREEN}installed${NC}"
+    else
+        echo -e "  Hyprland:        ${RED}not installed${NC}"
+    fi
+
+    if pacman -Q sddm &>/dev/null && systemctl is-enabled --quiet sddm; then
+        echo -e "  SDDM:            ${GREEN}installed and enabled${NC}"
+    elif pacman -Q sddm &>/dev/null; then
+        echo -e "  SDDM:            ${YELLOW}installed, not enabled${NC}"
+    else
+        echo -e "  SDDM:            ${RED}not installed${NC}"
+    fi
+
+    if [[ -d /usr/share/sddm/themes/ml4w ]]; then
+        echo -e "  ML4W SDDM theme: ${GREEN}installed${NC}"
+    else
+        echo -e "  ML4W SDDM theme: ${YELLOW}not installed${NC}"
+    fi
+
     echo
 }
 
 # ============================================================
-# 17. MAIN
+# 18. MAIN
 # ============================================================
 
 main() {
@@ -1149,6 +1358,12 @@ main() {
     # --------------------------------------------------------
 
     install_ml4w
+
+    # --------------------------------------------------------
+    # SDDM / graphical login
+    # --------------------------------------------------------
+
+    setup_sddm
 
     # --------------------------------------------------------
     # Applications
