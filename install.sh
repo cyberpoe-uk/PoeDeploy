@@ -1,3 +1,4 @@
+❯ cat install.sh
 #!/usr/bin/env bash
 
 set -euo pipefail
@@ -149,7 +150,8 @@ install_base_tools() {
         ethtool \
         rsync \
         nfs-utils \
-        whois
+        whois \
+        less
 
     success "Base tools checked."
 }
@@ -274,31 +276,39 @@ detect_bootloader() {
     BOOTLOADER="Unknown"
 
     # --------------------------------------------------------
-    # systemd-boot
+    # Prefer bootctl for systemd-boot detection.
+    # Capture its output explicitly so pagers and non-zero status
+    # messages cannot prevent detection on a fresh installation.
     # --------------------------------------------------------
 
-    if [[ -f /boot/EFI/systemd/systemd-bootx64.efi ]] ||
-       [[ -f /boot/EFI/SYSTEMD/SYSTEMD-BOOTX64.EFI ]]; then
+    if command -v bootctl &>/dev/null; then
+        local bootctl_status
+        bootctl_status=$(SYSTEMD_PAGER=cat bootctl status 2>&1 || true)
 
-        BOOTLOADER="systemd-boot"
+        if grep -qiE 'Product:[[:space:]]*systemd-boot' <<< "$bootctl_status"; then
+            BOOTLOADER="systemd-boot"
+        fi
+    fi
+
+    # --------------------------------------------------------
+    # systemd-boot EFI files fallback
+    # --------------------------------------------------------
+
+    if [[ "$BOOTLOADER" == "Unknown" ]]; then
+        if find /boot/EFI -type f \(             -iname 'systemd-bootx64.efi' -o             -iname 'systemd-bootia32.efi' -o             -iname 'systemd-bootaa64.efi'         \) -print -quit 2>/dev/null | grep -q .; then
+            BOOTLOADER="systemd-boot"
+        fi
+    fi
 
     # --------------------------------------------------------
     # GRUB
     # --------------------------------------------------------
 
-    elif [[ -f /boot/grub/grub.cfg ]] ||
-         [[ -f /etc/default/grub ]]; then
-
-        BOOTLOADER="GRUB"
-
-    # --------------------------------------------------------
-    # Fallback: bootctl
-    # --------------------------------------------------------
-
-    elif bootctl status 2>/dev/null |
-         grep -qi "Product: systemd-boot"; then
-
-        BOOTLOADER="systemd-boot"
+    if [[ "$BOOTLOADER" == "Unknown" ]]; then
+        if [[ -f /boot/grub/grub.cfg ]] ||
+           [[ -f /etc/default/grub ]]; then
+            BOOTLOADER="GRUB"
+        fi
     fi
 
     if [[ "$BOOTLOADER" == "Unknown" ]]; then
@@ -555,7 +565,7 @@ select_plymouth_theme() {
 
     for theme in "${themes[@]}"; do
         echo "  [$i] $theme"
-        ((i++))
+        ((i += 1))
     done
 
     echo
@@ -807,7 +817,7 @@ setup_sddm() {
     done
 
     # --------------------------------------------------------
-    # Enable and start SDDM
+    # Enable SDDM for the next boot — do NOT start it now
     # --------------------------------------------------------
 
     if systemctl is-enabled --quiet sddm; then
