@@ -817,34 +817,20 @@ setup_sddm() {
     done
 
     # --------------------------------------------------------
-    # Enable SDDM for the next boot — do NOT start it now
+    # Enable SDDM for the next boot
     # --------------------------------------------------------
 
     if systemctl is-enabled --quiet sddm; then
         success "SDDM service is already enabled."
     else
-        info "Enabling SDDM service..."
+        info "Enabling SDDM service for the next boot..."
 
         if sudo systemctl enable sddm; then
-            success "SDDM service enabled."
+            success "SDDM service enabled for the next boot."
         else
             warning "Failed to enable SDDM."
             SDDM_STATUS="enable failed"
             return
-        fi
-    fi
-
-    # Start it now where possible. On a running graphical session,
-    # SDDM may not take over immediately; the important part is that
-    # it is enabled for the next boot.
-    if systemctl is-active --quiet sddm; then
-        success "SDDM service is already running."
-    else
-        if sudo systemctl start sddm; then
-            success "SDDM service started."
-        else
-            warning "SDDM could not be started in the current session."
-            warning "It should start automatically after reboot."
         fi
     fi
 
