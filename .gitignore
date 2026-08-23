@@ -1,0 +1,18 @@
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+
+# Editor files
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+
+# Local testing
+test/
+tmp/
+
