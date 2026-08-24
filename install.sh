@@ -771,101 +771,90 @@ configure_bootloader_plymouth() {
 }
 
 install_custom_plymouth_theme() {
-
     echo
 
     info "Checking for your custom Plymouth theme..."
 
-    if ! command -v curl &>/dev/null; then
+    local theme_name="arch-mac-style"
+    local theme_dir="/usr/share/plymouth/themes/$theme_name"
+    local temp_dir
+    local archive
 
-        warning "curl is unavailable; skipping custom Plymouth theme download."
+    # Theme already installed
+    if [[ -d "$theme_dir" ]] &&
+       find "$theme_dir" -maxdepth 1 -type f -name '*.plymouth' -print -quit 2>/dev/null |
+       grep -q .; then
 
-        return
-
+        success "Custom Plymouth theme '$theme_name' is already installed."
+        return 0
     fi
 
-    local temp_dir
+    if ! command -v curl >/dev/null 2>&1; then
+        warning "curl is unavailable; skipping custom Plymouth theme download."
+        return 0
+    fi
+
+    if ! command -v unzip >/dev/null 2>&1; then
+        warning "unzip is unavailable; skipping custom Plymouth theme download."
+        return 0
+    fi
 
     temp_dir=$(mktemp -d -t poestack-plymouth-XXXXXX)
+    archive="$temp_dir/${theme_name}.zip"
 
-    local archive="$temp_dir/theme.tar.gz"
-
-    if ! curl -fL --silent --show-error --output "$archive" "$CUSTOM_PLYMOUTH_THEME_URL"; then
+    if ! curl -fL --silent --show-error \
+        --output "$archive" \
+        "$CUSTOM_PLYMOUTH_THEME_URL"; then
 
         rm -rf "$temp_dir"
 
-        warning "Custom Plymouth theme was not found at:"
-
-        warning "$CUSTOM_PLYMOUTH_THEME_URL"
-
+        warning "Custom Plymouth theme could not be downloaded."
         warning "Built-in Plymouth themes will still be available."
-
-        return
-
+        return 0
     fi
 
-    if ! tar -tzf "$archive" >/dev/null 2>&1; then
-
+    if ! unzip -t "$archive" >/dev/null 2>&1; then
         rm -rf "$temp_dir"
 
-        warning "The downloaded Plymouth archive is invalid."
-
-        return
-
+        warning "The downloaded Plymouth ZIP archive is invalid."
+        warning "Built-in Plymouth themes will still be available."
+        return 0
     fi
 
-    mkdir -p "$temp_dir/extracted"
+    local extracted_dir="$temp_dir/extracted"
 
-    tar -xzf "$archive" -C "$temp_dir/extracted"
+    mkdir -p "$extracted_dir"
+
+    if ! unzip -q "$archive" -d "$extracted_dir"; then
+        rm -rf "$temp_dir"
+
+        warning "Failed to extract the custom Plymouth theme."
+        return 0
+    fi
 
     local plymouth_file
 
-    plymouth_file=$(find "$temp_dir/extracted" -type f -name '*.plymouth' -print -quit)
+    plymouth_file=$(
+        find "$extracted_dir" \
+            -type f \
+            -name '*.plymouth' \
+            -print -quit 2>/dev/null
+    )
 
     if [[ -z "$plymouth_file" ]]; then
-
         rm -rf "$temp_dir"
 
-        warning "No .plymouth theme file was found in the downloaded archive."
-
-        return
-
+        warning "No .plymouth theme file was found in the archive."
+        return 0
     fi
 
-    local theme_dir
+    sudo mkdir -p "$theme_dir"
 
-    theme_dir=$(dirname "$plymouth_file")
-
-    sudo mkdir -p /usr/share/plymouth/themes
-
-    if find "$theme_dir" -maxdepth 1 -type f -name '*.plymouth' -print -quit |
-
-        grep -q .; then
-
-        local theme_name
-
-        theme_name=$(basename "$theme_dir")
-
-        if [[ "$theme_dir" == "$temp_dir/extracted" ]]; then
-
-            theme_name="poestack-custom"
-
-            sudo mkdir -p "/usr/share/plymouth/themes/$theme_name"
-
-            sudo cp -rf "$theme_dir/." "/usr/share/plymouth/themes/$theme_name/"
-
-        else
-
-            sudo cp -rf "$theme_dir" "/usr/share/plymouth/themes/"
-
-        fi
-
-        success "Custom Plymouth theme installed: $theme_name"
-
-    fi
+    sudo cp -rf "$(dirname "$plymouth_file")/." "$theme_dir/"
 
     rm -rf "$temp_dir"
 
+    success "Custom Plymouth theme '$theme_name' installed."
 }
 
 select_plymouth_theme() {
