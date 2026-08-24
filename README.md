@@ -87,7 +87,7 @@ Run directly from GitHub:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/cyberpoe-hub/arch-personal-setup/main/install.sh)
-
+```
 ## ML4W
 
 ML4W is optional and is installed using the official ML4W installer:
