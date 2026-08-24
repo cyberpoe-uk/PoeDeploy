@@ -291,7 +291,8 @@ install_base_tools() {
         nfs-utils \
         cifs-utils \
         smbclient \
-        whois
+        whois \
+        nano
 
     success "Base tools checked."
 
@@ -1802,13 +1803,11 @@ setup_nfs_share() {
     fi
     export_path="$REPLY"
 
-    read -rp "NFS version (press Enter for 4): " nfs_version
-    nfs_version="${nfs_version:-4}"
-
     if ! require_input "Local mount point (for example /mnt/NFS): "; then
         info "NFS setup cancelled."
         NFS_ACTION="cancelled"
         return 0
+
     fi
     mountpoint="$REPLY"
 
@@ -1824,7 +1823,7 @@ setup_nfs_share() {
         return 0
     fi
 
-    fstab_line="${server}:${export_path} ${mountpoint} nfs nfsvers=${nfs_version},_netdev,x-systemd.automount,nofail 0 0"
+    fstab_line="${server}:${export_path} ${mountpoint} nfs defaults,_netdev,x-systemd.automount,nofail 0 0"
 
     if grep -Fq "$mountpoint" /etc/fstab; then
         warning "An /etc/fstab entry already references $mountpoint."
