@@ -85,6 +85,7 @@ Local mount points are created automatically and persistent entries can be added
 ## Usage
 Run directly from GitHub:
 
+```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/cyberpoe-hub/arch-personal-setup/main/install.sh)
 
 ## ML4W
