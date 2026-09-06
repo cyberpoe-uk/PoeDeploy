@@ -20,10 +20,13 @@ PoeDeploy detects the existing system and installs and configures only what is r
 - GPU detection
 - NVIDIA open DKMS driver detection/installation
 - Bootloader detection
+- Unified kernel image (UKI) detection and splash configuration
 - NetworkManager detection and configuration
 - Filesystem detection
 - Plymouth installation and configuration
 - Interactive Plymouth theme selection
+- Plymouth theme discovery from the PoeDeploy repository
+- Initramfs and UKI rebuilding after a theme change
 - Optional custom Plymouth theme from this repository
 - Timeshift installation
 - Optional ML4W installation
