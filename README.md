@@ -1,10 +1,14 @@
-# Arch Linux Setup
+# PoeDeploy
 
-A personal automated post-installation setup script for Arch Linux.
+<p align="center">
+  <img src="assets/PoeDeploy logo.png" alt="PoeDeploy logo" width="240">
+</p>
+
+PoeDeploy is a personal automated post-installation setup script for Arch Linux.
 
 The goal of this project is to make a fresh Arch Linux installation reproducible without creating a complete custom Arch ISO.
 
-The script detects the existing system and installs/configures only what is required.
+PoeDeploy detects the existing system and installs and configures only what is required.
 
 ## Current Features
 
@@ -83,14 +87,18 @@ The installer can optionally configure:
 Local mount points are created automatically and persistent entries can be added to /etc/fstab.
 
 ## Usage
-Run directly from GitHub:
+
+Clone the repository, make PoeDeploy executable, and run it:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/cyberpoe-hub/arch-personal-setup/main/install.sh)
+chmod +x poedeploy.sh
+./poedeploy.sh
 ```
+
 ## ML4W
 
 ML4W is optional and is installed using the official ML4W installer:
 
 ```bash
 bash <(curl -fsSL https://ml4w.com/os/stable)
+```
