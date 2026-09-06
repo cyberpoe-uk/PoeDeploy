@@ -1,7 +1,7 @@
 # PoeDeploy
 
 <p align="center">
-  <img src="assets/poedeploy-logo.png" alt="PoeDeploy logo" width="240">
+  <img src="assets/poedeploy-logo.png" alt="PoeDeploy logo" width="500">
 </p>
 
 PoeDeploy is a personal automated post-installation setup script for Arch Linux.
