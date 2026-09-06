@@ -10,7 +10,7 @@ set -euo pipefail
 
 ML4W_URL="https://ml4w.com/os/stable"
 
-GITHUB_RAW_BASE="https://raw.githubusercontent.com/cyberpoe-hub/arch-personal-setup/main"
+GITHUB_RAW_BASE="https://raw.githubusercontent.com/cyberpoe-uk/PoeDeploy/main"
 
 VERSION_URL="${GITHUB_RAW_BASE}/VERSION"
 

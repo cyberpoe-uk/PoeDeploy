@@ -1,7 +1,7 @@
 # PoeDeploy
 
 <p align="center">
-  <img src="assets/PoeDeploy logo.png" alt="PoeDeploy logo" width="240">
+  <img src="assets/poedeploy-logo.png" alt="PoeDeploy logo" width="240">
 </p>
 
 PoeDeploy is a personal automated post-installation setup script for Arch Linux.
@@ -88,9 +88,11 @@ Local mount points are created automatically and persistent entries can be added
 
 ## Usage
 
-Clone the repository, make PoeDeploy executable, and run it:
+Clone the [PoeDeploy repository](https://github.com/cyberpoe-uk/PoeDeploy), make the script executable, and run it:
 
 ```bash
+git clone https://github.com/cyberpoe-uk/PoeDeploy.git
+cd PoeDeploy
 chmod +x poedeploy.sh
 ./poedeploy.sh
 ```
