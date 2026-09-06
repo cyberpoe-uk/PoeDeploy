@@ -4,7 +4,7 @@ set -euo pipefail
 
 # ============================================================
 
-# Arch Linux Personal Setup Script
+# PoeDeploy - Arch Linux Setup Script
 
 # ============================================================
 
@@ -14,11 +14,9 @@ GITHUB_RAW_BASE="https://raw.githubusercontent.com/cyberpoe-uk/PoeDeploy/main"
 
 VERSION_URL="${GITHUB_RAW_BASE}/VERSION"
 
-# Place your custom Plymouth archive here:
+CUSTOM_PLYMOUTH_THEME_URL="${GITHUB_RAW_BASE}/assets/themes/arch-mac-style.zip"
 
-# assets/plymouth-themes/arch-mac-style.zip
-
-CUSTOM_PLYMOUTH_THEME_URL="${GITHUB_RAW_BASE}/assets/plymouth-themes/arch-mac-style.zip"
+GITHUB_THEMES_API="https://api.github.com/repos/cyberpoe-uk/PoeDeploy/git/trees/main?recursive=1"
 
 # ------------------------------------------------------------
 
@@ -54,8 +52,6 @@ ML4W_ENABLED=false
 
 CONFIGURE_ML4W_SDDM=false
 
-NETWORK_SHARES_ENABLED=false
-
 # ------------------------------------------------------------
 
 # Version
@@ -77,6 +73,10 @@ load_version() {
     elif command -v curl >/dev/null 2>&1; then
 
         SCRIPT_VERSION=$(curl -fsSL "$VERSION_URL" 2>/dev/null | tr -d '[:space:]' || true)
+
+    elif command -v wget >/dev/null 2>&1; then
+
+        SCRIPT_VERSION=$(wget -qO- "$VERSION_URL" 2>/dev/null | tr -d '[:space:]' || true)
 
     fi
 
@@ -136,7 +136,7 @@ show_header() {
 
     echo "========================================"
 
-    echo "       ARCH LINUX SETUP SCRIPT"
+    echo "              POEDEPLOY"
 
     echo "========================================"
 
@@ -194,7 +194,17 @@ check_internet() {
 
     info "Checking internet connectivity..."
 
-    if ! ping -c 1 -W 3 archlinux.org &>/dev/null; then
+    local online=false
+
+    if command -v ping >/dev/null 2>&1 && ping -c 1 -W 3 archlinux.org &>/dev/null; then
+        online=true
+    elif command -v curl >/dev/null 2>&1 && curl -fsSI --max-time 8 https://archlinux.org/ >/dev/null; then
+        online=true
+    elif command -v wget >/dev/null 2>&1 && wget -q --spider --timeout=8 https://archlinux.org/; then
+        online=true
+    fi
+
+    if [[ "$online" != true ]]; then
 
         die "Internet connection is unavailable."
 
@@ -292,7 +302,8 @@ install_base_tools() {
         cifs-utils \
         smbclient \
         whois \
-        nano
+        nano \
+        pciutils
 
     success "Base tools checked."
 
@@ -391,17 +402,13 @@ install_nvidia_driver() {
             nvidia-utils \
             dkms
 
-        if pacman -Q linux &>/dev/null; then
+        local kernel
 
-            sudo pacman -S --needed --noconfirm linux-headers
-
-        fi
-
-        if pacman -Q linux-lts &>/dev/null; then
-
-            sudo pacman -S --needed --noconfirm linux-lts-headers
-
-        fi
+        for kernel in linux linux-lts linux-zen linux-hardened; do
+            if pacman -Q "$kernel" &>/dev/null; then
+                sudo pacman -S --needed --noconfirm "${kernel}-headers"
+            fi
+        done
 
         success "NVIDIA open DKMS driver installed."
 
@@ -436,6 +443,10 @@ install_nvidia_driver() {
 # ============================================================
 
 BOOTLOADER="Unknown"
+
+UKI_ENABLED=false
+
+UKI_SPLASH_PATH=""
 
 detect_bootloader() {
 
@@ -493,6 +504,40 @@ detect_bootloader() {
 
     fi
 
+}
+
+detect_uki() {
+
+    UKI_ENABLED=false
+    UKI_SPLASH_PATH=""
+
+    local preset
+
+    for preset in /etc/mkinitcpio.d/*.preset; do
+        [[ -f "$preset" ]] || continue
+
+        if grep -Eq '^[[:alnum:]_]+_uki=' "$preset"; then
+            UKI_ENABLED=true
+            break
+        fi
+    done
+
+    if [[ "$UKI_ENABLED" != true ]]; then
+        info "Unified kernel images (UKIs): not detected"
+        return 0
+    fi
+
+    if [[ -f /etc/plymouth/uki-splash.bmp ]]; then
+        UKI_SPLASH_PATH="/etc/plymouth/uki-splash.bmp"
+    elif [[ -f /usr/share/systemd/bootctl/splash-arch.bmp ]]; then
+        UKI_SPLASH_PATH="/usr/share/systemd/bootctl/splash-arch.bmp"
+    fi
+
+    success "Unified kernel images (UKIs) detected."
+
+    if [[ -z "$UKI_SPLASH_PATH" ]]; then
+        warning "No UKI-compatible BMP splash image was found."
+    fi
 }
 
 # ============================================================
@@ -771,6 +816,99 @@ configure_bootloader_plymouth() {
 
 }
 
+get_remote_plymouth_themes() {
+
+    curl -fsSL "$GITHUB_THEMES_API" 2>/dev/null |
+        jq -r '.tree[]?.path' 2>/dev/null |
+        awk -F/ '
+            $1 == "assets" && $2 == "themes" && NF == 3 && $3 ~ /\.zip$/ {
+                sub(/\.zip$/, "", $3)
+                print $3
+            }
+        ' |
+        sort -u
+}
+
+install_remote_plymouth_theme() {
+
+    local theme_name="$1"
+    local theme_url="${GITHUB_RAW_BASE}/assets/themes/${theme_name}.zip"
+    local local_archive="${SCRIPT_DIR}/assets/themes/${theme_name}.zip"
+    local theme_dir="/usr/share/plymouth/themes/${theme_name}"
+    local temp_dir archive extracted_dir plymouth_file
+
+    if [[ ! "$theme_name" =~ ^[[:alnum:]_.-]+$ ]]; then
+        warning "Invalid repository theme name: $theme_name"
+        return 1
+    fi
+
+    temp_dir=$(mktemp -d -t poedeploy-theme-XXXXXX)
+    archive="${temp_dir}/${theme_name}.zip"
+    extracted_dir="${temp_dir}/extracted"
+    mkdir -p "$extracted_dir"
+
+    if [[ -f "$local_archive" ]]; then
+        cp "$local_archive" "$archive"
+    elif ! curl -fL --silent --show-error --output "$archive" "$theme_url"; then
+        rm -rf "$temp_dir"
+        return 1
+    fi
+
+    if ! unzip -t "$archive" >/dev/null 2>&1 ||
+       ! unzip -q "$archive" -d "$extracted_dir"; then
+        rm -rf "$temp_dir"
+        return 1
+    fi
+
+    plymouth_file=$(find "$extracted_dir" -type f -name '*.plymouth' -print -quit 2>/dev/null)
+
+    if [[ -z "$plymouth_file" ]]; then
+        rm -rf "$temp_dir"
+        return 1
+    fi
+
+    sudo mkdir -p "$theme_dir"
+    sudo cp -rf "$(dirname "$plymouth_file")/." "$theme_dir/"
+    rm -rf "$temp_dir"
+
+    success "Repository Plymouth theme '$theme_name' installed."
+}
+
+configure_uki_splash() {
+
+    if [[ "$UKI_ENABLED" != true ]]; then
+        return 0
+    fi
+
+    if [[ -z "$UKI_SPLASH_PATH" || ! -f "$UKI_SPLASH_PATH" ]]; then
+        warning "UKI detected, but no compatible BMP splash is available."
+        return 0
+    fi
+
+    local preset
+    local configured=false
+
+    for preset in /etc/mkinitcpio.d/*.preset; do
+        [[ -f "$preset" ]] || continue
+        grep -Eq '^[[:alnum:]_]+_uki=' "$preset" || continue
+
+        sudo cp -n "$preset" "${preset}.poedeploy.bak" 2>/dev/null || true
+
+        if grep -q '^ALL_splash=' "$preset"; then
+            sudo sed -i "s|^ALL_splash=.*|ALL_splash=\"${UKI_SPLASH_PATH}\"|" "$preset"
+        else
+            printf '\nALL_splash="%s"\n' "$UKI_SPLASH_PATH" |
+                sudo tee -a "$preset" >/dev/null
+        fi
+
+        configured=true
+    done
+
+    if [[ "$configured" == true ]]; then
+        success "UKI splash configured: $UKI_SPLASH_PATH"
+    fi
+}
+
 install_custom_plymouth_theme() {
     echo
 
@@ -780,6 +918,7 @@ install_custom_plymouth_theme() {
     local theme_dir="/usr/share/plymouth/themes/$theme_name"
     local temp_dir
     local archive
+    local local_archive="${SCRIPT_DIR}/assets/themes/${theme_name}.zip"
 
     # Theme already installed
     if [[ -d "$theme_dir" ]] &&
@@ -800,10 +939,12 @@ install_custom_plymouth_theme() {
         return 0
     fi
 
-    temp_dir=$(mktemp -d -t poestack-plymouth-XXXXXX)
+    temp_dir=$(mktemp -d -t poedeploy-plymouth-XXXXXX)
     archive="$temp_dir/${theme_name}.zip"
 
-    if ! curl -fL --silent --show-error \
+    if [[ -f "$local_archive" ]]; then
+        cp "$local_archive" "$archive"
+    elif ! curl -fL --silent --show-error \
         --output "$archive" \
         "$CUSTOM_PLYMOUTH_THEME_URL"; then
 
@@ -864,6 +1005,7 @@ select_plymouth_theme() {
     local themes=()
     local remote_themes=()
     local current_theme
+    local remote_theme_output=""
 
     mapfile -t themes < <(
         plymouth-set-default-theme -l 2>/dev/null || true
@@ -872,14 +1014,16 @@ select_plymouth_theme() {
     if remote_theme_output=$(get_remote_plymouth_themes); then
         mapfile -t remote_themes <<< "$remote_theme_output"
 
+        local remote_theme
         for remote_theme in "${remote_themes[@]}"; do
             [[ -n "$remote_theme" ]] || continue
 
-            if ! printf '%s\n' "${themes[@]}" |
-                grep -Fxq "$remote_theme"; then
+            if ! printf '%s\n' "${themes[@]}" | grep -Fxq "$remote_theme"; then
                 themes+=("$remote_theme")
             fi
         done
+    else
+        warning "Repository Plymouth themes could not be retrieved."
     fi
 
     if [[ ${#themes[@]} -eq 0 ]]; then
@@ -902,8 +1046,7 @@ select_plymouth_theme() {
     local i=1
 
     for theme in "${themes[@]}"; do
-        if printf '%s\n' "${remote_themes[@]}" |
-            grep -Fxq "$theme"; then
+        if printf '%s\n' "${remote_themes[@]}" | grep -Fxq "$theme"; then
             echo "  [$i] $theme (repository)"
         else
             echo "  [$i] $theme"
@@ -929,44 +1072,35 @@ select_plymouth_theme() {
 
             info "Applying Plymouth theme: $selected_theme"
 
-            if printf '%s\n' "${remote_themes[@]}" |
-                grep -Fxq "$selected_theme"; then
-
+            if printf '%s\n' "${remote_themes[@]}" | grep -Fxq "$selected_theme" &&
+               ! plymouth-set-default-theme -l 2>/dev/null | grep -Fxq "$selected_theme"; then
                 if ! install_remote_plymouth_theme "$selected_theme"; then
-                    warning "Failed to install '$selected_theme'."
+                    warning "Failed to install repository theme '$selected_theme'."
                     return 0
                 fi
             fi
 
-            # For UKIs, the selected repository theme may have changed
-            # /etc/plymouth/uki-splash.bmp.
-            if [[ "$UKI_ENABLED" == true ]] &&
-                [[ -f "$UKI_SPLASH_PATH" ]]; then
-                configure_uki_splash
+            if ! sudo plymouth-set-default-theme "$selected_theme"; then
+                warning "Failed to set Plymouth theme '$selected_theme'."
+                return 0
             fi
 
-            sudo plymouth-set-default-theme -R "$selected_theme"
+            configure_uki_splash
+
+            info "Rebuilding initramfs and any configured UKIs..."
+
+            if ! sudo mkinitcpio -P; then
+                warning "The theme was selected, but the initramfs rebuild failed."
+                return 0
+            fi
 
             success "Plymouth theme configured."
-
-            if [[ "$UKI_ENABLED" == true ]]; then
-                info "Rebuilding UKI with the selected splash image..."
-
-                if sudo mkinitcpio -P; then
-                    success "UKI rebuilt successfully."
-                else
-                    warning "UKI rebuild failed."
-                    warning "The Plymouth theme itself was configured."
-                fi
-            fi
 
             return
         fi
 
         warning "Invalid selection."
     done
-}
-
 }
 
 setup_plymouth() {
@@ -1122,6 +1256,8 @@ show_summary() {
     echo "GPU model:       $GPU_MODEL"
 
     echo "Bootloader:      $BOOTLOADER"
+
+    echo "UKI:             $([[ "$UKI_ENABLED" == true ]] && echo detected || echo 'not detected')"
 
     echo "Root filesystem: $ROOT_FILESYSTEM"
 
@@ -1296,7 +1432,8 @@ setup_sddm() {
 
     if [[ "$ML4W_ENABLED" == true ]]; then
         local theme_dir="/usr/share/sddm/themes/ml4w"
-        local sddm_config="/etc/sddm.conf"
+        local sddm_config_dir="/etc/sddm.conf.d"
+        local sddm_config="${sddm_config_dir}/poedeploy.conf"
         local temp_dir
 
         if [[ -d "$theme_dir" ]]; then
@@ -1325,31 +1462,23 @@ setup_sddm() {
         if [[ -d "$theme_dir" ]]; then
             info "Checking SDDM configuration..."
 
+            sudo mkdir -p "$sddm_config_dir"
+
             if [[ -f "$sddm_config" ]]; then
                 sudo cp -n "$sddm_config" "${sddm_config}.bak" 2>/dev/null || true
-            else
-                sudo touch "$sddm_config"
             fi
 
-            if grep -q '^\[Theme\]' "$sddm_config"; then
-                if grep -q '^Current=' "$sddm_config"; then
-                    sudo sed -i '/^\[Theme\]$/{n;s/^Current=.*/Current=ml4w/;}' "$sddm_config"
-                else
-                    sudo sed -i '/^\[Theme\]$/a Current=ml4w' "$sddm_config"
-                fi
-            else
-                printf '\n[Theme]\nCurrent=ml4w\n' |
-                    sudo tee -a "$sddm_config" >/dev/null
-            fi
-
-            if ! grep -q '^InputMethod=qtvirtualkeyboard' "$sddm_config"; then
-                printf '\n[General]\nInputMethod=qtvirtualkeyboard\n' |
-                    sudo tee -a "$sddm_config" >/dev/null
-            fi
-
-            if ! grep -q '^GreeterEnvironment=.*QML2_IMPORT_PATH=/usr/share/sddm/themes/ml4w/components/' "$sddm_config"; then
-                printf 'GreeterEnvironment=QML2_IMPORT_PATH=/usr/share/sddm/themes/ml4w/components/,QT_IM_MODULE=qtvirtualkeyboard\n' |
-                    sudo tee -a "$sddm_config" >/dev/null
+            if ! printf '%s\n' \
+                '[Theme]' \
+                'Current=ml4w' \
+                '' \
+                '[General]' \
+                'InputMethod=qtvirtualkeyboard' \
+                'GreeterEnvironment=QML2_IMPORT_PATH=/usr/share/sddm/themes/ml4w/components/,QT_IM_MODULE=qtvirtualkeyboard' |
+                sudo tee "$sddm_config" >/dev/null; then
+                warning "Failed to write the PoeDeploy SDDM configuration."
+                SDDM_ACTION="configuration failed"
+                return 0
             fi
 
             success "ML4W SDDM theme configured."
@@ -1615,8 +1744,39 @@ validate_mountpoint() {
 
     fi
 
+    if [[ "$mountpoint" =~ [[:space:]#] ]]; then
+
+        warning "Mount points containing whitespace or # are not supported."
+
+        return 1
+
+    fi
+
     return 0
 
+}
+
+validate_fstab_value() {
+
+    local label="$1"
+    local value="$2"
+
+    if [[ "$value" =~ [[:space:]#] ]]; then
+        warning "$label cannot contain whitespace or #."
+        return 1
+    fi
+
+    return 0
+}
+
+fstab_has_mountpoint() {
+
+    local mountpoint="$1"
+
+    awk -v target="$mountpoint" '
+        $0 !~ /^[[:space:]]*#/ && NF >= 2 && $2 == target { found = 1 }
+        END { exit !found }
+    ' /etc/fstab
 }
 
 
@@ -1697,6 +1857,12 @@ setup_smb_share() {
     fi
     share="$REPLY"
 
+    if ! validate_fstab_value "SMB server" "$server" ||
+       ! validate_fstab_value "SMB share name" "$share"; then
+        SMB_ACTION="failed"
+        return 0
+    fi
+
     if ! require_input "SMB username: "; then
         info "SMB setup cancelled."
         SMB_ACTION="cancelled"
@@ -1771,7 +1937,7 @@ setup_smb_share() {
 
     fstab_line="//${server}/${share} ${mountpoint} cifs credentials=${credentials_file},vers=3.1.1,_netdev,x-systemd.automount,nofail,uid=$(id -u),gid=$(id -g),file_mode=0664,dir_mode=0775 0 0"
 
-    if grep -Fq "$mountpoint" /etc/fstab; then
+    if fstab_has_mountpoint "$mountpoint"; then
         warning "An /etc/fstab entry already references $mountpoint."
         warning "Skipping duplicate SMB entry."
     else
@@ -1814,7 +1980,7 @@ setup_nfs_share() {
 
     NFS_ACTION="selected"
 
-    local server export_path mountpoint nfs_version fstab_line
+    local server export_path mountpoint fstab_line
 
     if ! require_input "NFS server IP/hostname: "; then
         info "NFS setup cancelled."
@@ -1829,6 +1995,12 @@ setup_nfs_share() {
         return 0
     fi
     export_path="$REPLY"
+
+    if ! validate_fstab_value "NFS server" "$server" ||
+       ! validate_fstab_value "NFS export path" "$export_path"; then
+        NFS_ACTION="failed"
+        return 0
+    fi
 
     if ! require_input "Local mount point (for example /mnt/NFS): "; then
         info "NFS setup cancelled."
@@ -1852,7 +2024,7 @@ setup_nfs_share() {
 
     fstab_line="${server}:${export_path} ${mountpoint} nfs defaults,_netdev,x-systemd.automount,nofail 0 0"
 
-    if grep -Fq "$mountpoint" /etc/fstab; then
+    if fstab_has_mountpoint "$mountpoint"; then
         warning "An /etc/fstab entry already references $mountpoint."
         warning "Skipping duplicate NFS entry."
     else
@@ -1912,19 +2084,16 @@ configure_network_shares() {
                 return 0
                 ;;
             1)
-                NETWORK_SHARES_ENABLED=true
                 setup_smb_share
                 NETWORK_SHARES_ACTION="completed"
                 return 0
                 ;;
             2)
-                NETWORK_SHARES_ENABLED=true
                 setup_nfs_share
                 NETWORK_SHARES_ACTION="completed"
                 return 0
                 ;;
             3)
-                NETWORK_SHARES_ENABLED=true
                 setup_smb_share
                 setup_nfs_share
                 NETWORK_SHARES_ACTION="completed"
@@ -2077,6 +2246,7 @@ show_final_summary() {
     echo "  Version:         $SCRIPT_VERSION"
     echo "  GPU:             $GPU_VENDOR"
     echo "  Bootloader:      $BOOTLOADER"
+    echo "  UKI:             $([[ "$UKI_ENABLED" == true ]] && echo detected || echo 'not detected')"
     echo "  Root filesystem: $ROOT_FILESYSTEM"
     echo
 
@@ -2154,6 +2324,7 @@ main() {
     # System
 
     detect_bootloader
+    detect_uki
     check_networkmanager
     detect_filesystem
     check_graphical_environment
