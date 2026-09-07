@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -Eeuo pipefail
 
 # ============================================================
 
@@ -14,9 +14,11 @@ GITHUB_RAW_BASE="https://raw.githubusercontent.com/cyberpoe-uk/PoeDeploy/main"
 
 VERSION_URL="${GITHUB_RAW_BASE}/VERSION"
 
-CUSTOM_PLYMOUTH_THEME_URL="${GITHUB_RAW_BASE}/assets/themes/arch-mac-style.zip"
+POEDEPLOY_PLYMOUTH_THEME_URL="${GITHUB_RAW_BASE}/themes/poedeploy/plymouth/poedeploy.zip"
 
 GITHUB_THEMES_API="https://api.github.com/repos/cyberpoe-uk/PoeDeploy/git/trees/main?recursive=1"
+
+UKI_BLACK_SPLASH_URL="${GITHUB_RAW_BASE}/assets/uki/poedeploy-black.bmp"
 
 # ------------------------------------------------------------
 
@@ -51,6 +53,12 @@ SELECTED_APPS=()
 ML4W_ENABLED=false
 
 CONFIGURE_ML4W_SDDM=false
+
+DEFAULT_BROWSER_ACTION="not selected"
+
+SECURE_BOOT_ACTION="not selected"
+
+UKI_ACTION="not selected"
 
 # ------------------------------------------------------------
 
@@ -122,6 +130,17 @@ die() {
 
 }
 
+unexpected_error() {
+
+    local exit_code="$1"
+    local line_number="$2"
+
+    error "Unexpected failure near line $line_number (exit code $exit_code)."
+    error "PoeDeploy stopped before continuing with dependent steps."
+}
+
+trap 'unexpected_error "$?" "$LINENO"' ERR
+
 # ============================================================
 
 # 0. SAFETY / VERSION
@@ -156,7 +175,7 @@ confirm_start() {
 
     echo
 
-    read -rp "Continue with Arch Linux setup? [Y/n]: " answer
+    read -rp "Continue with PoeDeploy? [Y/n]: " answer
 
     if [[ -z "$answer" || "$answer" =~ ^[Yy]$ ]]; then
         :
@@ -168,6 +187,17 @@ confirm_start() {
 
     fi
 
+}
+
+check_not_root() {
+
+    if [[ "$EUID" -eq 0 ]]; then
+        die "Run PoeDeploy as a regular user. It will request sudo when required."
+    fi
+
+    if ! command -v sudo >/dev/null 2>&1; then
+        die "sudo is required to run PoeDeploy."
+    fi
 }
 
 # ============================================================
@@ -303,7 +333,8 @@ install_base_tools() {
         smbclient \
         whois \
         nano \
-        pciutils
+        pciutils \
+        xdg-utils
 
     success "Base tools checked."
 
@@ -446,7 +477,15 @@ BOOTLOADER="Unknown"
 
 UKI_ENABLED=false
 
+UKI_BOOTED=false
+
+UKI_STATUS="not configured"
+
+UKI_BOOT_ROOT=""
+
 UKI_SPLASH_PATH=""
+
+UKI_CMDLINE_WRITE_ATTEMPTED=false
 
 detect_bootloader() {
 
@@ -506,20 +545,78 @@ detect_bootloader() {
 
 }
 
+install_uki_black_splash() {
+
+    local destination_dir="/usr/share/poedeploy/uki"
+    local destination="${destination_dir}/poedeploy-black.bmp"
+    local local_splash="${SCRIPT_DIR}/assets/uki/poedeploy-black.bmp"
+    local temp_dir downloaded_splash
+
+    if [[ -f "$destination" ]]; then
+        UKI_SPLASH_PATH="$destination"
+        return 0
+    fi
+
+    temp_dir=$(mktemp -d -t poedeploy-uki-XXXXXX)
+    downloaded_splash="${temp_dir}/poedeploy-black.bmp"
+
+    if [[ -f "$local_splash" ]]; then
+        cp "$local_splash" "$downloaded_splash"
+    elif ! curl -fL --silent --show-error \
+        --output "$downloaded_splash" \
+        "$UKI_BLACK_SPLASH_URL"; then
+        rm -rf "$temp_dir"
+        warning "The plain black UKI splash could not be obtained."
+        return 1
+    fi
+
+    if [[ "$(head -c 2 "$downloaded_splash" 2>/dev/null)" != "BM" ]]; then
+        rm -rf "$temp_dir"
+        warning "The UKI splash asset is not a valid BMP file."
+        return 1
+    fi
+
+    if ! sudo install -Dm644 "$downloaded_splash" "$destination"; then
+        rm -rf "$temp_dir"
+        warning "The plain black UKI splash could not be installed."
+        return 1
+    fi
+
+    rm -rf "$temp_dir"
+    UKI_SPLASH_PATH="$destination"
+
+    success "Plain black UKI splash installed."
+}
+
 detect_uki() {
 
     UKI_ENABLED=false
+    UKI_BOOTED=false
+    UKI_STATUS="not configured"
     UKI_SPLASH_PATH=""
 
-    local preset
+    local preset line value
 
     for preset in /etc/mkinitcpio.d/*.preset; do
         [[ -f "$preset" ]] || continue
 
-        if grep -Eq '^[[:alnum:]_]+_uki=' "$preset"; then
-            UKI_ENABLED=true
-            break
-        fi
+        while IFS= read -r line; do
+            [[ "$line" =~ ^[[:space:]]*[[:alnum:]_]+_uki[[:space:]]*= ]] || continue
+
+            value="${line#*=}"
+            value="${value%%#*}"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            value="${value#\"}"
+            value="${value%\"}"
+            value="${value#\'}"
+            value="${value%\'}"
+
+            if [[ "$value" == /* ]]; then
+                UKI_ENABLED=true
+                break 2
+            fi
+        done < "$preset"
     done
 
     if [[ "$UKI_ENABLED" != true ]]; then
@@ -527,17 +624,444 @@ detect_uki() {
         return 0
     fi
 
-    if [[ -f /etc/plymouth/uki-splash.bmp ]]; then
-        UKI_SPLASH_PATH="/etc/plymouth/uki-splash.bmp"
-    elif [[ -f /usr/share/systemd/bootctl/splash-arch.bmp ]]; then
-        UKI_SPLASH_PATH="/usr/share/systemd/bootctl/splash-arch.bmp"
+    if command -v bootctl >/dev/null 2>&1; then
+        local stub_path
+
+        stub_path=$(bootctl --print-stub-path 2>/dev/null || true)
+
+        if [[ -n "$stub_path" && "$stub_path" == /* ]]; then
+            UKI_BOOTED=true
+        fi
     fi
 
-    success "Unified kernel images (UKIs) detected."
-
-    if [[ -z "$UKI_SPLASH_PATH" ]]; then
-        warning "No UKI-compatible BMP splash image was found."
+    if [[ "$UKI_BOOTED" != true ]] &&
+       compgen -G '/sys/firmware/efi/efivars/StubInfo-*' >/dev/null; then
+        UKI_BOOTED=true
     fi
+
+    if [[ "$UKI_BOOTED" == true ]]; then
+        UKI_STATUS="configured and current boot verified"
+        success "Unified kernel image is configured and in use for the current boot."
+    else
+        UKI_STATUS="configured; reboot test pending"
+        success "Unified kernel image configuration detected."
+        info "The current boot has not been verified as a UKI boot."
+    fi
+
+    if ! install_uki_black_splash; then
+        warning "UKI generation will continue without changing its splash."
+    fi
+}
+
+get_uki_boot_root() {
+    UKI_BOOT_ROOT=""
+
+    if command -v bootctl >/dev/null 2>&1; then
+        UKI_BOOT_ROOT=$(bootctl -x 2>/dev/null || true)
+
+        if [[ -z "$UKI_BOOT_ROOT" ]]; then
+            UKI_BOOT_ROOT=$(bootctl -p 2>/dev/null || true)
+        fi
+    fi
+
+    [[ "$UKI_BOOT_ROOT" == /* ]] || return 1
+    [[ -d "$UKI_BOOT_ROOT" ]] || return 1
+}
+
+get_mkinitcpio_preset_names() {
+    local preset="$1"
+    local declaration name
+    local -a names=()
+
+    declaration=$(sed -nE \
+        's/^[[:space:]]*PRESETS[[:space:]]*=[[:space:]]*\((.*)\)[[:space:]]*$/\1/p' \
+        "$preset" | head -n 1)
+
+    declaration="${declaration//\'/}"
+    declaration="${declaration//\"/}"
+    read -r -a names <<< "$declaration"
+
+    for name in "${names[@]}"; do
+        if [[ "$name" =~ ^[[:alpha:]_][[:alnum:]_]*$ ]]; then
+            printf '%s\n' "$name"
+        fi
+    done
+}
+
+prepare_uki_kernel_cmdline() {
+    UKI_CMDLINE_WRITE_ATTEMPTED=false
+
+    local source_file=""
+    local source_cmdline=""
+    local normalized_source candidate argument
+    local -a arguments=()
+    local -a filtered_arguments=()
+
+    if [[ -s /etc/kernel/cmdline ]]; then
+        source_file="/etc/kernel/cmdline"
+    elif [[ -s /usr/lib/kernel/cmdline ]]; then
+        source_file="/usr/lib/kernel/cmdline"
+    elif [[ -r /proc/cmdline ]]; then
+        source_file="/proc/cmdline"
+    else
+        warning "No safe source for the UKI kernel command line was found."
+        return 1
+    fi
+
+    source_cmdline=$(<"$source_file")
+    read -r -a arguments <<< "$source_cmdline"
+    normalized_source="${arguments[*]}"
+
+    for argument in "${arguments[@]}"; do
+        case "$argument" in
+            BOOT_IMAGE=*|initrd=*)
+                ;;
+            *)
+                filtered_arguments+=("$argument")
+                ;;
+        esac
+    done
+
+    for argument in quiet splash bgrt_disable; do
+        if ! printf '%s\n' "${filtered_arguments[@]}" | grep -Fxq "$argument"; then
+            filtered_arguments+=("$argument")
+        fi
+    done
+
+    candidate="${filtered_arguments[*]}"
+
+    if [[ -z "$candidate" ]]; then
+        warning "The generated UKI kernel command line is empty."
+        return 1
+    fi
+
+    if [[ "$source_file" == "/etc/kernel/cmdline" &&
+          "$candidate" == "$normalized_source" ]]; then
+        success "Keeping the existing persistent kernel command line."
+        return 0
+    fi
+
+    echo
+    info "The following persistent UKI kernel command line was derived from $source_file:"
+    echo
+    printf '  %s\n' "$candidate"
+    echo
+
+    local confirmation
+    read -rp "Write this to /etc/kernel/cmdline? [y/N]: " confirmation
+
+    if [[ ! "$confirmation" =~ ^[Yy]$ ]]; then
+        info "UKI setup cancelled before changing the kernel command line."
+        return 1
+    fi
+
+    if [[ -e /etc/kernel/cmdline ]]; then
+        sudo cp -n /etc/kernel/cmdline /etc/kernel/cmdline.poedeploy.bak 2>/dev/null || true
+    fi
+
+    UKI_CMDLINE_WRITE_ATTEMPTED=true
+
+    if ! printf '%s\n' "$candidate" | sudo tee /etc/kernel/cmdline >/dev/null ||
+       ! sudo chmod 644 /etc/kernel/cmdline; then
+        warning "The persistent kernel command line could not be written."
+        return 1
+    fi
+
+    success "Persistent UKI kernel command line configured."
+}
+
+restore_failed_uki_setup() {
+    local backup_dir="$1"
+    local cmdline_existed="$2"
+    shift 2
+
+    local preset backup
+
+    for preset in "$@"; do
+        backup="${backup_dir}/$(basename "$preset")"
+
+        if [[ -f "$backup" ]]; then
+            if ! sudo cp "$backup" "$preset"; then
+                warning "Could not restore $preset from the temporary backup."
+            fi
+        fi
+    done
+
+    if [[ "$cmdline_existed" == true ]]; then
+        if ! sudo cp "${backup_dir}/kernel-cmdline" /etc/kernel/cmdline; then
+            warning "Could not restore /etc/kernel/cmdline from the temporary backup."
+        fi
+    else
+        if ! sudo rm -f /etc/kernel/cmdline; then
+            warning "Could not remove the kernel command line created by the failed setup."
+        fi
+    fi
+
+    warning "The mkinitcpio presets and kernel command line were restored."
+}
+
+remove_failed_uki_files() {
+    local uki_path
+
+    for uki_path in "$@"; do
+        [[ "$uki_path" == */EFI/Linux/poedeploy-*.efi ]] || continue
+
+        if [[ -e "$uki_path" ]] && ! sudo rm -f "$uki_path"; then
+            warning "Could not remove the incomplete UKI: $uki_path"
+        fi
+    done
+}
+
+setup_uki() {
+    echo
+    echo "========================================"
+    echo "          OPTIONAL UKI SETUP"
+    echo "========================================"
+    echo
+
+    if [[ "$UKI_ENABLED" == true ]]; then
+        if [[ "$UKI_BOOTED" == true ]]; then
+            success "UKI setup is already configured and verified for the current boot."
+            UKI_ACTION="already configured and verified"
+        else
+            info "UKI setup already exists, but this boot has not verified it yet."
+            info "Select the UKI entry from the systemd-boot menu on the next reboot."
+            UKI_ACTION="configured; reboot test pending"
+        fi
+
+        return 0
+    fi
+
+    local answer
+    read -rp "Create UKIs alongside the existing boot images? [y/N]: " answer
+
+    if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+        info "UKI setup skipped."
+        UKI_ACTION="skipped"
+        return 0
+    fi
+
+    if [[ ! -d /sys/firmware/efi ]]; then
+        warning "The system was not booted in UEFI mode; UKI setup is unavailable."
+        UKI_ACTION="not available (non-UEFI boot)"
+        return 0
+    fi
+
+    if [[ "$BOOTLOADER" != "systemd-boot" ]]; then
+        warning "Automated UKI setup currently supports systemd-boot only."
+        UKI_ACTION="not available for $BOOTLOADER"
+        return 0
+    fi
+
+    if ! get_uki_boot_root; then
+        warning "The systemd-boot boot partition could not be located safely."
+        UKI_ACTION="boot partition not found"
+        return 0
+    fi
+
+    if ! sudo test -w "$UKI_BOOT_ROOT"; then
+        warning "The boot partition is not writable: $UKI_BOOT_ROOT"
+        UKI_ACTION="boot partition not writable"
+        return 0
+    fi
+
+    local -a preset_files=(/etc/mkinitcpio.d/*.preset)
+
+    if [[ ! -e "${preset_files[0]}" ]]; then
+        warning "No mkinitcpio preset files were found."
+        UKI_ACTION="no mkinitcpio presets"
+        return 0
+    fi
+
+    info "Boot partition: $UKI_BOOT_ROOT"
+    info "Traditional initramfs images and loader entries will be preserved."
+
+    if ! install_uki_black_splash; then
+        warning "UKI setup stopped because the persistent splash could not be installed."
+        UKI_ACTION="splash installation failed"
+        return 0
+    fi
+
+    local backup_dir
+    local cmdline_existed=false
+    local cmdline_backup=""
+    local preset kernel_name selected_preset name uki_path
+    local configured_count=0
+    local -a preset_names=()
+    local -a modified_presets=()
+    local -a created_uki_paths=()
+
+    backup_dir=$(mktemp -d -t poedeploy-uki-config-XXXXXX)
+
+    if [[ -e /etc/kernel/cmdline ]]; then
+        cmdline_existed=true
+        cmdline_backup="${backup_dir}/kernel-cmdline"
+
+        if ! sudo cp /etc/kernel/cmdline "$cmdline_backup" ||
+           ! sudo chown "$(id -u):$(id -g)" "$cmdline_backup"; then
+            warning "The existing kernel command line could not be backed up."
+            rm -rf "$backup_dir"
+            UKI_ACTION="backup failed"
+            return 0
+        fi
+    fi
+
+    if ! prepare_uki_kernel_cmdline; then
+        if [[ "$UKI_CMDLINE_WRITE_ATTEMPTED" == true ]]; then
+            restore_failed_uki_setup "$backup_dir" "$cmdline_existed"
+        fi
+
+        rm -rf "$backup_dir"
+        UKI_ACTION="cancelled before configuration"
+        return 0
+    fi
+
+    if ! sudo mkdir -p "${UKI_BOOT_ROOT}/EFI/Linux"; then
+        restore_failed_uki_setup "$backup_dir" "$cmdline_existed"
+        rm -rf "$backup_dir"
+        UKI_ACTION="could not create EFI/Linux"
+        return 0
+    fi
+
+    for preset in "${preset_files[@]}"; do
+        [[ -f "$preset" ]] || continue
+
+        mapfile -t preset_names < <(get_mkinitcpio_preset_names "$preset")
+        selected_preset=""
+
+        for name in "${preset_names[@]}"; do
+            if [[ "$name" == "default" ]]; then
+                selected_preset="$name"
+                break
+            fi
+
+            if [[ -z "$selected_preset" && "$name" != "fallback" ]]; then
+                selected_preset="$name"
+            fi
+        done
+
+        if [[ -z "$selected_preset" ]]; then
+            warning "No normal build preset was found in $preset; skipping it."
+            continue
+        fi
+
+        if grep -Eq "^[[:space:]]*${selected_preset}_uki[[:space:]]*=" "$preset"; then
+            info "A UKI path already exists for $(basename "$preset"); preserving it."
+            continue
+        fi
+
+        kernel_name="$(basename "$preset" .preset)"
+        kernel_name="${kernel_name//[^[:alnum:]._-]/-}"
+        uki_path="${UKI_BOOT_ROOT}/EFI/Linux/poedeploy-${kernel_name}.efi"
+
+        if [[ -e "$uki_path" ]]; then
+            warning "A file already exists at the planned UKI path; preserving it: $uki_path"
+            continue
+        fi
+
+        if ! sudo cp "$preset" "${backup_dir}/$(basename "$preset")" ||
+           ! sudo chown "$(id -u):$(id -g)" "${backup_dir}/$(basename "$preset")" ||
+           ! sudo cp -n "$preset" "${preset}.poedeploy.bak"; then
+            warning "Could not safely back up $preset. Restoring earlier changes..."
+            restore_failed_uki_setup "$backup_dir" "$cmdline_existed" "${modified_presets[@]}"
+            rm -rf "$backup_dir"
+            UKI_ACTION="preset backup failed"
+            return 0
+        fi
+
+        modified_presets+=("$preset")
+
+        if ! {
+            printf '\n# PoeDeploy UKI configuration\n'
+            printf '%s_uki="%s"\n' "$selected_preset" "$uki_path"
+        } | sudo tee -a "$preset" >/dev/null; then
+            warning "Could not update $preset. Restoring the previous configuration..."
+            restore_failed_uki_setup "$backup_dir" "$cmdline_existed" "${modified_presets[@]}"
+            rm -rf "$backup_dir"
+            UKI_ACTION="preset update failed"
+            return 0
+        fi
+
+        created_uki_paths+=("$uki_path")
+        ((configured_count += 1))
+    done
+
+    if (( configured_count == 0 )); then
+        restore_failed_uki_setup "$backup_dir" "$cmdline_existed" "${modified_presets[@]}"
+        rm -rf "$backup_dir"
+        warning "No mkinitcpio preset could be configured for UKI generation."
+        UKI_ACTION="no compatible presets"
+        return 0
+    fi
+
+    UKI_ENABLED=true
+
+    if ! configure_uki_splash; then
+        warning "The UKI splash configuration failed. Restoring the previous configuration..."
+        restore_failed_uki_setup "$backup_dir" "$cmdline_existed" "${modified_presets[@]}"
+        rm -rf "$backup_dir"
+        detect_uki
+        UKI_ACTION="splash configuration failed; configuration restored"
+        return 0
+    fi
+
+    info "Building the new UKIs while keeping the existing boot images..."
+
+    if ! sudo mkinitcpio -P; then
+        warning "UKI generation failed. Restoring the previous configuration..."
+        remove_failed_uki_files "${created_uki_paths[@]}"
+        restore_failed_uki_setup "$backup_dir" "$cmdline_existed" "${modified_presets[@]}"
+        sudo mkinitcpio -P || warning "The recovery initramfs rebuild also reported a failure."
+        rm -rf "$backup_dir"
+        detect_uki
+        UKI_ACTION="build failed; configuration restored"
+        return 0
+    fi
+
+    local verification_failed=false
+
+    for uki_path in "${created_uki_paths[@]}"; do
+        if [[ ! -s "$uki_path" ]] ||
+           [[ "$(sudo head -c 2 "$uki_path" 2>/dev/null)" != "MZ" ]]; then
+            warning "Generated UKI could not be verified: $uki_path"
+            verification_failed=true
+        else
+            success "Generated UKI verified: $uki_path"
+        fi
+    done
+
+    if [[ "$verification_failed" == true ]]; then
+        warning "UKI verification failed. Restoring the previous configuration..."
+        remove_failed_uki_files "${created_uki_paths[@]}"
+        restore_failed_uki_setup "$backup_dir" "$cmdline_existed" "${modified_presets[@]}"
+        sudo mkinitcpio -P || warning "The recovery initramfs rebuild also reported a failure."
+        rm -rf "$backup_dir"
+        detect_uki
+        UKI_ACTION="verification failed; configuration restored"
+        return 0
+    fi
+
+    if sudo install -d -m 755 /var/lib/poedeploy && {
+        printf 'created_at=%s\n' "$(date --iso-8601=seconds)"
+        printf 'boot_root=%s\n' "$UKI_BOOT_ROOT"
+
+        for uki_path in "${created_uki_paths[@]}"; do
+            printf 'uki=%s\n' "$uki_path"
+        done
+    } | sudo tee /var/lib/poedeploy/uki-pending >/dev/null; then
+        success "Recorded the pending UKI reboot test."
+    else
+        warning "The UKIs were created, but the reboot-test marker could not be written."
+    fi
+
+    rm -rf "$backup_dir"
+    detect_uki
+    UKI_ACTION="created; reboot test pending"
+
+    echo
+    success "UKI setup completed without removing the traditional boot images."
+    warning "Reboot and select the new UKI entry from the systemd-boot menu."
+    warning "Secure Boot will remain unavailable until PoeDeploy verifies that UKI boot."
 }
 
 # ============================================================
@@ -818,22 +1342,35 @@ configure_bootloader_plymouth() {
 
 get_remote_plymouth_themes() {
 
-    curl -fsSL "$GITHUB_THEMES_API" 2>/dev/null |
-        jq -r '.tree[]?.path' 2>/dev/null |
-        awk -F/ '
-            $1 == "assets" && $2 == "themes" && NF == 3 && $3 ~ /\.zip$/ {
-                sub(/\.zip$/, "", $3)
-                print $3
-            }
-        ' |
-        sort -u
+    {
+        local archive theme_name
+
+        while IFS= read -r archive; do
+            theme_name=$(basename "$(dirname "$(dirname "$archive")")")
+
+            if [[ "$(basename "$archive")" == "${theme_name}.zip" ]]; then
+                printf '%s\n' "$theme_name"
+            fi
+        done < <(
+            find "${SCRIPT_DIR}/themes" -mindepth 3 -maxdepth 3 \
+                -type f -path '*/plymouth/*.zip' -print 2>/dev/null || true
+        )
+
+        curl -fsSL "$GITHUB_THEMES_API" 2>/dev/null |
+            jq -r '.tree[]?.path' 2>/dev/null |
+            awk -F/ '
+                $1 == "themes" && $3 == "plymouth" && $4 == $2 ".zip" {
+                    print $2
+                }
+            ' || true
+    } | sort -u
 }
 
 install_remote_plymouth_theme() {
 
     local theme_name="$1"
-    local theme_url="${GITHUB_RAW_BASE}/assets/themes/${theme_name}.zip"
-    local local_archive="${SCRIPT_DIR}/assets/themes/${theme_name}.zip"
+    local theme_url="${GITHUB_RAW_BASE}/themes/${theme_name}/plymouth/${theme_name}.zip"
+    local local_archive="${SCRIPT_DIR}/themes/${theme_name}/plymouth/${theme_name}.zip"
     local theme_dir="/usr/share/plymouth/themes/${theme_name}"
     local temp_dir archive extracted_dir plymouth_file
 
@@ -890,15 +1427,33 @@ configure_uki_splash() {
 
     for preset in /etc/mkinitcpio.d/*.preset; do
         [[ -f "$preset" ]] || continue
-        grep -Eq '^[[:alnum:]_]+_uki=' "$preset" || continue
+        grep -Eq '^[[:space:]]*[[:alnum:]_]+_uki[[:space:]]*=' "$preset" || continue
 
-        sudo cp -n "$preset" "${preset}.poedeploy.bak" 2>/dev/null || true
+        if ! sudo cp -n "$preset" "${preset}.poedeploy.bak"; then
+            warning "Could not back up $preset before configuring the UKI splash."
+            return 1
+        fi
+
+        if ! sudo sed -i -E \
+            "s|^([[:alnum:]_]+_splash)=.*|\\1=\"${UKI_SPLASH_PATH}\"|" \
+            "$preset"; then
+            warning "Could not update UKI splash settings in $preset."
+            return 1
+        fi
 
         if grep -q '^ALL_splash=' "$preset"; then
-            sudo sed -i "s|^ALL_splash=.*|ALL_splash=\"${UKI_SPLASH_PATH}\"|" "$preset"
+            if ! sudo sed -i \
+                "s|^ALL_splash=.*|ALL_splash=\"${UKI_SPLASH_PATH}\"|" \
+                "$preset"; then
+                warning "Could not update ALL_splash in $preset."
+                return 1
+            fi
         else
-            printf '\nALL_splash="%s"\n' "$UKI_SPLASH_PATH" |
-                sudo tee -a "$preset" >/dev/null
+            if ! printf '\nALL_splash="%s"\n' "$UKI_SPLASH_PATH" |
+                sudo tee -a "$preset" >/dev/null; then
+                warning "Could not add ALL_splash to $preset."
+                return 1
+            fi
         fi
 
         configured=true
@@ -909,33 +1464,36 @@ configure_uki_splash() {
     fi
 }
 
-install_custom_plymouth_theme() {
+install_poedeploy_plymouth_theme() {
     echo
 
-    info "Checking for your custom Plymouth theme..."
+    info "Checking for the PoeDeploy Plymouth theme..."
 
-    local theme_name="arch-mac-style"
+    local theme_name="poedeploy"
     local theme_dir="/usr/share/plymouth/themes/$theme_name"
     local temp_dir
     local archive
-    local local_archive="${SCRIPT_DIR}/assets/themes/${theme_name}.zip"
+    local local_archive="${SCRIPT_DIR}/themes/${theme_name}/plymouth/${theme_name}.zip"
 
-    # Theme already installed
-    if [[ -d "$theme_dir" ]] &&
-       find "$theme_dir" -maxdepth 1 -type f -name '*.plymouth' -print -quit 2>/dev/null |
-       grep -q .; then
-
-        success "Custom Plymouth theme '$theme_name' is already installed."
+    if [[ -f "${theme_dir}/${theme_name}.plymouth" ]] &&
+       plymouth-set-default-theme -l 2>/dev/null | grep -Fxq "$theme_name"; then
+        success "PoeDeploy is already available in the Plymouth theme list."
+        info "You can keep it or activate it in the upcoming theme selector."
         return 0
     fi
 
+    if [[ -d "$theme_dir" ]]; then
+        warning "An incomplete or unrecognised PoeDeploy theme directory was found."
+        info "Reinstalling its files from the repository archive..."
+    fi
+
     if ! command -v curl >/dev/null 2>&1; then
-        warning "curl is unavailable; skipping custom Plymouth theme download."
+        warning "curl is unavailable; skipping the PoeDeploy Plymouth theme download."
         return 0
     fi
 
     if ! command -v unzip >/dev/null 2>&1; then
-        warning "unzip is unavailable; skipping custom Plymouth theme download."
+        warning "unzip is unavailable; skipping the PoeDeploy Plymouth theme download."
         return 0
     fi
 
@@ -946,11 +1504,11 @@ install_custom_plymouth_theme() {
         cp "$local_archive" "$archive"
     elif ! curl -fL --silent --show-error \
         --output "$archive" \
-        "$CUSTOM_PLYMOUTH_THEME_URL"; then
+        "$POEDEPLOY_PLYMOUTH_THEME_URL"; then
 
         rm -rf "$temp_dir"
 
-        warning "Custom Plymouth theme could not be downloaded."
+        warning "The PoeDeploy Plymouth theme could not be downloaded."
         warning "Built-in Plymouth themes will still be available."
         return 0
     fi
@@ -970,7 +1528,7 @@ install_custom_plymouth_theme() {
     if ! unzip -q "$archive" -d "$extracted_dir"; then
         rm -rf "$temp_dir"
 
-        warning "Failed to extract the custom Plymouth theme."
+        warning "Failed to extract the PoeDeploy Plymouth theme."
         return 0
     fi
 
@@ -979,24 +1537,39 @@ install_custom_plymouth_theme() {
     plymouth_file=$(
         find "$extracted_dir" \
             -type f \
-            -name '*.plymouth' \
+            -name "${theme_name}.plymouth" \
             -print -quit 2>/dev/null
     )
 
     if [[ -z "$plymouth_file" ]]; then
         rm -rf "$temp_dir"
 
-        warning "No .plymouth theme file was found in the archive."
+        warning "The archive does not contain ${theme_name}.plymouth."
         return 0
     fi
 
-    sudo mkdir -p "$theme_dir"
-
-    sudo cp -rf "$(dirname "$plymouth_file")/." "$theme_dir/"
+    if ! sudo mkdir -p "$theme_dir" ||
+       ! sudo cp -rf "$(dirname "$plymouth_file")/." "$theme_dir/"; then
+        rm -rf "$temp_dir"
+        warning "Failed to copy the PoeDeploy Plymouth theme into $theme_dir."
+        return 0
+    fi
 
     rm -rf "$temp_dir"
 
-    success "Custom Plymouth theme '$theme_name' installed."
+    if [[ ! -f "${theme_dir}/${theme_name}.plymouth" ]]; then
+        warning "The PoeDeploy theme definition is missing after installation."
+        return 0
+    fi
+
+    if ! plymouth-set-default-theme -l 2>/dev/null | grep -Fxq "$theme_name"; then
+        warning "The files were copied, but Plymouth does not recognise the PoeDeploy theme."
+        warning "Expected definition: ${theme_dir}/${theme_name}.plymouth"
+        return 0
+    fi
+
+    success "PoeDeploy was installed and verified in the Plymouth theme list."
+    info "Select it in the upcoming theme selector to activate it."
 }
 
 select_plymouth_theme() {
@@ -1111,7 +1684,17 @@ setup_plymouth() {
 
     configure_bootloader_plymouth
 
-    install_custom_plymouth_theme
+    install_poedeploy_plymouth_theme
+
+    configure_uki_splash
+
+    if [[ "$UKI_ENABLED" == true && -n "$UKI_SPLASH_PATH" ]]; then
+        info "Rebuilding UKIs with the persistent plain black splash..."
+
+        if ! sudo mkinitcpio -P; then
+            warning "The initial UKI rebuild failed."
+        fi
+    fi
 
     select_plymouth_theme
 
@@ -1257,7 +1840,7 @@ show_summary() {
 
     echo "Bootloader:      $BOOTLOADER"
 
-    echo "UKI:             $([[ "$UKI_ENABLED" == true ]] && echo detected || echo 'not detected')"
+    echo "UKI:             $UKI_STATUS"
 
     echo "Root filesystem: $ROOT_FILESYSTEM"
 
@@ -1545,7 +2128,7 @@ select_applications() {
 
     echo "Use arrow keys to navigate."
 
-    echo "Press Space, Tab or X to select/deselect."
+    echo "Press Space to select or deselect an application."
 
     echo "Press Enter when finished."
 
@@ -1575,7 +2158,7 @@ select_applications() {
                 --no-limit \
                 --selected='*' \
                 --cursor-prefix '> ' \
-                --selected-prefix '[x] ' \
+                --selected-prefix '[✓] ' \
                 --unselected-prefix '[ ] ' \
                 --height=20 \
                 --header="Select applications"
@@ -1716,6 +2299,83 @@ install_selected_applications() {
 
     fi
 
+}
+
+select_default_browser() {
+
+    echo
+    echo "========================================"
+    echo "       DEFAULT WEB BROWSER"
+    echo "========================================"
+    echo
+
+    local browser_entries=(
+        "Firefox|firefox.desktop|firefox"
+        "Chromium|chromium.desktop|chromium"
+        "Google Chrome|google-chrome.desktop|google-chrome-stable"
+        "Brave|brave-browser.desktop|brave-browser"
+        "LibreWolf|librewolf.desktop|librewolf"
+        "Vivaldi|vivaldi-stable.desktop|vivaldi"
+        "Zen Browser|zen.desktop|zen-browser"
+    )
+    local browser_names=()
+    local browser_desktops=()
+    local entry name desktop command_name
+
+    for entry in "${browser_entries[@]}"; do
+        IFS='|' read -r name desktop command_name <<< "$entry"
+
+        if command -v "$command_name" >/dev/null 2>&1; then
+            browser_names+=("$name")
+            browser_desktops+=("$desktop")
+        fi
+    done
+
+    if [[ ${#browser_names[@]} -eq 0 ]]; then
+        info "No supported web browser is currently installed."
+        DEFAULT_BROWSER_ACTION="no supported browser installed"
+        return 0
+    fi
+
+    echo "  [0] Keep the current default"
+
+    local i
+    for i in "${!browser_names[@]}"; do
+        echo "  [$((i + 1))] ${browser_names[$i]}"
+    done
+
+    local choice
+    while true; do
+        read -rp "Select the default browser [0-${#browser_names[@]}]: " choice
+
+        if [[ "$choice" == "0" || -z "$choice" ]]; then
+            info "Keeping the current default browser."
+            DEFAULT_BROWSER_ACTION="kept current default"
+            return 0
+        fi
+
+        if [[ "$choice" =~ ^[0-9]+$ ]] &&
+           (( choice >= 1 && choice <= ${#browser_names[@]} )); then
+            break
+        fi
+
+        warning "Invalid selection."
+    done
+
+    local selected_index=$((choice - 1))
+    local selected_name="${browser_names[$selected_index]}"
+    local selected_desktop="${browser_desktops[$selected_index]}"
+
+    if xdg-settings set default-web-browser "$selected_desktop" &&
+       xdg-mime default "$selected_desktop" x-scheme-handler/http &&
+       xdg-mime default "$selected_desktop" x-scheme-handler/https &&
+       xdg-mime default "$selected_desktop" text/html; then
+        success "Default browser set to $selected_name."
+        DEFAULT_BROWSER_ACTION="$selected_name"
+    else
+        warning "The default browser could not be fully configured."
+        DEFAULT_BROWSER_ACTION="configuration failed"
+    fi
 }
 
 # ============================================================
@@ -2216,7 +2876,228 @@ configure_tailscale() {
 
 # ============================================================
 
-# 18. FINAL SUMMARY
+# 18. OPTIONAL SECURE BOOT
+
+# ============================================================
+
+setup_secure_boot() {
+
+    echo
+    echo "========================================"
+    echo "       OPTIONAL SECURE BOOT"
+    echo "========================================"
+    echo
+
+    read -rp "Configure Secure Boot with sbctl? [y/N]: " answer
+
+    if [[ -z "$answer" || ! "$answer" =~ ^[Yy]$ ]]; then
+        info "Secure Boot configuration skipped."
+        SECURE_BOOT_ACTION="skipped"
+        return 0
+    fi
+
+    if [[ ! -d /sys/firmware/efi ]]; then
+        info "The system was not booted in UEFI mode; Secure Boot setup is unavailable."
+        SECURE_BOOT_ACTION="not available (non-UEFI boot)"
+        return 0
+    fi
+
+    if [[ "$BOOTLOADER" != "systemd-boot" ]]; then
+        warning "Automated Secure Boot setup currently supports systemd-boot only."
+        SECURE_BOOT_ACTION="not available for $BOOTLOADER"
+        return 0
+    fi
+
+    if [[ "$UKI_ENABLED" != true ]]; then
+        warning "No mkinitcpio UKI preset was detected; Secure Boot setup will not continue."
+        SECURE_BOOT_ACTION="unavailable (UKI not configured)"
+        return 0
+    fi
+
+    if [[ "$UKI_BOOTED" != true ]]; then
+        warning "The configured UKI has not been verified as the current boot."
+        warning "Reboot through the UKI entry and run PoeDeploy again before configuring Secure Boot."
+        SECURE_BOOT_ACTION="waiting for verified UKI boot"
+        return 0
+    fi
+
+    if ! pacman -Q sbctl &>/dev/null; then
+        info "Installing sbctl..."
+
+        if ! sudo pacman -S --needed --noconfirm sbctl; then
+            warning "sbctl could not be installed."
+            SECURE_BOOT_ACTION="sbctl installation failed"
+            return 0
+        fi
+    fi
+
+    local status_output
+    status_output=$(LC_ALL=C sudo sbctl status 2>&1 || true)
+    printf '%s\n' "$status_output"
+
+    local setup_mode=false
+    local keys_exist=false
+    local created_keys=false
+
+    if grep -Eq 'Setup Mode:.*Enabled' <<< "$status_output"; then
+        setup_mode=true
+    fi
+
+    if sudo test -d /var/lib/sbctl/keys ||
+       sudo test -d /usr/share/secureboot/keys; then
+        keys_exist=true
+    fi
+
+    if [[ "$keys_exist" != true ]]; then
+        echo
+        warning "Creating Secure Boot keys changes the trust configuration used by this machine."
+        warning "Do not continue unless you understand how to recover through the firmware setup."
+        read -rp "Type CREATE to create new Secure Boot keys: " create_confirmation
+
+        if [[ "$create_confirmation" != "CREATE" ]]; then
+            info "Secure Boot key creation cancelled."
+            SECURE_BOOT_ACTION="cancelled before key creation"
+            return 0
+        fi
+
+        if ! sudo sbctl create-keys; then
+            warning "Secure Boot key creation failed."
+            SECURE_BOOT_ACTION="key creation failed"
+            return 0
+        fi
+
+        keys_exist=true
+        created_keys=true
+    else
+        success "Existing sbctl keys detected; no new keys will be created."
+    fi
+
+    status_output=$(LC_ALL=C sudo sbctl status 2>&1 || true)
+
+    if grep -Eq 'Setup Mode:.*Enabled' <<< "$status_output"; then
+        setup_mode=true
+    else
+        setup_mode=false
+    fi
+
+    if [[ "$setup_mode" == true ]]; then
+        echo
+        warning "The next step writes Secure Boot keys to firmware variables."
+        warning "Microsoft certificates will be retained for Windows and signed option ROM compatibility."
+        read -rp "Type ENROLL to enrol the keys with Microsoft certificates: " enroll_confirmation
+
+        if [[ "$enroll_confirmation" != "ENROLL" ]]; then
+            info "Firmware key enrollment cancelled. No EFI files will be signed."
+            SECURE_BOOT_ACTION="cancelled before enrollment"
+            return 0
+        fi
+
+        if ! sudo sbctl enroll-keys --microsoft; then
+            warning "Secure Boot key enrollment failed."
+            SECURE_BOOT_ACTION="key enrollment failed"
+            return 0
+        fi
+    else
+        warning "Firmware Setup Mode is not enabled; PoeDeploy will not attempt key enrollment."
+
+        if [[ "$created_keys" == true ]]; then
+            warning "The new keys are not enrolled, so PoeDeploy will not sign the boot chain with them."
+            SECURE_BOOT_ACTION="keys created but not enrolled"
+            return 0
+        fi
+
+        warning "Existing sbctl keys may already be enrolled and can be used for signing."
+    fi
+
+    echo
+    warning "Signing replaces or adds signatures on the systemd-boot and UKI files listed below."
+    read -rp "Type SIGN to build and sign the boot chain: " sign_confirmation
+
+    if [[ "$sign_confirmation" != "SIGN" ]]; then
+        info "Secure Boot signing cancelled."
+        SECURE_BOOT_ACTION="cancelled before signing"
+        return 0
+    fi
+
+    info "Building all configured initramfs images and UKIs before signing..."
+
+    if ! sudo mkinitcpio -P; then
+        warning "UKI generation failed; Secure Boot signing was stopped."
+        SECURE_BOOT_ACTION="UKI build failed"
+        return 0
+    fi
+
+    local efi_files=()
+    local -A seen_efi_files=()
+    local search_root efi_file
+
+    for search_root in /boot /efi; do
+        [[ -d "$search_root" ]] || continue
+
+        while IFS= read -r efi_file; do
+            if [[ -n "$efi_file" && ! -v "seen_efi_files[$efi_file]" ]]; then
+                efi_files+=("$efi_file")
+                seen_efi_files["$efi_file"]=1
+            fi
+        done < <(
+            sudo find "$search_root" -type f \( \
+                -ipath '*/EFI/Linux/*.efi' -o \
+                -ipath '*/EFI/systemd/systemd-boot*.efi' \
+            \) -print 2>/dev/null
+        )
+    done
+
+    while IFS= read -r efi_file; do
+        if [[ -n "$efi_file" && ! -v "seen_efi_files[$efi_file]" ]]; then
+            efi_files+=("$efi_file")
+            seen_efi_files["$efi_file"]=1
+        fi
+    done < <(
+        find /usr/lib/systemd/boot/efi -maxdepth 1 -type f \
+            -iname 'systemd-boot*.efi' -print 2>/dev/null || true
+    )
+
+    if [[ ${#efi_files[@]} -eq 0 ]]; then
+        warning "No systemd-boot binaries or UKIs were found to sign."
+        SECURE_BOOT_ACTION="no EFI files found"
+        return 0
+    fi
+
+    local signing_failed=false
+
+    for efi_file in "${efi_files[@]}"; do
+        info "Registering and signing: $efi_file"
+
+        if ! sudo sbctl sign -s "$efi_file"; then
+            warning "Failed to sign: $efi_file"
+            signing_failed=true
+        fi
+    done
+
+    if ! sudo sbctl sign-all; then
+        warning "sbctl sign-all reported a failure."
+        signing_failed=true
+    fi
+
+    echo
+    info "Verifying Secure Boot signatures..."
+
+    if sudo sbctl verify; then
+        if [[ "$signing_failed" == true ]]; then
+            SECURE_BOOT_ACTION="verification passed with earlier signing warnings"
+        else
+            SECURE_BOOT_ACTION="configured and verified"
+        fi
+        success "Secure Boot verification completed."
+    else
+        warning "sbctl verification reported unsigned or invalid EFI files."
+        SECURE_BOOT_ACTION="verification failed"
+    fi
+}
+
+# ============================================================
+
+# 19. FINAL SUMMARY
 
 # ============================================================
 
@@ -2246,7 +3127,7 @@ show_final_summary() {
     echo "  Version:         $SCRIPT_VERSION"
     echo "  GPU:             $GPU_VENDOR"
     echo "  Bootloader:      $BOOTLOADER"
-    echo "  UKI:             $([[ "$UKI_ENABLED" == true ]] && echo detected || echo 'not detected')"
+    echo "  UKI:             $UKI_STATUS"
     echo "  Root filesystem: $ROOT_FILESYSTEM"
     echo
 
@@ -2278,14 +3159,17 @@ show_final_summary() {
     echo "  ML4W:             $ML4W_ACTION"
     echo "  SDDM setup:       $SDDM_ACTION"
     echo "  Applications:     $APPLICATIONS_ACTION"
+    echo "  Default browser:  $DEFAULT_BROWSER_ACTION"
+    echo "  UKI setup:        $UKI_ACTION"
     echo "  SMB:              $SMB_ACTION"
     echo "  NFS:              $NFS_ACTION"
+    echo "  Secure Boot:      $SECURE_BOOT_ACTION"
     echo
 }
 
 # ============================================================
 
-# 19. MAIN
+# 20. MAIN
 
 # ============================================================
 
@@ -2294,6 +3178,8 @@ main() {
     load_version
 
     show_header
+
+    check_not_root
 
     confirm_start
 
@@ -2351,6 +3237,10 @@ main() {
 
     setup_plymouth
 
+    # Unified kernel image (optional, keeps traditional entries as fallbacks)
+
+    setup_uki
+
     # Timeshift
 
     check_timeshift
@@ -2369,6 +3259,8 @@ main() {
 
     install_selected_applications
 
+    select_default_browser
+
     # Network shares
 
     configure_network_shares
@@ -2376,6 +3268,10 @@ main() {
     # Tailscale configuration
 
     configure_tailscale
+
+    # Secure Boot (optional and explicitly confirmed)
+
+    setup_secure_boot
 
     # Final result
 
@@ -2397,7 +3293,7 @@ main() {
 
     else
 
-        success "Arch Linux setup completed successfully."
+        success "PoeDeploy completed successfully."
 
     fi
 
