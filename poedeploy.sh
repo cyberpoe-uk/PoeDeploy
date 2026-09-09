@@ -46,6 +46,10 @@ NC='\033[0m'
 
 FAILED_PACKAGES=()
 
+SKIPPED_PACKAGES=()
+
+INSTALLED_PACKAGES=()
+
 SELECTED_PACKAGES=()
 
 SELECTED_APPS=()
@@ -59,6 +63,28 @@ DEFAULT_BROWSER_ACTION="not selected"
 SECURE_BOOT_ACTION="not selected"
 
 UKI_ACTION="not selected"
+
+RUN_MODE="full"
+SETUP_MODULE_IDS=(update yay base gpu network plymouth uki timeshift ml4w sddm applications browser shares tailscale secure_boot)
+declare -A SETUP_MODULE_LABELS=(
+    [update]="System update"
+    [yay]="AUR helper (yay)"
+    [base]="Base system and network tools"
+    [gpu]="GPU drivers"
+    [network]="NetworkManager"
+    [plymouth]="Plymouth boot theme"
+    [uki]="Unified kernel images (UKI)"
+    [timeshift]="Timeshift"
+    [ml4w]="ML4W desktop"
+    [sddm]="SDDM login screen"
+    [applications]="Optional applications"
+    [browser]="Default browser"
+    [shares]="SMB / NFS shares"
+    [tailscale]="Tailscale service"
+    [secure_boot]="Secure Boot: keys, enrollment and signing"
+)
+declare -A SELECTED_SETUP_MODULES=()
+PROCESSED_SETUP_MODULES=()
 
 # ------------------------------------------------------------
 
@@ -200,6 +226,136 @@ check_not_root() {
     fi
 }
 
+choose_setup_modules() {
+    local answer module input token index marker
+    local valid
+    local -a tokens=()
+    SELECTED_SETUP_MODULES=()
+
+    while true; do
+        if ! read -rp "Have you run PoeDeploy before on this Arch installation? [y/N]: " answer; then
+            return 1
+        fi
+        case "$answer" in
+            [Nn]|[Nn][Oo]|"")
+                RUN_MODE="full"
+                for module in "${SETUP_MODULE_IDS[@]}"; do
+                    SELECTED_SETUP_MODULES["$module"]=true
+                done
+                return 0
+                ;;
+            [Yy]|[Yy][Ee][Ss]) RUN_MODE="selected"; break ;;
+            *) warning "Please answer yes or no." ;;
+        esac
+    done
+
+    while true; do
+        echo
+        info "Choose the setup sections for this run (nothing is selected initially)."
+        for index in "${!SETUP_MODULE_IDS[@]}"; do
+            module="${SETUP_MODULE_IDS[$index]}"
+            marker=" "
+            if [[ "${SELECTED_SETUP_MODULES[$module]:-false}" == true ]]; then
+                marker="x"
+            fi
+            printf '  [%s] %2d. %s\n' "$marker" "$((index + 1))" "${SETUP_MODULE_LABELS[$module]}"
+        done
+        echo "Enter numbers to toggle, e.g. 6 11; or all, none, run, quit."
+        if ! read -rp "Selection: " input; then
+            return 1
+        fi
+        case "${input,,}" in
+            run|r)
+                if ((${#SELECTED_SETUP_MODULES[@]} == 0)); then
+                    warning "Select at least one section, or enter quit."
+                else
+                    return 0
+                fi
+                ;;
+            quit|q) return 1 ;;
+            all|a)
+                for module in "${SETUP_MODULE_IDS[@]}"; do
+                    SELECTED_SETUP_MODULES["$module"]=true
+                done
+                ;;
+            none|n) SELECTED_SETUP_MODULES=() ;;
+            *)
+                read -r -a tokens <<< "${input//,/ }"
+                valid=true
+                ((${#tokens[@]} > 0)) || valid=false
+                for token in "${tokens[@]}"; do
+                    if [[ ! "$token" =~ ^[0-9]{1,2}$ ]] ||
+                       ((10#$token < 1 || 10#$token > ${#SETUP_MODULE_IDS[@]})); then
+                        valid=false
+                        break
+                    fi
+                done
+                if [[ "$valid" != true ]]; then
+                    warning "Enter section numbers between 1 and ${#SETUP_MODULE_IDS[@]}, or a menu command."
+                    continue
+                fi
+                for token in "${tokens[@]}"; do
+                    module="${SETUP_MODULE_IDS[$((10#$token - 1))]}"
+                    if [[ "${SELECTED_SETUP_MODULES[$module]:-false}" == true ]]; then
+                        unset 'SELECTED_SETUP_MODULES[$module]'
+                    else
+                        SELECTED_SETUP_MODULES["$module"]=true
+                    fi
+                done
+                ;;
+        esac
+    done
+}
+
+show_selected_setup_modules() {
+    local module
+    info "Setup sections selected for this run:"
+    for module in "${SETUP_MODULE_IDS[@]}"; do
+        if [[ "${SELECTED_SETUP_MODULES[$module]:-false}" == true ]]; then
+            printf '  - %s\n' "${SETUP_MODULE_LABELS[$module]}"
+        fi
+    done
+    info "Only selected sections and their missing package dependencies will run."
+}
+
+firmware_secure_boot_enabled() {
+    local variable value
+    for variable in /sys/firmware/efi/efivars/SecureBoot-*; do
+        [[ -r "$variable" ]] || continue
+        value=$(od -An -t u1 -j 4 -N 1 "$variable" 2>/dev/null | tr -d '[:space:]')
+        [[ "$value" == 1 ]] && return 0
+    done
+    return 1
+}
+
+add_required_setup_modules() {
+    if firmware_secure_boot_enabled &&
+       { [[ "${SELECTED_SETUP_MODULES[plymouth]:-false}" == true ]] ||
+         [[ "${SELECTED_SETUP_MODULES[uki]:-false}" == true ]]; } &&
+       [[ "${SELECTED_SETUP_MODULES[secure_boot]:-false}" != true ]]; then
+        SELECTED_SETUP_MODULES[secure_boot]=true
+        warning "Secure Boot is enabled, so UKIs rebuilt by this run must be signed again."
+        info "The Secure Boot signing section has been added automatically."
+    fi
+}
+
+ensure_command_dependencies() {
+    local dependency command_name package
+    local -a missing=()
+    for dependency in "$@"; do
+        command_name="${dependency%%:*}"
+        package="${dependency#*:}"
+        if ! command -v "$command_name" >/dev/null 2>&1; then
+            missing+=("$package")
+        fi
+    done
+    if ((${#missing[@]} > 0)); then
+        info "Installing missing dependencies for this section: ${missing[*]}"
+        wait_for_pacman_lock
+        sudo pacman -S --needed --noconfirm "${missing[@]}"
+    fi
+}
+
 # ============================================================
 
 # 1. ENVIRONMENT CHECKS
@@ -244,11 +400,101 @@ check_internet() {
 
 }
 
+wait_for_pacman_lock() {
+
+    local lock_file="/var/lib/pacman/db.lck"
+    local waited_seconds=0
+    local owners owner_status process_status identity stale_identity=""
+
+    while [[ -e "$lock_file" ]]; do
+        # libalpm may close its lock descriptor during a transaction: an empty
+        # fuser result alone is not evidence of a stale lock.
+        if ! command -v pgrep >/dev/null 2>&1 || ! command -v fuser >/dev/null 2>&1; then
+            error "Cannot safely inspect the Pacman lock; pgrep (procps-ng) and fuser (psmisc) are required."
+            error "The lock has been left intact. Check running package operations before removing it manually."
+            return 1
+        fi
+        if pgrep -x 'pacman|yay|paru|makepkg|packagekitd|pamac-daemon' >/dev/null; then
+            process_status=0
+        else
+            process_status=$?
+        fi
+        if ((process_status > 1)); then
+            error "Could not inspect running package managers. Leaving the Pacman lock intact."
+            return 1
+        fi
+        if owners=$(sudo fuser "$lock_file" 2>&1); then
+            process_status=0
+        else
+            owner_status=$?
+            if [[ ! -e "$lock_file" ]]; then
+                break
+            fi
+            if ((owner_status != 1)) || [[ -n "$owners" ]]; then
+                error "Could not inspect the Pacman lock (exit code $owner_status): $owners"
+                return 1
+            fi
+        fi
+
+        if ((process_status == 0)); then
+            stale_identity=""
+
+            if ((waited_seconds == 0)); then
+                warning "Another package operation is using the Pacman database."
+                info "Waiting for it to finish; do not close PoeDeploy..."
+            elif ((waited_seconds % 30 == 0)); then
+                info "Pacman is still busy; waited ${waited_seconds} seconds..."
+            fi
+
+            sleep 5
+            ((waited_seconds += 5))
+            continue
+
+        fi
+
+        # Recheck the same lock after a grace period before treating it as stale.
+        if ! identity=$(stat -c '%d:%i:%Y:%s' -- "$lock_file"); then
+            [[ ! -e "$lock_file" ]] && continue
+            return 1
+        fi
+        if [[ "$identity" != "$stale_identity" ]]; then
+            stale_identity="$identity"
+            sleep 2
+            continue
+        fi
+
+        warning "Found a stale Pacman lock left by an interrupted package operation."
+        sudo rm -f -- "$lock_file"
+        success "Removed the stale Pacman database lock."
+
+    done
+
+    if ((waited_seconds > 0)); then
+        success "The other package operation has finished."
+    fi
+
+}
+
 update_system() {
 
     info "Synchronising and updating Arch Linux..."
 
-    sudo pacman -Syu --needed --noconfirm
+    while true; do
+
+        wait_for_pacman_lock
+
+        if sudo pacman -Syu --needed --noconfirm; then
+            break
+        fi
+
+        if [[ -e /var/lib/pacman/db.lck ]]; then
+            warning "The Pacman database became locked before the update started. Retrying..."
+            continue
+        fi
+
+        return 1
+
+    done
 
     success "Arch Linux is up to date."
 
@@ -334,6 +580,8 @@ install_base_tools() {
         whois \
         nano \
         pciutils \
+        procps-ng \
+        psmisc \
         xdg-utils
 
     success "Base tools checked."
@@ -355,6 +603,11 @@ detect_gpu() {
     info "Detecting GPU..."
 
     local gpu_info
+
+    if ! command -v lspci >/dev/null 2>&1; then
+        GPU_MODEL="not checked (pciutils not installed)"
+        return 0
+    fi
 
     gpu_info=$(lspci | grep -Ei 'VGA|3D|Display' || true)
 
@@ -648,9 +901,6 @@ detect_uki() {
         info "The current boot has not been verified as a UKI boot."
     fi
 
-    if ! install_uki_black_splash; then
-        warning "UKI generation will continue without changing its splash."
-    fi
 }
 
 get_uki_boot_root() {
@@ -1030,6 +1280,10 @@ setup_uki() {
         fi
     done
 
+    if [[ "$verification_failed" != true ]] && ! verify_uki_plymouth_setup; then
+        verification_failed=true
+    fi
+
     if [[ "$verification_failed" == true ]]; then
         warning "UKI verification failed. Restoring the previous configuration..."
         remove_failed_uki_files "${created_uki_paths[@]}"
@@ -1150,16 +1404,6 @@ configure_mkinitcpio_plymouth() {
 
     info "Checking mkinitcpio Plymouth hook..."
 
-    if grep -Eq '^HOOKS=.*\bplymouth\b' "$config"; then
-
-        success "Plymouth hook already present."
-
-        return
-
-    fi
-
-    info "Adding Plymouth to mkinitcpio hooks..."
-
     local hooks_line
 
     hooks_line=$(grep '^HOOKS=' "$config" | head -n 1)
@@ -1174,31 +1418,15 @@ configure_mkinitcpio_plymouth() {
 
     read -r -a hooks <<< "$hooks_content"
 
-    local new_hooks=()
+    local new_hooks_line
+    new_hooks_line="HOOKS=($(order_mkinitcpio_plymouth_hook "${hooks[@]}"))"
 
-    local inserted=false
-
-    for hook in "${hooks[@]}"; do
-
-        new_hooks+=("$hook")
-
-        if [[ "$hook" == "udev" && "$inserted" == false ]]; then
-
-            new_hooks+=("plymouth")
-
-            inserted=true
-
-        fi
-
-    done
-
-    if [[ "$inserted" == false ]]; then
-
-        new_hooks=("plymouth" "${hooks[@]}")
-
+    if [[ "$new_hooks_line" == "$hooks_line" ]]; then
+        success "Plymouth hook is correctly ordered."
+        return 0
     fi
 
-    local new_hooks_line="HOOKS=(${new_hooks[*]})"
+    info "Configuring the Plymouth hook after the active init hook..."
 
     sudo cp "$config" "${config}.bak"
 
@@ -1208,6 +1436,31 @@ configure_mkinitcpio_plymouth() {
 
     success "Plymouth hook added to mkinitcpio."
 
+}
+
+order_mkinitcpio_plymouth_hook() {
+    local hook anchor="" inserted=false
+    local -a source_hooks=("$@")
+    local -a ordered_hooks=()
+
+    if printf '%s\n' "${source_hooks[@]}" | grep -Fxq systemd; then
+        anchor=systemd
+    elif printf '%s\n' "${source_hooks[@]}" | grep -Fxq udev; then
+        anchor=udev
+    fi
+
+    for hook in "${source_hooks[@]}"; do
+        [[ "$hook" == plymouth ]] && continue
+        ordered_hooks+=("$hook")
+        if [[ "$hook" == "$anchor" ]]; then
+            ordered_hooks+=(plymouth)
+            inserted=true
+        fi
+    done
+    if [[ "$inserted" != true ]]; then
+        ordered_hooks=(plymouth "${ordered_hooks[@]}")
+    fi
+    printf '%s ' "${ordered_hooks[@]}"
 }
 
 configure_systemd_boot_plymouth() {
@@ -1422,46 +1675,172 @@ configure_uki_splash() {
         return 0
     fi
 
-    local preset
+    local preset name
+    local -a preset_names=()
     local configured=false
 
     for preset in /etc/mkinitcpio.d/*.preset; do
         [[ -f "$preset" ]] || continue
-        grep -Eq '^[[:space:]]*[[:alnum:]_]+_uki[[:space:]]*=' "$preset" || continue
-
         if ! sudo cp -n "$preset" "${preset}.poedeploy.bak"; then
             warning "Could not back up $preset before configuring the UKI splash."
             return 1
         fi
 
-        if ! sudo sed -i -E \
-            "s|^([[:alnum:]_]+_splash)=.*|\\1=\"${UKI_SPLASH_PATH}\"|" \
-            "$preset"; then
-            warning "Could not update UKI splash settings in $preset."
-            return 1
-        fi
-
-        if grep -q '^ALL_splash=' "$preset"; then
-            if ! sudo sed -i \
-                "s|^ALL_splash=.*|ALL_splash=\"${UKI_SPLASH_PATH}\"|" \
-                "$preset"; then
-                warning "Could not update ALL_splash in $preset."
+        mapfile -t preset_names < <(get_mkinitcpio_preset_names "$preset")
+        for name in "${preset_names[@]}"; do
+            grep -Eq "^[[:space:]]*${name}_uki[[:space:]]*=" "$preset" || continue
+            if ! set_mkinitcpio_preset_splash "$preset" "$name" "$UKI_SPLASH_PATH"; then
+                warning "Could not update UKI splash options in $preset."
                 return 1
             fi
-        else
-            if ! printf '\nALL_splash="%s"\n' "$UKI_SPLASH_PATH" |
-                sudo tee -a "$preset" >/dev/null; then
-                warning "Could not add ALL_splash to $preset."
-                return 1
-            fi
-        fi
-
-        configured=true
+            configured=true
+        done
     done
 
     if [[ "$configured" == true ]]; then
         success "UKI splash configured: $UKI_SPLASH_PATH"
     fi
+}
+
+set_mkinitcpio_preset_splash() {
+    local preset="$1" name="$2" splash="$3"
+    local line value token skip_next=false
+    local -a options=()
+    local -a current_options=()
+
+    line=$(grep -E "^[[:space:]]*${name}_options[[:space:]]*=" "$preset" | tail -n 1 || true)
+    if [[ -n "$line" ]]; then
+        value="${line#*=}"
+        value="${value#\"}"
+        value="${value%\"}"
+        read -r -a current_options <<< "$value"
+        for token in "${current_options[@]}"; do
+            if [[ "$skip_next" == true ]]; then
+                skip_next=false
+                continue
+            fi
+            case "$token" in
+                --splash) skip_next=true ;;
+                --splash=*) ;;
+                *) options+=("$token") ;;
+            esac
+        done
+    fi
+    options+=(--splash "$splash")
+
+    local replacement="${name}_options=\"${options[*]}\""
+    local staged
+    staged=$(mktemp -t poedeploy-preset-XXXXXX)
+    if ! awk -v variable="${name}_options" -v replacement="$replacement" '
+        BEGIN { replaced = 0 }
+        $0 ~ "^[[:space:]]*" variable "[[:space:]]*=" {
+            if (!replaced) print replacement
+            replaced = 1
+            next
+        }
+        { print }
+        END { if (!replaced) print replacement }
+    ' "$preset" > "$staged" || ! sudo cp "$staged" "$preset"; then
+        rm -f "$staged"
+        return 1
+    fi
+    rm -f "$staged"
+}
+
+get_configured_uki_paths() {
+    local preset line value
+    for preset in /etc/mkinitcpio.d/*.preset; do
+        [[ -f "$preset" ]] || continue
+        while IFS= read -r line; do
+            [[ "$line" =~ ^[[:space:]]*[[:alnum:]_]+_uki[[:space:]]*= ]] || continue
+            value="${line#*=}"
+            value="${value%%#*}"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            value="${value#\"}"
+            value="${value%\"}"
+            [[ "$value" == /* ]] && printf '%s\n' "$value"
+        done < "$preset"
+    done
+}
+
+verify_uki_plymouth_setup() {
+    [[ "$UKI_ENABLED" == true ]] || return 0
+
+    local hooks_line hooks_content theme uki_path cmdline_file splash_file
+    local systemd_index=-1 udev_index=-1 plymouth_index=-1 index hook
+    local failed=false
+    local -a hooks=()
+    local -a uki_paths=()
+    local verify_dir
+
+    hooks_line=$(grep '^HOOKS=' /etc/mkinitcpio.conf | head -n 1 || true)
+    hooks_content="${hooks_line#HOOKS=(}"
+    hooks_content="${hooks_content%)}"
+    read -r -a hooks <<< "$hooks_content"
+    for index in "${!hooks[@]}"; do
+        hook="${hooks[$index]}"
+        [[ "$hook" == systemd ]] && systemd_index=$index
+        [[ "$hook" == udev ]] && udev_index=$index
+        [[ "$hook" == plymouth ]] && plymouth_index=$index
+    done
+    if ((plymouth_index < 0)); then
+        warning "Plymouth is missing from the mkinitcpio hooks."
+        failed=true
+    elif ((systemd_index >= 0 && plymouth_index < systemd_index)); then
+        warning "The Plymouth hook is before systemd; it cannot start correctly in this initramfs."
+        failed=true
+    elif ((systemd_index < 0 && udev_index >= 0 && plymouth_index < udev_index)); then
+        warning "The Plymouth hook is before udev; it cannot start correctly in this initramfs."
+        failed=true
+    fi
+
+    theme=$(plymouth-set-default-theme 2>/dev/null || true)
+    if [[ -z "$theme" ]]; then
+        warning "No default Plymouth theme is configured."
+        failed=true
+    fi
+
+    mapfile -t uki_paths < <(get_configured_uki_paths | sort -u)
+    if ((${#uki_paths[@]} == 0)); then
+        warning "No configured UKI paths were found for Plymouth verification."
+        return 1
+    fi
+
+    verify_dir=$(mktemp -d -t poedeploy-uki-verify-XXXXXX)
+    for uki_path in "${uki_paths[@]}"; do
+        if [[ ! -f "$uki_path" ]]; then
+            warning "Configured UKI is missing: $uki_path"
+            failed=true
+            continue
+        fi
+        cmdline_file="$verify_dir/cmdline"
+        splash_file="$verify_dir/splash.bmp"
+        if ! objcopy --dump-section ".cmdline=$cmdline_file" "$uki_path" /dev/null 2>/dev/null ||
+           ! tr '\0' ' ' < "$cmdline_file" | grep -Eq '(^|[[:space:]])splash([[:space:]]|$)'; then
+            warning "The generated UKI does not contain the splash kernel option: $uki_path"
+            failed=true
+        fi
+        if [[ -n "$theme" ]] &&
+           ! lsinitcpio "$uki_path" 2>/dev/null |
+               grep -Fqx "usr/share/plymouth/themes/${theme}/${theme}.plymouth"; then
+            warning "The generated UKI does not contain the selected Plymouth theme '$theme': $uki_path"
+            failed=true
+        fi
+        if [[ -f /usr/share/systemd/bootctl/splash-arch.bmp ]] &&
+           objcopy --dump-section ".splash=$splash_file" "$uki_path" /dev/null 2>/dev/null &&
+           cmp -s "$splash_file" /usr/share/systemd/bootctl/splash-arch.bmp; then
+            warning "The generated UKI still contains the default Arch firmware splash: $uki_path"
+            failed=true
+        fi
+    done
+    rm -rf -- "$verify_dir"
+
+    if [[ "$failed" == true ]]; then
+        warning "UKI/Plymouth verification failed. Run the Plymouth section before signing Secure Boot files."
+        return 1
+    fi
+    success "Verified the Plymouth hook, selected theme, kernel option and generated UKIs."
 }
 
 install_poedeploy_plymouth_theme() {
@@ -1475,16 +1854,8 @@ install_poedeploy_plymouth_theme() {
     local archive
     local local_archive="${SCRIPT_DIR}/themes/${theme_name}/plymouth/${theme_name}.zip"
 
-    if [[ -f "${theme_dir}/${theme_name}.plymouth" ]] &&
-       plymouth-set-default-theme -l 2>/dev/null | grep -Fxq "$theme_name"; then
-        success "PoeDeploy is already available in the Plymouth theme list."
-        info "You can keep it or activate it in the upcoming theme selector."
-        return 0
-    fi
-
     if [[ -d "$theme_dir" ]]; then
-        warning "An incomplete or unrecognised PoeDeploy theme directory was found."
-        info "Reinstalling its files from the repository archive..."
+        info "Refreshing the installed PoeDeploy theme from the repository archive..."
     fi
 
     if ! command -v curl >/dev/null 2>&1; then
@@ -1667,6 +2038,11 @@ select_plymouth_theme() {
                 return 0
             fi
 
+            if ! verify_uki_plymouth_setup; then
+                warning "The theme was selected, but the generated UKI did not pass Plymouth verification."
+                return 0
+            fi
+
             success "Plymouth theme configured."
 
             return
@@ -1679,6 +2055,12 @@ select_plymouth_theme() {
 setup_plymouth() {
 
     install_plymouth
+
+    if [[ "$UKI_ENABLED" == true ]]; then
+        if ! install_uki_black_splash; then
+            warning "UKI generation will continue without changing its splash."
+        fi
+    fi
 
     configure_mkinitcpio_plymouth
 
@@ -1693,6 +2075,8 @@ setup_plymouth() {
 
         if ! sudo mkinitcpio -P; then
             warning "The initial UKI rebuild failed."
+        elif ! verify_uki_plymouth_setup; then
+            warning "The rebuilt UKI did not pass Plymouth verification."
         fi
     fi
 
@@ -1931,26 +2315,26 @@ install_ml4w() {
         fi
     fi
 
-    echo
-    echo "========================================"
-    echo "       SDDM CONFIGURATION"
-    echo "========================================"
-    echo
+}
 
-    if [[ "$ML4W_ENABLED" == true ]]; then
-        read -rp "Configure the ML4W SDDM login screen? [Y/n]: " sddm_answer
-    else
-        read -rp "Install and configure SDDM graphical login? [Y/n]: " sddm_answer
-    fi
-
-    if [[ -z "$sddm_answer" || "$sddm_answer" =~ ^[Yy]$ ]]; then
-        CONFIGURE_ML4W_SDDM=true
-        info "SDDM configuration selected."
-    else
+choose_sddm_setup() {
+    local answer
+    read -rp "Install and configure SDDM graphical login? [Y/n]: " answer
+    if [[ -n "$answer" && ! "$answer" =~ ^[Yy]$ ]]; then
         CONFIGURE_ML4W_SDDM=false
         SDDM_ACTION="skipped"
-        info "SDDM configuration skipped."
+        return 0
     fi
+
+    CONFIGURE_ML4W_SDDM=true
+    read -rp "Use the ML4W SDDM theme? [Y/n]: " answer
+    if [[ -z "$answer" || "$answer" =~ ^[Yy]$ ]]; then
+        ML4W_ENABLED=true
+        ensure_command_dependencies git:git
+    else
+        ML4W_ENABLED=false
+    fi
+    setup_sddm
 }
 
 # ============================================================
@@ -2132,11 +2516,20 @@ select_applications() {
 
     echo "Press Enter when finished."
 
-    echo "All applications start selected."
+    if [[ "$RUN_MODE" == full ]]; then
+        echo "All applications start selected."
+    else
+        echo "No applications start selected; choose only the ones you want to install."
+    fi
 
     echo
 
     local options=()
+    local -a selection_defaults=()
+
+    if [[ "$RUN_MODE" == full ]]; then
+        selection_defaults=(--selected='*')
+    fi
 
     for app in "${!APPLICATIONS[@]}"; do
 
@@ -2156,7 +2549,7 @@ select_applications() {
 
             gum choose \
                 --no-limit \
-                --selected='*' \
+                "${selection_defaults[@]}" \
                 --cursor-prefix '> ' \
                 --selected-prefix '[✓] ' \
                 --unselected-prefix '[ ] ' \
@@ -2209,96 +2602,106 @@ select_applications() {
 
 # ============================================================
 
-install_selected_applications() {
+package_was_skipped() {
+    local skipped
+    for skipped in "${SKIPPED_PACKAGES[@]}"; do
+        [[ "$skipped" != "$1" ]] || return 0
+    done
+    return 1
+}
 
-    if [[ ${#SELECTED_PACKAGES[@]} -eq 0 ]]; then
+install_optional_package() {
+    local package="$1"
+    shift
+    local previous_int_trap interrupted status choice
 
-        return
+    while true; do
+        wait_for_pacman_lock
+        info "Installing $package. Press Ctrl+C to cancel this package and choose what to do next."
 
-    fi
-
-    local official_packages=()
-
-    local aur_packages=()
-
-    info "Checking package sources..."
-
-    for package in "${SELECTED_PACKAGES[@]}"; do
-
-        if pacman -Si "$package" &>/dev/null; then
-
-            official_packages+=("$package")
-
-        elif yay -Si "$package" &>/dev/null; then
-
-            aur_packages+=("$package")
-
+        previous_int_trap=$(trap -p INT)
+        interrupted=false
+        # Keep the package manager in the foreground so it and its build children
+        # receive the terminal's Ctrl+C. Bash waits for it to exit before this trap
+        # is handled; never kill -9 a package transaction or unlink its lock here.
+        trap 'interrupted=true' INT
+        if "$@"; then
+            status=0
         else
-
-            warning "Package not found: $package"
-
-            FAILED_PACKAGES+=("$package")
-
+            status=$?
+        fi
+        if [[ -n "$previous_int_trap" ]]; then
+            eval "$previous_int_trap"
+        else
+            trap - INT
         fi
 
+        if [[ "$interrupted" == true ]] || ((status == 130)); then
+            warning "$package was interrupted. The package command has exited."
+            info "Already installed dependencies are kept; skipping does not uninstall or roll back files."
+            while true; do
+                if ! read -rp "[s] Skip this package, [r] Retry, [q] Quit PoeDeploy [s]: " choice; then
+                    exit 130
+                fi
+                case "${choice,,}" in
+                    s|skip|"")
+                        SKIPPED_PACKAGES+=("$package")
+                        warning "Skipped $package; select it in Applications on a later run."
+                        return 0
+                        ;;
+                    r|retry) break ;;
+                    q|quit) info "PoeDeploy stopped at your request."; exit 130 ;;
+                    *) warning "Choose skip, retry or quit." ;;
+                esac
+            done
+            continue
+        fi
+
+        if ((status == 0)); then
+            INSTALLED_PACKAGES+=("$package")
+            success "$package installed successfully."
+        else
+            FAILED_PACKAGES+=("$package")
+            warning "Failed to install $package (exit code $status)."
+        fi
+        return 0
     done
+}
 
-    if [[ ${#official_packages[@]} -gt 0 ]]; then
-
-        echo
-
-        info "Installing official Arch packages..."
-
-        for package in "${official_packages[@]}"; do
-
-            echo
-
-            info "Installing official package: $package"
-
-            if sudo pacman -S --needed --noconfirm "$package"; then
-
-                success "$package installed successfully."
-
-            else
-
-                warning "Failed to install: $package"
-
-                FAILED_PACKAGES+=("$package")
-
-            fi
-
-        done
-
+install_selected_applications() {
+    local package
+    if ((${#SELECTED_PACKAGES[@]} == 0)); then
+        return 0
     fi
 
-    if [[ ${#aur_packages[@]} -gt 0 ]]; then
+    for package in "${SELECTED_PACKAGES[@]}"; do
+        if [[ "$package" == vlc-plugins-all ]] && package_was_skipped vlc; then
+            SKIPPED_PACKAGES+=("$package")
+            info "Skipping VLC plugins because VLC was skipped."
+            continue
+        fi
+        if pacman -Q "$package" &>/dev/null; then
+            INSTALLED_PACKAGES+=("$package")
+            success "$package is already installed."
+            continue
+        fi
 
-        echo
-
-        info "Installing AUR packages..."
-
-        for package in "${aur_packages[@]}"; do
-
-            echo
-
-            info "Installing AUR package: $package"
-
-            if yay -S --needed --noconfirm "$package"; then
-
-                success "$package installed successfully."
-
-            else
-
-                warning "Failed to install: $package"
-
-                FAILED_PACKAGES+=("$package")
-
+        if pacman -Si "$package" &>/dev/null; then
+            install_optional_package "$package" sudo pacman -S --needed --noconfirm "$package"
+        else
+            if ! command -v yay >/dev/null 2>&1; then
+                info "$package needs an AUR helper; installing yay as a dependency."
+                install_yay
             fi
-
-        done
-
-    fi
-
+            if yay -Si "$package" &>/dev/null; then
+                install_optional_package "$package" yay -S --needed --noconfirm "$package"
+            else
+                warning "Package not found: $package"
+                FAILED_PACKAGES+=("$package")
+            fi
+        fi
+    done
+    APPLICATIONS_ACTION="${#INSTALLED_PACKAGES[@]} installed/already present; ${#SKIPPED_PACKAGES[@]} skipped; ${#FAILED_PACKAGES[@]} failed"
 }
 
 select_default_browser() {
@@ -2744,16 +3147,19 @@ configure_network_shares() {
                 return 0
                 ;;
             1)
+                ensure_command_dependencies mount.cifs:cifs-utils
                 setup_smb_share
                 NETWORK_SHARES_ACTION="completed"
                 return 0
                 ;;
             2)
+                ensure_command_dependencies mount.nfs:nfs-utils
                 setup_nfs_share
                 NETWORK_SHARES_ACTION="completed"
                 return 0
                 ;;
             3)
+                ensure_command_dependencies mount.cifs:cifs-utils mount.nfs:nfs-utils
                 setup_smb_share
                 setup_nfs_share
                 NETWORK_SHARES_ACTION="completed"
@@ -2774,10 +3180,12 @@ configure_network_shares() {
 
 configure_tailscale() {
 
-    if [[ ! " ${SELECTED_PACKAGES[*]} " =~ " tailscale " ]]; then
-
-        return
-
+    if package_was_skipped tailscale; then
+        info "Tailscale service setup skipped because its app installation was cancelled."
+        return 0
+    fi
+    if [[ "$RUN_MODE" == full && ! " ${SELECTED_PACKAGES[*]} " =~ " tailscale " ]]; then
+        return 0
     fi
 
     echo
@@ -2921,6 +3329,8 @@ setup_secure_boot() {
         return 0
     fi
 
+    ensure_command_dependencies mkinitcpio:mkinitcpio
+
     if ! pacman -Q sbctl &>/dev/null; then
         info "Installing sbctl..."
 
@@ -3006,7 +3416,13 @@ setup_secure_boot() {
             return 0
         fi
 
-        warning "Existing sbctl keys may already be enrolled and can be used for signing."
+        warning "Existing key files alone do not prove that these keys are enrolled in firmware."
+        local enrolled_confirmation
+        read -rp "Have these exact sbctl keys already been enrolled in this machine? [y/N]: " enrolled_confirmation
+        if [[ ! "$enrolled_confirmation" =~ ^[Yy]$ ]]; then
+            SECURE_BOOT_ACTION="keys created but not enrolled"
+            return 0
+        fi
     fi
 
     echo
@@ -3024,6 +3440,13 @@ setup_secure_boot() {
     if ! sudo mkinitcpio -P; then
         warning "UKI generation failed; Secure Boot signing was stopped."
         SECURE_BOOT_ACTION="UKI build failed"
+        return 0
+    fi
+
+    if ! verify_uki_plymouth_setup; then
+        warning "Secure Boot signing stopped because Plymouth is not correctly embedded in the UKI."
+        warning "Rerun PoeDeploy and select Plymouth and Secure Boot together."
+        SECURE_BOOT_ACTION="Plymouth/UKI verification failed"
         return 0
     fi
 
@@ -3110,9 +3533,11 @@ show_final_summary() {
     echo "========================================"
     echo
 
-    if [[ ${#FAILED_PACKAGES[@]} -eq 0 ]]; then
+    if [[ "${SELECTED_SETUP_MODULES[applications]:-false}" != true ]]; then
+        info "Optional application installation was not selected."
+    elif [[ ${#FAILED_PACKAGES[@]} -eq 0 && ${#SKIPPED_PACKAGES[@]} -eq 0 && ${#SELECTED_PACKAGES[@]} -gt 0 ]]; then
         success "All selected packages were installed successfully."
-    else
+    elif [[ ${#FAILED_PACKAGES[@]} -gt 0 ]]; then
         warning "Some packages could not be installed:"
         echo
         for package in "${FAILED_PACKAGES[@]}"; do
@@ -3120,6 +3545,12 @@ show_final_summary() {
         done
         echo
         warning "The failed packages can be installed manually later."
+    fi
+
+    if ((${#SKIPPED_PACKAGES[@]} > 0)); then
+        warning "Packages skipped at your request:"
+        printf '  - %s\n' "${SKIPPED_PACKAGES[@]}"
+        info "Run PoeDeploy again, answer yes to the previous-run question, and select Applications to retry them."
     fi
 
     echo
@@ -3156,6 +3587,11 @@ show_final_summary() {
 
     echo
     echo "THIS RUN"
+    echo "  Mode:             $RUN_MODE"
+    local module
+    for module in "${PROCESSED_SETUP_MODULES[@]}"; do
+        printf '  Section visited:  %s\n' "${SETUP_MODULE_LABELS[$module]}"
+    done
     echo "  ML4W:             $ML4W_ACTION"
     echo "  SDDM setup:       $SDDM_ACTION"
     echo "  Applications:     $APPLICATIONS_ACTION"
@@ -3167,115 +3603,113 @@ show_final_summary() {
     echo
 }
 
+show_secure_boot_next_steps() {
+    case "$SECURE_BOOT_ACTION" in
+        "keys created but not enrolled")
+            warning "Secure Boot is not ready: the new keys have not been enrolled."
+            info "Use your firmware's documented procedure to enter Secure Boot Setup Mode."
+            info "Custom mode alone may not enable Setup Mode. Check with: sudo sbctl status"
+            info "Boot Arch again, rerun PoeDeploy, answer yes to having run it before, and select only Secure Boot."
+            info "Complete ENROLL and SIGN before enabling Secure Boot enforcement."
+            ;;
+        "waiting for verified UKI boot")
+            info "Reboot through the UKI entry first, then rerun only the Secure Boot section."
+            ;;
+        "configured and verified")
+            info "Boot files have been signed. Confirm with: sudo sbctl status && sudo sbctl verify"
+            info "With your keys enrolled and boot files verified, enable Secure Boot in firmware if needed."
+            info "Boot the signed UKI and confirm that sudo sbctl status reports Secure Boot: Enabled."
+            ;;
+    esac
+}
+
 # ============================================================
 
 # 20. MAIN
 
 # ============================================================
 
+run_setup_module() {
+    case "$1" in
+        update) update_system ;;
+        yay) wait_for_pacman_lock; install_yay ;;
+        base) wait_for_pacman_lock; install_base_tools ;;
+        gpu)
+            ensure_command_dependencies lspci:pciutils
+            detect_gpu
+            wait_for_pacman_lock
+            install_nvidia_driver
+            ;;
+        network) wait_for_pacman_lock; check_networkmanager ;;
+        plymouth)
+            ensure_command_dependencies curl:curl jq:jq unzip:unzip file:file mkinitcpio:mkinitcpio objcopy:binutils
+            wait_for_pacman_lock
+            setup_plymouth
+            ;;
+        uki)
+            ensure_command_dependencies curl:curl file:file mkinitcpio:mkinitcpio
+            setup_uki
+            ;;
+        timeshift) wait_for_pacman_lock; check_timeshift ;;
+        ml4w) ensure_command_dependencies curl:curl; install_ml4w ;;
+        sddm) wait_for_pacman_lock; choose_sddm_setup ;;
+        applications)
+            wait_for_pacman_lock
+            select_applications
+            install_selected_applications
+            ;;
+        browser) ensure_command_dependencies xdg-settings:xdg-utils; select_default_browser ;;
+        shares) configure_network_shares ;;
+        tailscale) wait_for_pacman_lock; configure_tailscale ;;
+        secure_boot) ensure_command_dependencies objcopy:binutils; wait_for_pacman_lock; setup_secure_boot ;;
+        *) die "Unknown setup section: $1" ;;
+    esac
+}
+
+run_selected_setup_modules() {
+    local module
+    # Always use dependency order, even when the user selects in another order.
+    for module in "${SETUP_MODULE_IDS[@]}"; do
+        if [[ "${SELECTED_SETUP_MODULES[$module]:-false}" == true ]]; then
+            info "Running section: ${SETUP_MODULE_LABELS[$module]}"
+            run_setup_module "$module"
+            PROCESSED_SETUP_MODULES+=("$module")
+        fi
+    done
+}
+
 main() {
-
     load_version
-
     show_header
-
     check_not_root
-
-    confirm_start
-
-    # Initial checks
-
     check_arch
 
-    check_internet
+    if ! choose_setup_modules; then
+        info "Setup cancelled before making system changes."
+        return 0
+    fi
+    add_required_setup_modules
+    show_selected_setup_modules
+    confirm_start
 
-    # Update Arch
-
-    update_system
-
-    # Package manager
-
-    install_yay
-
-    # Base tools
-
-    install_base_tools
-
-    # Hardware
-
+    # Read-only assessment: no packages, services, splash files or presets change.
     detect_gpu
-
-    install_nvidia_driver
-
-    # System
-
     detect_bootloader
     detect_uki
-    check_networkmanager
     detect_filesystem
     check_graphical_environment
     save_initial_graphical_status
-
-
-    # Initial assessment
-
     show_summary
 
-    echo
-
-    read -rp "Continue with system configuration? [Y/n]: " answer
-
-    if [[ -n "$answer" && ! "$answer" =~ ^[Yy]$ ]]; then
-
-        info "Installation cancelled."
-
-        exit 0
-
+    if [[ "$RUN_MODE" == full ]]; then
+        check_internet
     fi
-
-    # Plymouth
-
-    setup_plymouth
-
-    # Unified kernel image (optional, keeps traditional entries as fallbacks)
-
-    setup_uki
-
-    # Timeshift
-
-    check_timeshift
-
-    # ML4W (optional)
-
-    install_ml4w
-
-    # SDDM / graphical login
-
-    setup_sddm
-
-    # Applications
-
-    select_applications
-
-    install_selected_applications
-
-    select_default_browser
-
-    # Network shares
-
-    configure_network_shares
-
-    # Tailscale configuration
-
-    configure_tailscale
-
-    # Secure Boot (optional and explicitly confirmed)
-
-    setup_secure_boot
+    run_selected_setup_modules
 
     # Final result
 
     show_final_summary
+    show_secure_boot_next_steps
 
     echo
 
@@ -3290,6 +3724,10 @@ main() {
     if [[ ${#FAILED_PACKAGES[@]} -gt 0 ]]; then
 
         warning "Setup completed with some package failures."
+
+    elif [[ ${#SKIPPED_PACKAGES[@]} -gt 0 ]]; then
+
+        warning "Selected setup sections finished with some applications skipped."
 
     else
 
@@ -3311,4 +3749,6 @@ main() {
 
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
