@@ -1934,8 +1934,10 @@ run_boot_verification_check() {
 }
 
 get_present_fallback_boot_paths() {
-    local esp architecture path
-    esp=$(run_boot_verification_check "Locating the EFI partition" bootctl --print-esp-path) || return 1
+    local esp="${1:-}" architecture path
+    if [[ -z "$esp" ]]; then
+        esp=$(run_boot_verification_check "Locating the EFI partition" bootctl --print-esp-path) || return 1
+    fi
     [[ "$esp" == /* ]] || return 1
     esp=$(realpath -ms -- "$esp") || return 1
     for architecture in X64 IA32 AA64; do
@@ -1946,13 +1948,13 @@ get_present_fallback_boot_paths() {
 }
 
 get_systemd_boot_files() {
-    local esp current path architecture
+    local esp="${1:-}" current="${2:-}" path architecture
     local -a paths=()
-    if ! esp=$(run_boot_verification_check "Locating the EFI partition" bootctl --print-esp-path); then
+    if [[ -z "$esp" ]] && ! esp=$(run_boot_verification_check "Locating the EFI partition" bootctl --print-esp-path); then
         warning "Could not read the ESP path (bootctl --print-esp-path)." >&2
         return 1
     fi
-    if ! current=$(run_boot_verification_check "Locating the active bootloader" bootctl --print-loader-path); then
+    if [[ -z "$current" ]] && ! current=$(run_boot_verification_check "Locating the active bootloader" bootctl --print-loader-path); then
         warning "Could not read the active loader path (bootctl --print-loader-path)." >&2
         return 1
     fi
@@ -2090,14 +2092,19 @@ verify_secure_boot_after_uki_rebuild() {
 verify_active_secure_boot_chain() {
     SECURE_BOOT_VERIFY_STATUS="verification failed"
     SECURE_BOOT_OTHER_FILES_WARNING=false
-    local loaders loader uki report path repaired_report fallbacks fallback_report image_type
+    local esp loaders loader uki report path repaired_report fallbacks fallback_report image_type
     local -a uki_paths=()
-    if ! loaders=$(get_systemd_boot_files); then
-        warning "Could not identify the active boot chain."
+    if ! esp=$(run_boot_verification_check "Locating the EFI partition" bootctl --print-esp-path); then
+        warning "Could not read the ESP path (bootctl --print-esp-path)."
         return 1
     fi
     if ! loader=$(run_boot_verification_check "Locating the active bootloader" bootctl --print-loader-path); then
         warning "Could not read the active loader path (bootctl --print-loader-path)."
+        return 1
+    fi
+    # Reuse this check's discovered paths, not a cache from a previous run.
+    if ! loaders=$(get_systemd_boot_files "$esp" "$loader"); then
+        warning "Could not identify the active boot chain."
         return 1
     fi
     if ! uki=$(run_boot_verification_check "Locating the current UKI" bootctl --print-stub-path); then
@@ -2151,7 +2158,7 @@ verify_active_secure_boot_chain() {
 
     # Repair only identified fallback copies after the active loader and UKI
     # verify with the existing key. This never creates or enrolls keys.
-    if ! fallbacks=$(get_present_fallback_boot_paths); then
+    if ! fallbacks=$(get_present_fallback_boot_paths "$esp"); then
         SECURE_BOOT_OTHER_FILES_WARNING=true
         warning "Fallback discovery failed; fallback protection is unverified."
         fallbacks=""
@@ -3999,6 +4006,10 @@ setup_secure_boot() {
 
 # ============================================================
 
+summary_row() {
+    printf '  %-18s %b\n' "${1}:" "$2"
+}
+
 show_final_summary() {
     check_graphical_environment
 
@@ -4030,54 +4041,54 @@ show_final_summary() {
 
     echo
     echo "SYSTEM STATE"
-    echo "  Version:         $SCRIPT_VERSION"
-    echo "  GPU:             $GPU_VENDOR"
-    echo "  Bootloader:      $BOOTLOADER"
-    echo "  UKI:             $UKI_STATUS"
-    echo "  Root filesystem: $ROOT_FILESYSTEM"
+    summary_row "Version" "$SCRIPT_VERSION"
+    summary_row "GPU" "$GPU_VENDOR"
+    summary_row "Bootloader" "$BOOTLOADER"
+    summary_row "UKI" "$UKI_STATUS"
+    summary_row "Root filesystem" "$ROOT_FILESYSTEM"
     echo
 
     if pacman -Q plymouth &>/dev/null; then
-        echo -e "  Plymouth:        ${GREEN}installed${NC}"
+        summary_row "Plymouth" "${GREEN}installed${NC}"
     else
-        echo -e "  Plymouth:        ${RED}not installed${NC}"
+        summary_row "Plymouth" "${RED}not installed${NC}"
     fi
 
     if pacman -Q timeshift &>/dev/null; then
-        echo -e "  Timeshift:       ${GREEN}installed${NC}"
+        summary_row "Timeshift" "${GREEN}installed${NC}"
     else
-        echo -e "  Timeshift:       ${YELLOW}not installed${NC}"
+        summary_row "Timeshift" "${YELLOW}not installed${NC}"
     fi
 
     if command -v yay &>/dev/null; then
-        echo -e "  yay:             ${GREEN}installed${NC}"
+        summary_row "yay" "${GREEN}installed${NC}"
     else
-        echo -e "  yay:             ${RED}not installed${NC}"
+        summary_row "yay" "${RED}not installed${NC}"
     fi
 
-    echo "  Hyprland:         $(format_status_change "$HYPRLAND_STATUS" "$HYPRLAND_INITIAL_STATUS")"
-    echo "  SDDM:             $(format_status_change "$SDDM_STATUS" "$SDDM_INITIAL_STATUS")"
-    echo "  SDDM now:         $SDDM_ACTIVE_STATUS"
-    echo "  ML4W SDDM theme:  $(format_status_change "$SDDM_THEME_STATUS" "$SDDM_THEME_INITIAL_STATUS")"
+    summary_row "Hyprland" "$(format_status_change "$HYPRLAND_STATUS" "$HYPRLAND_INITIAL_STATUS")"
+    summary_row "SDDM" "$(format_status_change "$SDDM_STATUS" "$SDDM_INITIAL_STATUS")"
+    summary_row "SDDM now" "$SDDM_ACTIVE_STATUS"
+    summary_row "ML4W SDDM theme" "$(format_status_change "$SDDM_THEME_STATUS" "$SDDM_THEME_INITIAL_STATUS")"
 
     echo
     echo "THIS RUN"
-    echo "  Mode:             $RUN_MODE"
+    summary_row "Mode" "$RUN_MODE"
     local module
     for module in "${PROCESSED_SETUP_MODULES[@]}"; do
-        printf '  Section visited:  %s\n' "${SETUP_MODULE_LABELS[$module]}"
+        summary_row "Section visited" "${SETUP_MODULE_LABELS[$module]}"
     done
-    echo "  ML4W:             $ML4W_ACTION"
-    echo "  SDDM setup:       $SDDM_ACTION"
-    echo "  Applications:     $APPLICATIONS_ACTION"
-    echo "  Default browser:  $DEFAULT_BROWSER_ACTION"
-    echo "  UKI setup:        $UKI_ACTION"
-    echo "  SMB:              $SMB_ACTION"
-    echo "  NFS:              $NFS_ACTION"
-    echo "  Secure Boot setup: $SECURE_BOOT_ACTION"
-    echo "  Signature check:   $SECURE_BOOT_VERIFY_STATUS"
-    echo "  Boot images:       $BOOT_IMAGE_ACTION"
-    echo "  Automatic signing: $SECURE_BOOT_AUTOMATIC_ACTION"
+    summary_row "ML4W" "$ML4W_ACTION"
+    summary_row "SDDM setup" "$SDDM_ACTION"
+    summary_row "Applications" "$APPLICATIONS_ACTION"
+    summary_row "Default browser" "$DEFAULT_BROWSER_ACTION"
+    summary_row "UKI setup" "$UKI_ACTION"
+    summary_row "SMB" "$SMB_ACTION"
+    summary_row "NFS" "$NFS_ACTION"
+    summary_row "Secure Boot setup" "$SECURE_BOOT_ACTION"
+    summary_row "Signature check" "$SECURE_BOOT_VERIFY_STATUS"
+    summary_row "Boot images" "$BOOT_IMAGE_ACTION"
+    summary_row "Automatic signing" "$SECURE_BOOT_AUTOMATIC_ACTION"
     echo
 }
 

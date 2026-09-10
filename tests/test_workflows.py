@@ -406,12 +406,15 @@ VERIFIED_PLYMOUTH_UKIS["$test_uki"]=true
 firmware_secure_boot_enabled() { return 0; }
 get_configured_uki_paths() { printf '%s\n' "$test_uki"; }
 original_discovery=$(declare -f get_systemd_boot_files)
+original_fallback_discovery=$(declare -f get_present_fallback_boot_paths)
 get_systemd_boot_files() { printf '%s\n' "$test_loader" "$fallback"; }
 get_present_fallback_boot_paths() { printf '%s\n' "$fallback"; }
 sbctl() { :; }
 sudo() {
     case "$*" in
         'bootctl --print-esp-path') printf '/boot\n' ;;
+        'test -f /boot/EFI/BOOT/BOOTX64.EFI') return 0 ;;
+        'test -f /boot/EFI/BOOT/BOOTIA32.EFI'|'test -f /boot/EFI/BOOT/BOOTAA64.EFI') return 1 ;;
         'bootctl status'*) echo UNEXPECTED_STATUS >&2; return 137 ;;
         'bootctl --print-loader-path') printf '%s\n' "$test_loader" ;;
         'bootctl --print-stub-path') printf '%s\n' "$test_uki" ;;
@@ -456,6 +459,37 @@ if verify_secure_boot_after_uki_rebuild; then exit 90; fi
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("Active Secure Boot chain verified.", result.stdout)
         self.assertIn("Checking signature: /boot/EFI/Linux/arch-linux.efi", result.stderr)
+
+    def test_active_chain_discovers_each_path_once_per_verification(self):
+        result = self.run_active_chain_case(r'''
+eval "$original_discovery"
+eval "$original_fallback_discovery"
+is_systemd_boot_binary() { [[ "$1" == "$test_loader" || "$1" == "$fallback" ]]; }
+fallback_signed=1
+verify_secure_boot_after_uki_rebuild
+verify_secure_boot_after_uki_rebuild
+''')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # No duplicate queries within a check, but fresh discovery next time.
+        self.assertEqual(result.stderr.count("Locating the EFI partition"), 2)
+        self.assertEqual(result.stderr.count("Locating the active bootloader"), 2)
+        self.assertEqual(result.stderr.count("Locating the current UKI"), 2)
+
+    def test_final_summary_aligns_all_field_values(self):
+        output = self.check_run(r'''
+check_graphical_environment() { :; }
+pacman() { return 1; }
+show_final_summary
+''')
+        rows = [line for line in output.splitlines() if line.startswith("  ") and ":" in line]
+        self.assertGreater(len(rows), 20)
+        for row in rows:
+            with self.subTest(row=row):
+                prefix = row[:21]
+                self.assertIn(":", prefix)
+                self.assertTrue(prefix.endswith(" "))
+                self.assertTrue(row[21:], row)
+                self.assertFalse(row[21].isspace(), row)
 
     def test_additional_configured_uki_must_also_be_signed(self):
         result = self.run_active_chain_case(r'''
