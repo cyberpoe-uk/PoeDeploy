@@ -13,6 +13,7 @@ import signal
 import shutil
 import subprocess
 import termios
+import tempfile
 import time
 import unittest
 
@@ -285,12 +286,14 @@ sudo() {
     case "$*" in
         'bootctl --print-esp-path') printf '/boot/\n' ;;
         'bootctl --print-loader-path') printf '/boot//EFI/systemd/systemd-bootx64.efi\n' ;;
-        'bootctl status --no-pager') printf '%s\n' \
-            ' File: ├─/boot//EFI/systemd/systemd-bootx64.efi (systemd-boot 261.2-1-arch)' \
-            '       └─/boot//EFI/BOOT/BOOTX64.EFI (systemd-boot 261.2-1-arch)' \
-            '       └─/efi/EFI/BOOT/BOOTX64.EFI (systemd-boot 261.2-1-arch)' \
-            '       └─/boot/EFI/BOOT/BOOTIA32.EFI (shim 15.8)' ;;
+        'bootctl status'*) echo UNEXPECTED_STATUS >&2; return 137 ;;
         *) exit 97 ;;
+    esac
+}
+is_systemd_boot_binary() {
+    case "$1" in
+        /boot/EFI/systemd/systemd-bootx64.efi|/boot/EFI/BOOT/BOOTX64.EFI) return 0 ;;
+        *) return 1 ;;
     esac
 }
 [[ "$(get_systemd_boot_files)" == $'/boot/EFI/BOOT/BOOTX64.EFI\n/boot/EFI/systemd/systemd-bootx64.efi' ]]
@@ -302,13 +305,75 @@ sudo() {
     case "$*" in
         'bootctl --print-esp-path') printf '/boot\n' ;;
         'bootctl --print-loader-path') printf '/boot/EFI/BOOT/BOOTX64.EFI\n' ;;
-        'bootctl status --no-pager') printf '%s\n' \
-            '/boot/EFI/BOOT/BOOTX64.EFI (shim 15.8)' ;;
         *) exit 97 ;;
     esac
 }
+is_systemd_boot_binary() { return 1; }
 if get_systemd_boot_files; then exit 90; fi
 ''')
+
+    def test_loader_marker_requires_mz_and_systemd_boot_product(self):
+        with tempfile.TemporaryDirectory(prefix="poedeploy-loader-test-") as directory:
+            fixture = Path(directory) / "loader.efi"
+            cases = (
+                (b"MZ\0#### LoaderInfo: systemd-boot 261.2-1-arch ####\0", True),
+                (b"MZ\0#### LoaderInfo: systemd-stub 261 ####\0", False),
+                (b"MZ\0#### LoaderInfo: shim 15.8 ####\0", False),
+                (b"MZ\0systemd-boot\0", False),
+                (b"#### LoaderInfo: systemd-boot 261 ####", False),
+            )
+            for data, valid in cases:
+                with self.subTest(data=data):
+                    fixture.write_bytes(data)
+                    self.check_run(f'fixture={str(fixture)!r}\nexpected={str(valid).lower()}\n' + r'''
+sudo() {
+    case "$1" in test|head|grep) command "$@" ;; *) exit 97 ;; esac
+}
+actual=false
+if is_systemd_boot_binary "$fixture"; then actual=true; fi
+[[ "$actual" == "$expected" ]]
+if is_systemd_boot_binary "${fixture}.missing"; then exit 90; fi
+''')
+
+    def test_discovery_reports_path_query_failure(self):
+        for option in ("--print-esp-path", "--print-loader-path"):
+            with self.subTest(option=option):
+                result = run_bash(f'failed_option={option}\n' + r'''
+sudo() {
+    [[ "$*" != "bootctl $failed_option" ]] || return 137
+    [[ "$*" == 'bootctl --print-esp-path' ]] || exit 97
+    echo /boot
+}
+if get_systemd_boot_files; then exit 90; fi
+''')
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(option, result.stderr)
+
+    def test_discovery_refuses_loader_outside_esp(self):
+        self.check_run(r'''
+sudo() {
+    case "$*" in
+        'bootctl --print-esp-path') echo /boot ;;
+        'bootctl --print-loader-path') echo /other/EFI/systemd/systemd-bootx64.efi ;;
+        *) exit 97 ;;
+    esac
+}
+is_systemd_boot_binary() { return 0; }
+if get_systemd_boot_files; then exit 90; fi
+''')
+
+    def test_bootloader_detection_uses_targeted_query_not_status(self):
+        output = self.check_run(r'''
+bootctl() { echo UNEXPECTED_STATUS >&2; return 137; }
+sudo() {
+    [[ "$*" == 'bootctl --print-loader-path' ]] || exit 97
+    echo /boot/EFI/systemd/systemd-bootx64.efi
+}
+is_systemd_boot_binary() { [[ "$1" == /boot/EFI/systemd/systemd-bootx64.efi ]]; }
+detect_bootloader
+[[ "$BOOTLOADER" == systemd-boot ]]
+''')
+        self.assertIn("Bootloader: systemd-boot", output)
 
     def run_active_chain_case(self, body):
         return run_bash(r'''
@@ -327,10 +392,13 @@ sign_ineffective=false
 VERIFIED_PLYMOUTH_UKIS["$test_uki"]=true
 firmware_secure_boot_enabled() { return 0; }
 get_configured_uki_paths() { printf '%s\n' "$test_uki"; }
+original_discovery=$(declare -f get_systemd_boot_files)
 get_systemd_boot_files() { printf '%s\n' "$test_loader" "$fallback"; }
 sbctl() { :; }
 sudo() {
     case "$*" in
+        'bootctl --print-esp-path') printf '/boot\n' ;;
+        'bootctl status'*) echo UNEXPECTED_STATUS >&2; return 137 ;;
         'bootctl --print-loader-path') printf '%s\n' "$test_loader" ;;
         'bootctl --print-stub-path') printf '%s\n' "$test_uki" ;;
         "bootctl kernel-identify $test_uki") printf 'uki\n' ;;
@@ -349,6 +417,17 @@ sudo() {
     esac
 }
 ''' + body)
+
+    def test_active_chain_verifies_when_full_bootctl_status_is_killed(self):
+        result = self.run_active_chain_case(r'''
+eval "$original_discovery"
+is_systemd_boot_binary() { [[ "$1" == "$test_loader" || "$1" == "$fallback" ]]; }
+verify_secure_boot_after_uki_rebuild
+[[ "$SECURE_BOOT_VERIFY_STATUS" == 'active Secure Boot chain verified' ]]
+[[ "$sign_calls" == 1 ]]
+''')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("UNEXPECTED_STATUS", result.stdout + result.stderr)
 
     def test_unsigned_fallback_is_automatically_signed_and_verified_once(self):
         result = self.run_active_chain_case(r'''

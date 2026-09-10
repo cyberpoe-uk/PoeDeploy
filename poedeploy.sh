@@ -813,11 +813,12 @@ detect_bootloader() {
 
     if command -v bootctl &>/dev/null; then
 
-        local bootctl_status
+        local loader_path
 
-        bootctl_status=$(SYSTEMD_PAGER=cat bootctl status 2>&1 || true)
-
-        if grep -qiE 'Product:[[:space:]]*systemd-boot' <<< "$bootctl_status"; then
+        # The full status report also inspects boot entries and UKIs. It is not
+        # needed to identify the loader and can fail independently of booting.
+        if loader_path=$(sudo bootctl --print-loader-path) &&
+           [[ "$loader_path" == /* ]] && is_systemd_boot_binary "$loader_path"; then
 
             BOOTLOADER="systemd-boot"
 
@@ -1903,31 +1904,51 @@ plymouth_theme_is_available() {
         grep -Fx "$theme" >/dev/null
 }
 
+is_systemd_boot_binary() {
+    local path="$1"
+    sudo test -f "$path" || return 1
+    [[ "$(sudo head -c 2 -- "$path")" == MZ ]] || return 1
+    # systemd embeds this LoaderInfo marker to identify its own EFI binaries.
+    # This identifies the product, NOT its signature; sbctl verifies that later.
+    LC_ALL=C sudo grep -aE -- \
+        '#### LoaderInfo: systemd-boot [^#[:cntrl:]]{1,256} ####' "$path" >/dev/null
+}
+
 get_systemd_boot_files() {
-    local esp status current line path paths=""
-    esp=$(sudo bootctl --print-esp-path) || return 1
-    current=$(sudo bootctl --print-loader-path) || return 1
-    [[ "$esp" == /* && "$current" == /* ]] || return 1
+    local esp current path architecture
+    local -a paths=()
+    if ! esp=$(sudo bootctl --print-esp-path); then
+        warning "Could not read the ESP path (bootctl --print-esp-path)." >&2
+        return 1
+    fi
+    if ! current=$(sudo bootctl --print-loader-path); then
+        warning "Could not read the active loader path (bootctl --print-loader-path)." >&2
+        return 1
+    fi
+    if [[ "$esp" != /* || "$current" != /* ]]; then
+        warning "bootctl returned an invalid ESP or active loader path." >&2
+        return 1
+    fi
     esp=$(realpath -ms -- "$esp") || return 1
     current=$(realpath -ms -- "$current") || return 1
-    status=$(LC_ALL=C sudo bootctl status --no-pager) || return 1
 
-    # Only include binaries bootctl identifies as systemd-boot on this ESP.
-    # A fallback filename alone does not identify its owner (it could be shim,
-    # GRUB or another OS's loader). Do not sign those merely by location.
-    local pattern='(/[^[:space:]]*/EFI/(systemd/systemd-boot(x64|ia32|aa64)\.efi|BOOT/BOOT(X64|IA32|AA64)\.EFI))[[:space:]]+\(systemd-boot[[:space:]]'
-    while IFS= read -r line; do
-        [[ "$line" =~ $pattern ]] || continue
-        path=$(realpath -ms -- "${BASH_REMATCH[1]}") || return 1
-        [[ "$path" == "$esp"/EFI/* ]] || continue
-        paths+="$path"$'\n'
-    done <<< "$status"
-
-    if ! grep -Fx "$current" <<< "$paths" >/dev/null; then
+    if [[ "$current" != "${esp%/}"/EFI/* ]] || ! is_systemd_boot_binary "$current"; then
         warning "Could not identify the current systemd-boot binary on the ESP." >&2
         return 1
     fi
-    printf '%s' "$paths" | sort -u
+    paths+=("$current")
+    # Inspect only the small loader binaries, never the full bootctl status
+    # report. A filename alone must not authorize signing a shim/GRUB fallback.
+    for architecture in x64 ia32 aa64; do
+        for path in "${esp%/}/EFI/systemd/systemd-boot${architecture}.efi" \
+                    "${esp%/}/EFI/BOOT/BOOT${architecture^^}.EFI"; do
+            [[ "$path" != "$current" ]] || continue
+            if is_systemd_boot_binary "$path"; then
+                paths+=("$path")
+            fi
+        done
+    done
+    printf '%s\n' "${paths[@]}" | sort -u
 }
 
 read_sbctl_signature_report() {
@@ -2037,10 +2058,16 @@ verify_active_secure_boot_chain() {
     SECURE_BOOT_VERIFY_STATUS="verification failed"
     SECURE_BOOT_OTHER_FILES_WARNING=false
     local loaders loader uki report path repaired_report
-    if ! loaders=$(get_systemd_boot_files) ||
-       ! loader=$(sudo bootctl --print-loader-path) ||
-       ! uki=$(sudo bootctl --print-stub-path); then
+    if ! loaders=$(get_systemd_boot_files); then
         warning "Could not identify the active boot chain."
+        return 1
+    fi
+    if ! loader=$(sudo bootctl --print-loader-path); then
+        warning "Could not read the active loader path (bootctl --print-loader-path)."
+        return 1
+    fi
+    if ! uki=$(sudo bootctl --print-stub-path); then
+        warning "Could not read the current UKI path (bootctl --print-stub-path)."
         return 1
     fi
     [[ "$loader" == /* && "$uki" == /* ]] || return 1

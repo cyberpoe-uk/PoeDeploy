@@ -4,7 +4,7 @@
   <img src="assets/poedeploy-logo.png" alt="PoeDeploy logo" width="500">
 </p>
 
-PoeDeploy is a personal automated post-installation setup script for Arch Linux.
+PoeDeploy is a modular automated post-installation setup script for Arch Linux.
 
 The goal of this project is to make a fresh Arch Linux installation reproducible without creating a complete custom Arch ISO.
 
@@ -156,7 +156,10 @@ when the user explicitly selects Secure Boot.
 Signature verification reads `sbctl --json verify` per-file results: a successful
 command exit alone does not mean all files are signed. A Plymouth rebuild requires
 every configured active UKI to have a signed result. With systemd-boot, it also
-checks the current loader and fallback copies identified by `bootctl` on the ESP.
+checks the current loader and identified fallback copies on the ESP. Discovery
+uses targeted `bootctl` path queries and the embedded systemd-boot `LoaderInfo`
+marker in the EFI binaries, not the full `bootctl status` report. The marker only
+identifies the product; signatures are still checked separately with `sbctl`.
 The Secure Boot setup section registers and signs these identified copies,
 including `EFI/BOOT/BOOTX64.EFI`. PoeDeploy does not register or separately sign
 standalone `/boot/vmlinuz-*` kernels; its signing commands target bootloaders and UKIs.
