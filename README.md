@@ -153,6 +153,30 @@ enabled, the mkinitcpio `sbctl` post-hook signs the rebuilt image and PoeDeploy 
 `sbctl verify` afterward. The full key creation and enrollment section runs only
 when the user explicitly selects Secure Boot.
 
+Signature verification reads `sbctl --json verify` per-file results: a successful
+command exit alone does not mean all files are signed. A Plymouth rebuild requires
+every configured active UKI to have a signed result. With systemd-boot, it also
+checks the current loader and fallback copies identified by `bootctl` on the ESP.
+The Secure Boot setup section registers and signs these identified copies,
+including `EFI/BOOT/BOOTX64.EFI`. PoeDeploy does not register or separately sign
+standalone `/boot/vmlinuz-*` kernels; its signing commands target bootloaders and UKIs.
+After an already-enabled Secure Boot system rebuilds its UKIs, PoeDeploy can also
+automatically sign and register an unsigned identified systemd-boot fallback. It
+first verifies the active loader and current UKI against the existing signing key
+and confirms the current UKI's Plymouth configuration. It never signs an unknown
+fallback merely because its filename matches, and does not reopen key enrollment.
+It verifies the fallback again after signing; a failure remains a separate warning
+without claiming that fallback protection passed.
+Other unsigned files are reported separately. On a verified UKI boot, the unsigned
+standalone `/boot/vmlinuz-*` kernel is informational because it is outside that boot
+chain; it remains a failure if explicitly included among required files.
+The report identifies the active loader and current UKI by path, verifies the
+persistent kernel arguments embedded in the UKI, and reports fallback and standalone
+kernel signatures separately. Standalone kernel signatures are reported only.
+The summary separates Secure Boot setup, signature verification, boot image rebuilds,
+and automatic fallback signing. Signing a standalone kernel does not authenticate
+an external initramfs or command line; the signed UKI remains the intended boot path.
+
 If the summary reports **keys created but not enrolled**, use the firmware's
 documented procedure to enter Secure Boot Setup Mode. Custom mode by itself may
 not enable Setup Mode; check using `sudo sbctl status` after returning to Arch.
