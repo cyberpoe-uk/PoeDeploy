@@ -991,17 +991,15 @@ prepare_uki_kernel_cmdline() {
     echo
     printf '  %s\n' "$candidate"
     echo
+    info "Plymouth requires 'quiet splash'; 'bgrt_disable' suppresses the firmware/default Arch logo."
+    info "Root and filesystem arguments will be preserved; legacy BOOT_IMAGE/initrd references are omitted for the UKI."
+    info "Updating /etc/kernel/cmdline; sudo may request your password."
 
-    local confirmation
-    read -rp "Write this to /etc/kernel/cmdline? [y/N]: " confirmation
-
-    if [[ ! "$confirmation" =~ ^[Yy]$ ]]; then
-        info "UKI setup cancelled before changing the kernel command line."
-        return 1
-    fi
-
-    if [[ -e /etc/kernel/cmdline ]]; then
-        sudo cp -n /etc/kernel/cmdline /etc/kernel/cmdline.poedeploy.bak 2>/dev/null || true
+    if [[ -e /etc/kernel/cmdline ]] && ! sudo test -e /etc/kernel/cmdline.poedeploy.bak; then
+        if ! sudo cp -n /etc/kernel/cmdline /etc/kernel/cmdline.poedeploy.bak; then
+            warning "Could not preserve the kernel command line backup; leaving the file unchanged."
+            return 1
+        fi
     fi
 
     UKI_CMDLINE_WRITE_ATTEMPTED=true
@@ -1706,10 +1704,20 @@ set_mkinitcpio_preset_splash() {
     local line value token skip_next=false
     local -a options=()
     local -a current_options=()
+    local native_splash=false
+    if grep -Eq "^[[:space:]]*(ALL|${name})_splash[[:space:]]*=" "$preset"; then
+        native_splash=true
+    fi
 
     line=$(grep -E "^[[:space:]]*${name}_options[[:space:]]*=" "$preset" | tail -n 1 || true)
     if [[ -n "$line" ]]; then
         value="${line#*=}"
+        value="${value#"${value%%[![:space:]]*}"}"
+        value="${value%"${value##*[![:space:]]}"}"
+        if [[ "$value" == \(* ]]; then
+            warning "Array-style options in $preset require manual splash configuration; leaving the preset unchanged."
+            return 1
+        fi
         value="${value#\"}"
         value="${value%\"}"
         value="${value#\'}"
@@ -1727,20 +1735,32 @@ set_mkinitcpio_preset_splash() {
             esac
         done
     fi
-    options+=(--splash "$splash")
+    if [[ "$native_splash" != true ]]; then
+        options+=(--splash "$splash")
+    fi
 
     local replacement="${name}_options=\"${options[*]}\""
     local staged
     staged=$(mktemp -t poedeploy-preset-XXXXXX)
-    if ! awk -v variable="${name}_options" -v replacement="$replacement" '
+    if ! awk -v variable="${name}_options" -v replacement="$replacement" \
+        -v native="$native_splash" -v splash_variable="${name}_splash" \
+        -v splash_replacement="${name}_splash=\"${splash}\"" '
         BEGIN { replaced = 0 }
         $0 ~ "^[[:space:]]*" variable "[[:space:]]*=" {
             if (!replaced) print replacement
             replaced = 1
             next
         }
+        native == "true" && $0 ~ "^[[:space:]]*" splash_variable "[[:space:]]*=" {
+            if (!splash_replaced) print splash_replacement
+            splash_replaced = 1
+            next
+        }
         { print }
-        END { if (!replaced) print replacement }
+        END {
+            if (!replaced) print replacement
+            if (native == "true" && !splash_replaced) print splash_replacement
+        }
     ' "$preset" > "$staged" || ! sudo cp "$staged" "$preset"; then
         rm -f "$staged"
         return 1
@@ -1780,6 +1800,19 @@ stage_uki_for_verification() {
         -o "$(id -u)" \
         -g "$(id -g)" \
         -- "$source" "$destination"
+}
+
+extract_uki_section() {
+    local uki="$1" section="$2" destination="$3"
+    # objcopy needs a regular output file for PE images, even for --dump-section.
+    # /dev/null can report "file truncated" after successfully dumping a section.
+    local result=0
+    if ! objcopy --dump-section "${section}=${destination}" "$uki" "${destination}.efi" ||
+       [[ ! -s "$destination" ]]; then
+        result=1
+    fi
+    rm -f -- "${destination}.efi"
+    return "$result"
 }
 
 uki_contains_plymouth_theme() {
@@ -1878,8 +1911,10 @@ verify_uki_plymouth_setup() {
 
         cmdline_file="$verify_dir/cmdline-${index}"
         splash_file="$verify_dir/splash-${index}.bmp"
-        if ! objcopy --dump-section ".cmdline=$cmdline_file" "$readable_uki" /dev/null 2>/dev/null ||
-           ! tr '\0' ' ' < "$cmdline_file" | grep -Eq '(^|[[:space:]])splash([[:space:]]|$)'; then
+        if ! extract_uki_section "$readable_uki" .cmdline "$cmdline_file"; then
+            warning "Could not extract the UKI kernel command line: $uki_path"
+            failed=true
+        elif ! tr '\0' ' ' < "$cmdline_file" | grep -E '(^|[[:space:]])splash([[:space:]]|$)' >/dev/null; then
             warning "The generated UKI does not contain the splash kernel option: $uki_path"
             failed=true
         fi
@@ -1888,9 +1923,11 @@ verify_uki_plymouth_setup() {
             warning "The generated UKI does not contain the selected Plymouth theme '$theme': $uki_path"
             failed=true
         fi
-        if [[ -f /usr/share/systemd/bootctl/splash-arch.bmp ]] &&
-           objcopy --dump-section ".splash=$splash_file" "$readable_uki" /dev/null 2>/dev/null &&
-           cmp -s "$splash_file" /usr/share/systemd/bootctl/splash-arch.bmp; then
+        if ! extract_uki_section "$readable_uki" .splash "$splash_file"; then
+            warning "Could not extract the UKI splash image: $uki_path"
+            failed=true
+        elif [[ -f /usr/share/systemd/bootctl/splash-arch.bmp ]] &&
+             cmp -s "$splash_file" /usr/share/systemd/bootctl/splash-arch.bmp; then
             warning "The generated UKI still contains the default Arch firmware splash: $uki_path"
             failed=true
         fi
@@ -1921,12 +1958,12 @@ install_poedeploy_plymouth_theme() {
 
     if ! command -v curl >/dev/null 2>&1; then
         warning "curl is unavailable; skipping the PoeDeploy Plymouth theme download."
-        return 0
+        return 1
     fi
 
     if ! command -v unzip >/dev/null 2>&1; then
         warning "unzip is unavailable; skipping the PoeDeploy Plymouth theme download."
-        return 0
+        return 1
     fi
 
     temp_dir=$(mktemp -d -t poedeploy-plymouth-XXXXXX)
@@ -1942,7 +1979,7 @@ install_poedeploy_plymouth_theme() {
 
         warning "The PoeDeploy Plymouth theme could not be downloaded."
         warning "Built-in Plymouth themes will still be available."
-        return 0
+        return 1
     fi
 
     if ! unzip -t "$archive" >/dev/null 2>&1; then
@@ -1950,7 +1987,7 @@ install_poedeploy_plymouth_theme() {
 
         warning "The downloaded Plymouth ZIP archive is invalid."
         warning "Built-in Plymouth themes will still be available."
-        return 0
+        return 1
     fi
 
     local extracted_dir="$temp_dir/extracted"
@@ -1961,7 +1998,7 @@ install_poedeploy_plymouth_theme() {
         rm -rf "$temp_dir"
 
         warning "Failed to extract the PoeDeploy Plymouth theme."
-        return 0
+        return 1
     fi
 
     local plymouth_file
@@ -1977,27 +2014,27 @@ install_poedeploy_plymouth_theme() {
         rm -rf "$temp_dir"
 
         warning "The archive does not contain ${theme_name}.plymouth."
-        return 0
+        return 1
     fi
 
     if ! sudo mkdir -p "$theme_dir" ||
        ! sudo cp -rf "$(dirname "$plymouth_file")/." "$theme_dir/"; then
         rm -rf "$temp_dir"
         warning "Failed to copy the PoeDeploy Plymouth theme into $theme_dir."
-        return 0
+        return 1
     fi
 
     rm -rf "$temp_dir"
 
     if [[ ! -f "${theme_dir}/${theme_name}.plymouth" ]]; then
         warning "The PoeDeploy theme definition is missing after installation."
-        return 0
+        return 1
     fi
 
     if ! plymouth_theme_is_available "$theme_name"; then
         warning "The files were copied, but Plymouth does not recognise the PoeDeploy theme."
         warning "Expected definition: ${theme_dir}/${theme_name}.plymouth"
-        return 0
+        return 1
     fi
 
     success "PoeDeploy was installed and verified in the Plymouth theme list."
@@ -2033,7 +2070,7 @@ select_plymouth_theme() {
 
     if [[ ${#themes[@]} -eq 0 ]]; then
         warning "No Plymouth themes were detected."
-        return
+        return 1
     fi
 
     current_theme=$(plymouth-set-default-theme 2>/dev/null || true)
@@ -2063,7 +2100,10 @@ select_plymouth_theme() {
     echo
 
     while true; do
-        read -rp "Select a theme [0-${#themes[@]}]: " choice
+        if ! read -rp "Select a theme [0-${#themes[@]}]: " choice; then
+            warning "Theme selection cancelled before rebuilding boot images."
+            return 1
+        fi
 
         if [[ "$choice" == "0" ]]; then
             info "Keeping current Plymouth theme."
@@ -2081,37 +2121,15 @@ select_plymouth_theme() {
                ! plymouth_theme_is_available "$selected_theme"; then
                 if ! install_remote_plymouth_theme "$selected_theme"; then
                     warning "Failed to install repository theme '$selected_theme'."
-                    return 0
+                    return 1
                 fi
             fi
 
             if ! sudo plymouth-set-default-theme "$selected_theme"; then
                 warning "Failed to set Plymouth theme '$selected_theme'."
-                return 0
+                return 1
             fi
-
-            configure_uki_splash
-
-            info "Rebuilding initramfs and any configured UKIs..."
-
-            if ! sudo mkinitcpio -P; then
-                warning "The theme was selected, but the initramfs rebuild failed."
-                return 0
-            fi
-
-            if ! verify_uki_plymouth_setup; then
-                warning "The theme was selected, but the generated UKI did not pass Plymouth verification."
-                return 0
-            fi
-
-            if ! verify_secure_boot_after_uki_rebuild; then
-                warning "Do not reboot with Secure Boot enabled until the UKI signature is verified."
-                return 0
-            fi
-
-            success "Plymouth theme configured."
-
-            return
+            return 0
         fi
 
         warning "Invalid selection."
@@ -2120,39 +2138,46 @@ select_plymouth_theme() {
 
 setup_plymouth() {
 
-    install_plymouth
+    install_plymouth || return 1
 
     if [[ "$UKI_ENABLED" == true ]]; then
         if ! install_uki_black_splash; then
-            warning "UKI generation will continue without changing its splash."
+            warning "Plymouth setup stopped because the UKI splash could not be installed."
+            return 1
         fi
 
         if ! prepare_uki_kernel_cmdline; then
-            warning "The UKI kernel command line was not updated; Plymouth verification may fail."
+            warning "Plymouth setup stopped because the UKI kernel command line could not be prepared."
+            return 1
         fi
     fi
 
-    configure_mkinitcpio_plymouth
+    configure_mkinitcpio_plymouth || return 1
 
-    configure_bootloader_plymouth
+    configure_bootloader_plymouth || return 1
 
-    install_poedeploy_plymouth_theme
+    install_poedeploy_plymouth_theme || return 1
 
-    configure_uki_splash
+    select_plymouth_theme || return 1
+    configure_uki_splash || return 1
 
-    if [[ "$UKI_ENABLED" == true && -n "$UKI_SPLASH_PATH" ]]; then
-        info "Rebuilding UKIs with the persistent plain black splash..."
-
-        if ! sudo mkinitcpio -P; then
-            warning "The initial UKI rebuild failed."
-        elif ! verify_uki_plymouth_setup; then
-            warning "The rebuilt UKI did not pass Plymouth verification."
-        elif ! verify_secure_boot_after_uki_rebuild; then
-            warning "Do not reboot with Secure Boot enabled until the UKI signature is verified."
-        fi
+    info "Rebuilding initramfs and any configured UKIs with the selected theme..."
+    if ! sudo mkinitcpio -P; then
+        warning "Plymouth setup failed: boot image rebuild failed. Resolve this before rebooting."
+        return 1
     fi
 
-    select_plymouth_theme
+    local verification_failed=false
+    if ! verify_uki_plymouth_setup; then
+        warning "Plymouth setup failed: the rebuilt UKI did not pass theme verification."
+        verification_failed=true
+    fi
+    if ! verify_secure_boot_after_uki_rebuild; then
+        warning "Do not reboot with Secure Boot enabled until the UKI signature is verified."
+        verification_failed=true
+    fi
+    [[ "$verification_failed" == false ]] || return 1
+    success "Plymouth theme configured and rebuilt boot images verified."
 
 }
 

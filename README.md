@@ -119,7 +119,7 @@ Themes matching this structure are detected automatically. PoeDeploy does not do
 
 ## UKI and Secure Boot
 
-On UEFI systems using systemd-boot, PoeDeploy can create a normal UKI for each installed kernel under the boot partition's `EFI/Linux` directory. It discovers the boot partition with `bootctl`, creates a persistent `/etc/kernel/cmdline` only after showing it for confirmation, and keeps the existing traditional initramfs and loader entries intact.
+On UEFI systems using systemd-boot, PoeDeploy can create a normal UKI for each installed kernel under the boot partition's `EFI/Linux` directory. It discovers the boot partition with `bootctl`, preserves the existing kernel arguments, adds the options required by Plymouth, backs up an existing `/etc/kernel/cmdline`, and keeps the existing traditional initramfs and loader entries intact. The proposed persistent command line is displayed with an explanation before the privileged write.
 
 After generating the UKIs, PoeDeploy verifies that they are PE executables and asks for a reboot through the new UKI entry. Secure Boot configuration remains blocked until a later run confirms that the current system was successfully booted from a UKI. Mkinitcpio preset backups are stored beside the originals with the `.poedeploy.bak` suffix.
 
@@ -133,16 +133,25 @@ with plain black. Plymouth is stored inside the UKI's embedded initramfs and the
 shows the selected animated theme. Building or signing a UKI does not replace the
 Plymouth theme.
 
-PoeDeploy writes the static splash using mkinitcpio's supported
-`<preset>_options="--splash ..."` format, places `plymouth` after `systemd` or
+PoeDeploy updates an existing native `<preset>_splash` setting (including an
+override of `ALL_splash`), or uses `<preset>_options="--splash ..."` when native
+splash settings are absent. It removes duplicate splash options while keeping
+unrelated options and other presets intact. It places `plymouth` after `systemd` or
 `udev` in the hook list, and refreshes an already-installed PoeDeploy theme from
 the current release. After building, it inspects each UKI and refuses Secure Boot
 signing when the selected theme, `splash` kernel option or hook order is wrong, or
 when the default Arch firmware splash remains embedded.
 
+A Plymouth run selects the theme before rebuilding boot images once. Keeping the
+current theme still rebuilds to apply refreshed assets and boot parameters. Build
+or verification failures stop the run with an error instead of reporting success
+or recommending a reboot. UKI extraction failures are reported separately from a
+missing `splash` kernel argument.
+
 Rebuilding a UKI changes its signed contents. When firmware Secure Boot is already
-enabled and the user selects Plymouth or UKI, PoeDeploy automatically adds the
-Secure Boot section so the rebuilt images are signed and verified in the same run.
+enabled, the mkinitcpio `sbctl` post-hook signs the rebuilt image and PoeDeploy runs
+`sbctl verify` afterward. The full key creation and enrollment section runs only
+when the user explicitly selects Secure Boot.
 
 If the summary reports **keys created but not enrolled**, use the firmware's
 documented procedure to enter Secure Boot Setup Mode. Custom mode by itself may
