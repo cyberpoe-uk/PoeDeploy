@@ -1764,10 +1764,20 @@ get_configured_uki_paths() {
     done
 }
 
+stage_uki_for_verification() {
+    local source="$1" destination="$2"
+
+    sudo install \
+        -m 600 \
+        -o "$(id -u)" \
+        -g "$(id -g)" \
+        -- "$source" "$destination"
+}
+
 verify_uki_plymouth_setup() {
     [[ "$UKI_ENABLED" == true ]] || return 0
 
-    local hooks_line hooks_content theme uki_path cmdline_file splash_file
+    local hooks_line hooks_content theme uki_path readable_uki cmdline_file splash_file
     local systemd_index=-1 udev_index=-1 plymouth_index=-1 index hook
     local failed=false
     local -a hooks=()
@@ -1808,27 +1818,36 @@ verify_uki_plymouth_setup() {
     fi
 
     verify_dir=$(mktemp -d -t poedeploy-uki-verify-XXXXXX)
-    for uki_path in "${uki_paths[@]}"; do
-        if [[ ! -f "$uki_path" ]]; then
+    for index in "${!uki_paths[@]}"; do
+        uki_path="${uki_paths[$index]}"
+        if ! sudo test -f "$uki_path"; then
             warning "Configured UKI is missing: $uki_path"
             failed=true
             continue
         fi
-        cmdline_file="$verify_dir/cmdline"
-        splash_file="$verify_dir/splash.bmp"
-        if ! objcopy --dump-section ".cmdline=$cmdline_file" "$uki_path" /dev/null 2>/dev/null ||
+
+        readable_uki="$verify_dir/uki-${index}.efi"
+        if ! stage_uki_for_verification "$uki_path" "$readable_uki"; then
+            warning "Configured UKI could not be read for verification: $uki_path"
+            failed=true
+            continue
+        fi
+
+        cmdline_file="$verify_dir/cmdline-${index}"
+        splash_file="$verify_dir/splash-${index}.bmp"
+        if ! objcopy --dump-section ".cmdline=$cmdline_file" "$readable_uki" /dev/null 2>/dev/null ||
            ! tr '\0' ' ' < "$cmdline_file" | grep -Eq '(^|[[:space:]])splash([[:space:]]|$)'; then
             warning "The generated UKI does not contain the splash kernel option: $uki_path"
             failed=true
         fi
         if [[ -n "$theme" ]] &&
-           ! lsinitcpio "$uki_path" 2>/dev/null |
+           ! lsinitcpio "$readable_uki" 2>/dev/null |
                grep -Fqx "usr/share/plymouth/themes/${theme}/${theme}.plymouth"; then
             warning "The generated UKI does not contain the selected Plymouth theme '$theme': $uki_path"
             failed=true
         fi
         if [[ -f /usr/share/systemd/bootctl/splash-arch.bmp ]] &&
-           objcopy --dump-section ".splash=$splash_file" "$uki_path" /dev/null 2>/dev/null &&
+           objcopy --dump-section ".splash=$splash_file" "$readable_uki" /dev/null 2>/dev/null &&
            cmp -s "$splash_file" /usr/share/systemd/bootctl/splash-arch.bmp; then
             warning "The generated UKI still contains the default Arch firmware splash: $uki_path"
             failed=true
