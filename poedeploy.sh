@@ -231,6 +231,65 @@ check_not_root() {
     fi
 }
 
+can_use_checklist() {
+    command -v gum >/dev/null 2>&1 &&
+        [[ -t 0 && -t 2 && "${TERM:-dumb}" != dumb ]] &&
+        (: </dev/tty) 2>/dev/null
+}
+
+# Options arrive on stdin; only selected labels are written to stdout.
+# Keep both menus consistent and preserve gum's cancellation exit status.
+choose_checklist() {
+    local header="$1" defaults="${2:-}"
+    gum choose --no-limit --selected="$defaults" \
+        --cursor='> ' --cursor-prefix '[ ] ' --selected-prefix '[✓] ' \
+        --unselected-prefix '[ ] ' --height=15 \
+        --cursor.foreground='#004FFE' \
+        --selected.foreground='#004FFE' \
+        --header.foreground='#004FFE' \
+        --header="$header"
+}
+
+choose_setup_checklist() {
+    local module selection label matched
+    local -a options=()
+    for module in "${SETUP_MODULE_IDS[@]}"; do
+        options+=("${SETUP_MODULE_LABELS[$module]}")
+    done
+
+    echo
+    info "Choose the setup sections for this run. Nothing starts selected."
+    echo "↑/↓ navigate · x toggle · Enter continue · Esc/Ctrl+C cancel"
+    while true; do
+        if ! selection=$(printf '%s\n' "${options[@]}" |
+            choose_checklist "Setup sections"); then
+            SELECTED_SETUP_MODULES=()
+            return 1
+        fi
+        if [[ -z "$selection" ]]; then
+            warning "Select at least one section, or press Esc to cancel."
+            continue
+        fi
+        SELECTED_SETUP_MODULES=()
+        while IFS= read -r label; do
+            matched=false
+            for module in "${SETUP_MODULE_IDS[@]}"; do
+                if [[ "$label" == "${SETUP_MODULE_LABELS[$module]}" ]]; then
+                    SELECTED_SETUP_MODULES["$module"]=true
+                    matched=true
+                    break
+                fi
+            done
+            if [[ "$matched" != true ]]; then
+                warning "The checklist returned an unknown section; cancelling."
+                SELECTED_SETUP_MODULES=()
+                return 1
+            fi
+        done <<< "$selection"
+        return 0
+    done
+}
+
 choose_setup_modules() {
     local answer module input token index marker
     local valid
@@ -254,9 +313,15 @@ choose_setup_modules() {
         esac
     done
 
+    if can_use_checklist; then
+        choose_setup_checklist
+        return $?
+    fi
+
+    info "Using the numbered menu (the interactive checklist needs gum and a terminal)."
     while true; do
         echo
-        info "Choose the setup sections for this run (nothing is selected initially)."
+        info "Choose the setup sections for this run. [x] marks selected sections."
         for index in "${!SETUP_MODULE_IDS[@]}"; do
             module="${SETUP_MODULE_IDS[$index]}"
             marker=" "
@@ -2840,6 +2905,7 @@ select_applications() {
 
         info "Installing gum for the application selector..."
 
+        wait_for_pacman_lock
         sudo pacman -S --needed --noconfirm gum
 
     fi
@@ -2856,9 +2922,9 @@ select_applications() {
 
     echo "Use arrow keys to navigate."
 
-    echo "Press Space to select or deselect an application."
+    echo "Press x to select or deselect an application."
 
-    echo "Press Enter when finished."
+    echo "Press Enter when finished, or Esc/Ctrl+C to skip application selection."
 
     if [[ "$RUN_MODE" == full ]]; then
         echo "All applications start selected."
@@ -2868,11 +2934,13 @@ select_applications() {
 
     echo
 
+    local app selection selection_defaults=""
     local options=()
-    local -a selection_defaults=()
+    SELECTED_APPS=()
+    SELECTED_PACKAGES=()
 
     if [[ "$RUN_MODE" == full ]]; then
-        selection_defaults=(--selected='*')
+        selection_defaults='*'
     fi
 
     for app in "${!APPLICATIONS[@]}"; do
@@ -2887,20 +2955,15 @@ select_applications() {
 
     )
 
-    mapfile -t SELECTED_APPS < <(
-
-        printf '%s\n' "${options[@]}" |
-
-            gum choose \
-                --no-limit \
-                "${selection_defaults[@]}" \
-                --cursor-prefix '> ' \
-                --selected-prefix '[✓] ' \
-                --unselected-prefix '[ ] ' \
-                --height=20 \
-                --header="Select applications"
-
-    )
+    if ! selection=$(printf '%s\n' "${options[@]}" |
+        choose_checklist "Select applications" "$selection_defaults"); then
+        info "Application selection cancelled; skipping optional applications."
+        APPLICATIONS_ACTION="selection cancelled"
+        return 0
+    fi
+    if [[ -n "$selection" ]]; then
+        mapfile -t SELECTED_APPS <<< "$selection"
+    fi
 
     if [[ ${#SELECTED_APPS[@]} -eq 0 ||
           ( ${#SELECTED_APPS[@]} -eq 1 && -z "${SELECTED_APPS[0]}" ) ]]; then

@@ -12,6 +12,7 @@ import select
 import signal
 import shutil
 import subprocess
+import termios
 import time
 import unittest
 
@@ -63,6 +64,112 @@ choose_setup_modules
 [[ ${#SELECTED_SETUP_MODULES[@]} == 1 ]]
 [[ "${SELECTED_SETUP_MODULES[secure_boot]}" == true ]]
 ''', "yes\n15\nrun\n")
+
+    def test_checklist_selects_sections_in_dependency_order(self):
+        output = self.check_run(r'''
+can_use_checklist() { return 0; }
+choose_checklist() {
+    [[ "$1" == 'Setup sections' && -z "${2:-}" ]] || return 91
+    local options
+    options=$(cat)
+    [[ "$options" == *'Plymouth boot theme'* ]] || return 92
+    printf '%s\n' 'Secure Boot: keys, enrollment and signing' 'Plymouth boot theme'
+}
+choose_setup_modules
+[[ "$RUN_MODE" == selected && ${#SELECTED_SETUP_MODULES[@]} == 2 ]]
+run_setup_module() { printf 'VISIT:%s\n' "$1"; }
+run_selected_setup_modules
+''', "yes\n")
+        self.assertEqual(
+            [line for line in output.splitlines() if line.startswith("VISIT:")],
+            ["VISIT:plymouth", "VISIT:secure_boot"],
+        )
+
+    def test_checklist_cancellation_does_not_keep_partial_output(self):
+        self.check_run(r'''
+can_use_checklist() { return 0; }
+choose_checklist() { cat >/dev/null; echo 'Plymouth boot theme'; return 130; }
+if choose_setup_modules; then exit 90; fi
+[[ ${#SELECTED_SETUP_MODULES[@]} == 0 ]]
+''', "yes\n")
+
+    def test_empty_checklist_reprompts_without_selecting_everything(self):
+        output = self.check_run(r'''
+can_use_checklist() { return 0; }
+choose_checklist() { cat >/dev/null; return 0; }
+warning() {
+    printf '%s\n' "$1"
+    choose_checklist() { cat >/dev/null; echo 'Plymouth boot theme'; }
+}
+choose_setup_modules
+[[ ${#SELECTED_SETUP_MODULES[@]} == 1 ]]
+[[ "${SELECTED_SETUP_MODULES[plymouth]}" == true ]]
+''', "yes\n")
+        self.assertIn("Select at least one section", output)
+
+    def test_unknown_checklist_label_cancels_selection(self):
+        self.check_run(r'''
+can_use_checklist() { return 0; }
+choose_checklist() { cat >/dev/null; printf '%s\n' 'Plymouth boot theme' 'Unknown'; }
+if choose_setup_modules; then exit 90; fi
+[[ ${#SELECTED_SETUP_MODULES[@]} == 0 ]]
+''', "yes\n")
+
+    def test_noninteractive_input_uses_numbered_menu(self):
+        self.check_run(r'''
+gum() { echo UNEXPECTED_CHECKLIST >&2; return 91; }
+if can_use_checklist; then exit 90; fi
+choose_setup_modules
+[[ ${#SELECTED_SETUP_MODULES[@]} == 1 ]]
+''', "yes\n6\nrun\n")
+
+    def test_shared_checklist_style_and_explicit_defaults(self):
+        self.check_run(r'''
+gum() {
+    [[ "$1" == choose && "$*" == *'--no-limit'* ]] || return 91
+    [[ "$*" == *'--selected.foreground=#004FFE'* ]] || return 92
+    [[ "$*" == *'--header=Test menu'* ]] || return 93
+    [[ "$3" == "--selected=$expected" ]] || return 94
+    cat
+}
+expected=''
+[[ $(printf 'Item\n' | choose_checklist 'Test menu') == Item ]]
+expected='*'
+[[ $(printf 'Item\n' | choose_checklist 'Test menu' '*') == Item ]]
+''')
+
+    def test_application_checklist_preserves_run_defaults_and_vlc_plugins(self):
+        for mode, default in (("full", "*"), ("selected", "")):
+            with self.subTest(mode=mode):
+                self.check_run(f'RUN_MODE={mode}\nexpected="{default}"\n' + r'''
+gum() { :; }
+APPLICATIONS=([VLC]=vlc [Firefox]=firefox)
+choose_checklist() {
+    [[ "$1" == 'Select applications' && "$2" == "$expected" ]] || return 91
+    cat >/dev/null
+    echo VLC
+}
+select_applications
+[[ "${SELECTED_APPS[*]}" == VLC ]]
+[[ "${SELECTED_PACKAGES[*]}" == 'vlc vlc-plugins-all' ]]
+''')
+
+    def test_application_checklist_cancel_and_empty_clear_previous_selection(self):
+        for status in (0, 130):
+            with self.subTest(status=status):
+                self.check_run(f'status={status}\n' + r'''
+gum() { :; }
+SELECTED_APPS=(Firefox)
+SELECTED_PACKAGES=(firefox)
+choose_checklist() { cat >/dev/null; return "$status"; }
+select_applications
+[[ ${#SELECTED_APPS[@]} == 0 && ${#SELECTED_PACKAGES[@]} == 0 ]]
+if [[ "$status" == 0 ]]; then
+    [[ "$APPLICATIONS_ACTION" == 'none selected' ]]
+else
+    [[ "$APPLICATIONS_ACTION" == 'selection cancelled' ]]
+fi
+''')
 
     def test_toggle_clear_invalid_and_leading_zero_input(self):
         self.check_run(r'''
@@ -664,6 +771,79 @@ detect_gpu
 ''')
         self.assertNotIn("Non-Volatile memory controller", output)
         self.assertNotIn("SanDisk Ultra 3D", output)
+
+
+@unittest.skipUnless(shutil.which("gum"), "gum is needed for real checklist tests")
+class ChecklistTerminalTests(unittest.TestCase):
+    def test_real_keyboard_selection_and_cancellation(self):
+        for keys, expected in ((b"\x1b[Bx\r", b"CHOSEN:yay"),
+                               (b"\x1b", b"CANCELLED"),
+                               (b"\x03", b"CANCELLED")):
+            with self.subTest(keys=keys):
+                pid, fd = pty.fork()
+                if pid == 0:
+                    os.environ["TERM"] = "xterm-256color"
+                    termios.tcsetwinsize(0, (30, 100))
+                    body = PRELUDE + r'''
+if choose_setup_modules; then
+    printf 'CHOSEN:%s\n' "${!SELECTED_SETUP_MODULES[@]}"
+else
+    [[ ${#SELECTED_SETUP_MODULES[@]} == 0 ]] || exit 91
+    echo CANCELLED
+fi
+'''
+                    os.execvp("bash", ["bash", "--noprofile", "--norc", "-c",
+                                       body, "test", SCRIPT])
+                output = b""
+                answered = pressed = False
+                done = 0
+                status = None
+                deadline = time.monotonic() + 8
+                try:
+                    while time.monotonic() < deadline:
+                        if select.select([fd], [], [], 0.05)[0]:
+                            try:
+                                output += os.read(fd, 8192)
+                            except OSError as error:
+                                if error.errno != errno.EIO:
+                                    raise
+                        if b"[y/N]:" in output and not answered:
+                            os.write(fd, b"yes\n")
+                            answered = True
+                        if b"Setup sections" in output and not pressed:
+                            if keys == b"\x1b[Bx\r":
+                                # Separate keypresses, rather than one pasted chunk.
+                                for key in (b"\x1b[B", b"x", b"\r"):
+                                    os.write(fd, key)
+                                    time.sleep(0.1)
+                            else:
+                                os.write(fd, keys)
+                            pressed = True
+                        done, status = os.waitpid(pid, os.WNOHANG)
+                        if done:
+                            # The child can exit while its final output is still
+                            # buffered in the PTY, especially after key delays.
+                            while select.select([fd], [], [], 0.05)[0]:
+                                try:
+                                    chunk = os.read(fd, 8192)
+                                except OSError as error:
+                                    if error.errno != errno.EIO:
+                                        raise
+                                    break
+                                if not chunk:
+                                    break
+                                output += chunk
+                            break
+                    else:
+                        self.fail("Checklist timed out: " + output.decode(errors="replace"))
+                finally:
+                    if not done:
+                        os.killpg(pid, signal.SIGTERM)
+                        os.waitpid(pid, 0)
+                    os.close(fd)
+                self.assertEqual(os.waitstatus_to_exitcode(status), 0, output)
+                self.assertTrue(pressed, output)
+                self.assertIn(expected, output)
 
 
 class InterruptTests(unittest.TestCase):

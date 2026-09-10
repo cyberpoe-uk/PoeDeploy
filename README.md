@@ -233,7 +233,15 @@ Answer **no** for the complete setup, including the existing optional prompts.
 Answer **yes** to choose specific sections. This also works after an interrupted
 first run; there is no requirement for a previous run to have completed.
 
-The repeat-run menu starts with no sections selected. Enter numbers separated by
+The repeat-run menu starts with no sections selected. When `gum` is already
+installed and you are using an interactive terminal, it uses the same blue
+checklist as the application selector: **↑/↓** to navigate, **x** to toggle,
+**Enter** to continue, and **Esc/Ctrl+C** to cancel. Choosing nothing does not
+start an installation. PoeDeploy does not install anything just to display this
+startup menu, before you have confirmed the run.
+
+Without `gum` or an interactive terminal, the numbered menu remains available.
+Enter numbers separated by
 spaces or commas to toggle them, `all` or `none` to change the whole selection,
 `run` to proceed, or `quit` to leave before making system changes. For example:
 
@@ -244,6 +252,9 @@ Selection: run
 
 This selects only **Secure Boot**. Option **11** selects optional applications;
 on repeat runs its application checklist also starts with nothing selected.
+Cancelling the application checklist skips optional applications; other selected
+setup sections can still continue. First-run application selection still starts
+with all applications selected.
 
 The sections are system update, yay, base tools, GPU drivers, NetworkManager,
 Plymouth, UKI, Timeshift, ML4W, SDDM, applications, default browser, SMB/NFS shares,
