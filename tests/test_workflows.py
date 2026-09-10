@@ -83,23 +83,23 @@ run_selected_setup_modules
             ["VISIT:uki", "VISIT:applications", "VISIT:secure_boot"],
         )
 
-    def test_plymouth_rebuild_adds_signing_when_secure_boot_is_enabled(self):
-        output = self.check_run(r'''
-SELECTED_SETUP_MODULES=([plymouth]=true)
-firmware_secure_boot_enabled() { return 0; }
-add_required_setup_modules
-[[ "${SELECTED_SETUP_MODULES[plymouth]}" == true ]]
-[[ "${SELECTED_SETUP_MODULES[secure_boot]}" == true ]]
-''')
-        self.assertIn("added automatically", output)
-
-    def test_plymouth_rebuild_does_not_add_signing_when_secure_boot_is_disabled(self):
+    def test_plymouth_selection_does_not_add_secure_boot_setup(self):
         self.check_run(r'''
 SELECTED_SETUP_MODULES=([plymouth]=true)
-firmware_secure_boot_enabled() { return 1; }
-add_required_setup_modules
+firmware_secure_boot_enabled() { return 0; }
+[[ "${SELECTED_SETUP_MODULES[plymouth]}" == true ]]
 [[ "${SELECTED_SETUP_MODULES[secure_boot]:-false}" == false ]]
 ''')
+
+    def test_plymouth_rebuild_verifies_existing_secure_boot_signatures(self):
+        output = self.check_run(r'''
+firmware_secure_boot_enabled() { return 0; }
+sbctl() { :; }
+sudo() { [[ "$*" == 'sbctl verify' ]]; printf 'SIGNED_FILES_VERIFIED\n'; }
+verify_secure_boot_after_uki_rebuild
+''')
+        self.assertIn("SIGNED_FILES_VERIFIED", output)
+        self.assertIn("existing keys were not changed", output)
 
     def test_main_secure_boot_only_skips_updates_and_installers(self):
         output = self.check_run(r'''
@@ -238,6 +238,82 @@ set_mkinitcpio_preset_splash "$preset" default /usr/share/poedeploy/uki/poedeplo
 grep -Fxq 'default_options="-S autodetect --splash /usr/share/poedeploy/uki/poedeploy-black.bmp"' "$preset"
 [[ $(grep -c '^default_options=' "$preset") == 1 ]]
 ''')
+
+    def test_uki_splash_deduplicates_single_quoted_options(self):
+        self.check_run(r'''
+preset=$(mktemp -t poedeploy-preset-test-XXXXXX)
+trap 'rm -f "$preset"' EXIT
+printf '%s\n' \
+    "PRESETS=('default')" \
+    "default_uki='/boot/EFI/Linux/test.efi'" \
+    "default_options='--splash /usr/share/poedeploy/uki/poedeploy-black.bmp'" > "$preset"
+sudo() { command "$@"; }
+set_mkinitcpio_preset_splash "$preset" default /usr/share/poedeploy/uki/poedeploy-black.bmp
+[[ $(grep -o -- '--splash' "$preset" | wc -l) == 1 ]]
+grep -Fxq 'default_options="--splash /usr/share/poedeploy/uki/poedeploy-black.bmp"' "$preset"
+''')
+
+    def test_uki_paths_only_include_active_presets(self):
+        self.check_run(r'''
+preset_dir=$(mktemp -d -t poedeploy-preset-dir-test-XXXXXX)
+trap 'rm -rf -- "$preset_dir"' EXIT
+preset="$preset_dir/linux.preset"
+printf '%s\n' \
+    "PRESETS=('default')" \
+    "default_uki='/boot/EFI/Linux/arch-linux.efi'" \
+    "fallback_uki='/boot/EFI/Linux/arch-linux-fallback.efi'" > "$preset"
+definition=$(declare -f get_configured_uki_paths)
+definition=${definition//\/etc\/mkinitcpio.d\/*.preset/$preset_dir\/*.preset}
+eval "$definition"
+[[ "$(get_configured_uki_paths)" == /boot/EFI/Linux/arch-linux.efi ]]
+''')
+
+    def test_protected_uki_is_staged_through_sudo_for_verification(self):
+        self.check_run(r'''
+verify_dir=$(mktemp -d -t poedeploy-uki-verify-test-XXXXXX)
+trap 'rm -rf -- "$verify_dir"' EXIT
+destination="$verify_dir/uki.efi"
+sudo() {
+    [[ "$1" == install ]]
+    [[ "$*" == *' /boot/EFI/Linux/arch-linux.efi '* ]]
+    printf 'MZ-protected-uki' > "${@: -1}"
+}
+stage_uki_for_verification /boot/EFI/Linux/arch-linux.efi "$destination"
+[[ "$(< "$destination")" == MZ-protected-uki ]]
+''')
+
+    def test_plymouth_checks_consume_producer_output_after_match(self):
+        self.check_run(r'''
+plymouth-set-default-theme() {
+    printf 'poedeploy\n'
+    for ((line = 0; line < 20000; line++)); do
+        printf 'theme-%s\n' "$line"
+    done
+}
+lsinitcpio() {
+    printf 'usr/share/plymouth/themes/poedeploy/poedeploy.plymouth\n'
+    for ((line = 0; line < 20000; line++)); do
+        printf 'usr/lib/module-%s\n' "$line"
+    done
+}
+plymouth_theme_is_available poedeploy
+uki_contains_plymouth_theme /protected/arch-linux.efi poedeploy
+''')
+
+    def test_hybrid_gpu_detection_excludes_storage_with_3d_in_its_name(self):
+        output = self.check_run(r'''
+lspci() {
+    printf '%s\n' \
+        '00:02.0 VGA compatible controller: Intel Corporation CoffeeLake-H GT2 [UHD Graphics 630]' \
+        '01:00.0 3D controller: NVIDIA Corporation TU116M [GeForce GTX 1660 Ti Mobile] (rev a1)' \
+        '06:00.0 Non-Volatile memory controller: Sandisk Corp SanDisk Ultra 3D / WD Blue SN570 NVMe SSD (DRAM-less)'
+}
+detect_gpu
+[[ "$GPU_VENDOR" == NVIDIA ]]
+[[ "$GPU_MODEL" == 'CoffeeLake-H GT2 [UHD Graphics 630] + TU116M [GeForce GTX 1660 Ti Mobile] (rev a1)' ]]
+''')
+        self.assertNotIn("Non-Volatile memory controller", output)
+        self.assertNotIn("SanDisk Ultra 3D", output)
 
 
 class InterruptTests(unittest.TestCase):

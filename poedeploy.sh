@@ -328,17 +328,6 @@ firmware_secure_boot_enabled() {
     return 1
 }
 
-add_required_setup_modules() {
-    if firmware_secure_boot_enabled &&
-       { [[ "${SELECTED_SETUP_MODULES[plymouth]:-false}" == true ]] ||
-         [[ "${SELECTED_SETUP_MODULES[uki]:-false}" == true ]]; } &&
-       [[ "${SELECTED_SETUP_MODULES[secure_boot]:-false}" != true ]]; then
-        SELECTED_SETUP_MODULES[secure_boot]=true
-        warning "Secure Boot is enabled, so UKIs rebuilt by this run must be signed again."
-        info "The Secure Boot signing section has been added automatically."
-    fi
-}
-
 ensure_command_dependencies() {
     local dependency command_name package
     local -a missing=()
@@ -1290,6 +1279,10 @@ setup_uki() {
         verification_failed=true
     fi
 
+    if [[ "$verification_failed" != true ]] && ! verify_secure_boot_after_uki_rebuild; then
+        verification_failed=true
+    fi
+
     if [[ "$verification_failed" == true ]]; then
         warning "UKI verification failed. Restoring the previous configuration..."
         remove_failed_uki_files "${created_uki_paths[@]}"
@@ -1719,6 +1712,8 @@ set_mkinitcpio_preset_splash() {
         value="${line#*=}"
         value="${value#\"}"
         value="${value%\"}"
+        value="${value#\'}"
+        value="${value%\'}"
         read -r -a current_options <<< "$value"
         for token in "${current_options[@]}"; do
             if [[ "$skip_next" == true ]]; then
@@ -1754,19 +1749,26 @@ set_mkinitcpio_preset_splash() {
 }
 
 get_configured_uki_paths() {
-    local preset line value
+    local preset name line value
+    local -a preset_names=()
+
     for preset in /etc/mkinitcpio.d/*.preset; do
         [[ -f "$preset" ]] || continue
-        while IFS= read -r line; do
-            [[ "$line" =~ ^[[:space:]]*[[:alnum:]_]+_uki[[:space:]]*= ]] || continue
+
+        mapfile -t preset_names < <(get_mkinitcpio_preset_names "$preset")
+        for name in "${preset_names[@]}"; do
+            line=$(grep -E "^[[:space:]]*${name}_uki[[:space:]]*=" "$preset" | tail -n 1 || true)
+            [[ -n "$line" ]] || continue
             value="${line#*=}"
             value="${value%%#*}"
             value="${value#"${value%%[![:space:]]*}"}"
             value="${value%"${value##*[![:space:]]}"}"
             value="${value#\"}"
             value="${value%\"}"
+            value="${value#\'}"
+            value="${value%\'}"
             [[ "$value" == /* ]] && printf '%s\n' "$value"
-        done < "$preset"
+        done
     done
 }
 
@@ -1796,6 +1798,23 @@ plymouth_theme_is_available() {
     # as failed by SIGPIPE after grep finds an early match.
     plymouth-set-default-theme -l 2>/dev/null |
         grep -Fx "$theme" >/dev/null
+}
+
+verify_secure_boot_after_uki_rebuild() {
+    firmware_secure_boot_enabled || return 0
+
+    if ! command -v sbctl >/dev/null 2>&1; then
+        warning "Secure Boot is enabled, but sbctl is unavailable to verify the rebuilt UKI."
+        return 1
+    fi
+
+    info "Verifying Secure Boot signatures after the UKI rebuild..."
+    if ! sudo sbctl verify; then
+        warning "The rebuilt boot files did not pass sbctl signature verification."
+        return 1
+    fi
+
+    success "Secure Boot signatures verified; existing keys were not changed."
 }
 
 verify_uki_plymouth_setup() {
@@ -2085,6 +2104,11 @@ select_plymouth_theme() {
                 return 0
             fi
 
+            if ! verify_secure_boot_after_uki_rebuild; then
+                warning "Do not reboot with Secure Boot enabled until the UKI signature is verified."
+                return 0
+            fi
+
             success "Plymouth theme configured."
 
             return
@@ -2101,6 +2125,10 @@ setup_plymouth() {
     if [[ "$UKI_ENABLED" == true ]]; then
         if ! install_uki_black_splash; then
             warning "UKI generation will continue without changing its splash."
+        fi
+
+        if ! prepare_uki_kernel_cmdline; then
+            warning "The UKI kernel command line was not updated; Plymouth verification may fail."
         fi
     fi
 
@@ -2119,6 +2147,8 @@ setup_plymouth() {
             warning "The initial UKI rebuild failed."
         elif ! verify_uki_plymouth_setup; then
             warning "The rebuilt UKI did not pass Plymouth verification."
+        elif ! verify_secure_boot_after_uki_rebuild; then
+            warning "Do not reboot with Secure Boot enabled until the UKI signature is verified."
         fi
     fi
 
@@ -3730,7 +3760,6 @@ main() {
         info "Setup cancelled before making system changes."
         return 0
     fi
-    add_required_setup_modules
     show_selected_setup_modules
     confirm_start
 
