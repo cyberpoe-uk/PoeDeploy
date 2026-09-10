@@ -61,6 +61,11 @@ CONFIGURE_ML4W_SDDM=false
 DEFAULT_BROWSER_ACTION="not selected"
 
 SECURE_BOOT_ACTION="not selected"
+SECURE_BOOT_VERIFY_STATUS="not run"
+SECURE_BOOT_OTHER_FILES_WARNING=false
+SECURE_BOOT_AUTOMATIC_ACTION="none"
+BOOT_IMAGE_ACTION="not rebuilt"
+declare -A VERIFIED_PLYMOUTH_UKIS=()
 
 UKI_ACTION="not selected"
 
@@ -1833,24 +1838,258 @@ plymouth_theme_is_available() {
         grep -Fx "$theme" >/dev/null
 }
 
+get_systemd_boot_files() {
+    local esp status current line path paths=""
+    esp=$(sudo bootctl --print-esp-path) || return 1
+    current=$(sudo bootctl --print-loader-path) || return 1
+    [[ "$esp" == /* && "$current" == /* ]] || return 1
+    esp=$(realpath -ms -- "$esp") || return 1
+    current=$(realpath -ms -- "$current") || return 1
+    status=$(LC_ALL=C sudo bootctl status --no-pager) || return 1
+
+    # Only include binaries bootctl identifies as systemd-boot on this ESP.
+    # A fallback filename alone does not identify its owner (it could be shim,
+    # GRUB or another OS's loader). Do not sign those merely by location.
+    local pattern='(/[^[:space:]]*/EFI/(systemd/systemd-boot(x64|ia32|aa64)\.efi|BOOT/BOOT(X64|IA32|AA64)\.EFI))[[:space:]]+\(systemd-boot[[:space:]]'
+    while IFS= read -r line; do
+        [[ "$line" =~ $pattern ]] || continue
+        path=$(realpath -ms -- "${BASH_REMATCH[1]}") || return 1
+        [[ "$path" == "$esp"/EFI/* ]] || continue
+        paths+="$path"$'\n'
+    done <<< "$status"
+
+    if ! grep -Fx "$current" <<< "$paths" >/dev/null; then
+        warning "Could not identify the current systemd-boot binary on the ESP." >&2
+        return 1
+    fi
+    printf '%s' "$paths" | sort -u
+}
+
+read_sbctl_signature_report() {
+    local report
+    report=$(sudo sbctl --json verify "$@") || return 1
+    jq -e 'type == "array" and length > 0 and all(.[];
+        (.file_name | type == "string") and
+        (.is_signed == 1 or .is_signed == 0 or .is_signed == -1))' \
+        <<< "$report" >/dev/null 2>&1 || return 1
+    # bootctl may use doubled slashes whereas sbctl uses canonical spelling.
+    jq 'map(.file_name |= gsub("/+"; "/"))' <<< "$report"
+}
+
+sbctl_report_has_signature() {
+    local report="$1" path="$2"
+    jq -e --arg path "$path" '[.[] | select(.file_name == $path)] |
+        length > 0 and all(.[]; .is_signed == 1)' <<< "$report" >/dev/null
+}
+
+verify_secure_boot_files() {
+    local report file failed=false
+    SECURE_BOOT_VERIFY_STATUS="verification failed"
+    SECURE_BOOT_OTHER_FILES_WARNING=false
+    if (( $# == 0 )); then
+        warning "No required boot files were found for signature verification."
+        return 1
+    fi
+    if ! command -v sbctl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+        warning "sbctl and jq are required to inspect boot file signatures."
+        return 1
+    fi
+
+    # sbctl can exit zero even when files are unsigned or missing.
+    # Inspect its structured per-file results instead of trusting that exit code.
+    if ! report=$(read_sbctl_signature_report); then
+        warning "Could not read a valid per-file signature report from sbctl."
+        return 1
+    fi
+
+    for file in "$@"; do
+        if sbctl_report_has_signature "$report" "$file"; then
+            success "Signature verified: $file"
+        else
+            warning "Required boot file is unsigned, missing, or unverified: $file"
+            failed=true
+        fi
+    done
+
+    local required
+    required=$(printf '%s\n' "$@" | jq -Rsc 'split("\n")[:-1]')
+    while IFS= read -r file; do
+        [[ -n "$file" ]] || continue
+        if [[ "${UKI_BOOTED:-false}" == true && "$file" == /boot/vmlinuz-* ]]; then
+            info "Standalone kernel outside the current UKI boot chain: $file (not signed separately)."
+            continue
+        fi
+        SECURE_BOOT_OTHER_FILES_WARNING=true
+        warning "Additional boot file reported unsigned or missing: $file"
+    done < <(jq -r --argjson required "$required" '
+        .[] | select(.is_signed != 1) |
+        .file_name as $path | select(($required | index($path)) == null) |
+        .file_name' <<< "$report")
+
+    if [[ "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]; then
+        info "These additional files were not required by this check and have not been modified."
+        info "An EFI/BOOT fallback loader needs a trusted signature if firmware boots through it."
+        info "A standalone vmlinuz kernel is separate from the signed UKI used by a UKI boot."
+    fi
+    [[ "$failed" == false ]] || return 1
+    SECURE_BOOT_VERIFY_STATUS="selected boot files verified"
+}
+
 verify_secure_boot_after_uki_rebuild() {
-    firmware_secure_boot_enabled || return 0
+    info "Verifying Secure Boot configuration..."
+    if ! firmware_secure_boot_enabled; then
+        SECURE_BOOT_VERIFY_STATUS="not run (Secure Boot not detected as enabled)"
+        return 0
+    fi
+    success "Secure Boot is enabled."
+    if [[ "${BOOTLOADER:-}" == systemd-boot && "${UKI_BOOTED:-false}" == true ]]; then
+        verify_active_secure_boot_chain
+        return $?
+    fi
+    local -a uki_paths=()
+    mapfile -t uki_paths < <(get_configured_uki_paths | sort -u)
+    local loader_paths path
+    if [[ "${BOOTLOADER:-}" == systemd-boot ]]; then
+        if ! loader_paths=$(get_systemd_boot_files); then
+            SECURE_BOOT_VERIFY_STATUS="boot loader discovery failed"
+            warning "Could not identify the systemd-boot files to verify."
+            return 1
+        fi
+        while IFS= read -r path; do
+            [[ -n "$path" ]] && uki_paths+=("$path")
+        done <<< "$loader_paths"
+    fi
+    info "Verifying signatures of the rebuilt UKIs and identified boot loaders..."
+    verify_secure_boot_files "${uki_paths[@]}" || return 1
+    SECURE_BOOT_VERIFY_STATUS="UKI and identified boot loader signatures verified"
+    if [[ "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]; then
+        SECURE_BOOT_VERIFY_STATUS+="; additional boot file warnings"
+    fi
+    success "UKI and identified boot loader signatures verified; existing keys were not changed."
+}
 
-    if ! command -v sbctl >/dev/null 2>&1; then
-        warning "Secure Boot is enabled, but sbctl is unavailable to verify the rebuilt UKI."
+verify_active_secure_boot_chain() {
+    SECURE_BOOT_VERIFY_STATUS="verification failed"
+    SECURE_BOOT_OTHER_FILES_WARNING=false
+    local loaders loader uki report path repaired_report
+    if ! loaders=$(get_systemd_boot_files) ||
+       ! loader=$(sudo bootctl --print-loader-path) ||
+       ! uki=$(sudo bootctl --print-stub-path); then
+        warning "Could not identify the active boot chain."
+        return 1
+    fi
+    [[ "$loader" == /* && "$uki" == /* ]] || return 1
+    loader=$(realpath -ms -- "$loader") || return 1
+    uki=$(realpath -ms -- "$uki") || return 1
+    if ! grep -Fx "$loader" <<< "$loaders" >/dev/null; then
+        warning "The active loader was not identified as systemd-boot."
+        return 1
+    fi
+    if [[ "$(sudo bootctl kernel-identify "$uki")" != uki ]]; then
+        warning "The current boot image could not be identified as a UKI: $uki"
+        return 1
+    fi
+    if ! report=$(read_sbctl_signature_report); then
+        warning "Could not read a valid signature report."
         return 1
     fi
 
-    info "Verifying Secure Boot signatures after the UKI rebuild..."
-    if ! sudo sbctl verify; then
-        warning "The rebuilt boot files did not pass sbctl signature verification."
+    success "Active bootloader: systemd-boot"
+    if ! sbctl_report_has_signature "$report" "$loader"; then
+        warning "Active bootloader is unsigned or unverified: $loader"
         return 1
     fi
+    success "Active bootloader is signed:"
+    printf '       %s\n' "$loader"
+    success "Current boot entry uses UKI:"
+    printf '       %s\n' "$uki"
+    if ! sbctl_report_has_signature "$report" "$uki"; then
+        warning "Current UKI is unsigned or unverified: $uki"
+        return 1
+    fi
+    success "Current UKI is signed."
+    if [[ "${VERIFIED_PLYMOUTH_UKIS[$uki]:-false}" != true ]]; then
+        warning "Current UKI contents have not passed Plymouth verification in this run."
+        return 1
+    fi
+    success "Current UKI contains the required persistent kernel command line."
+    success "Plymouth 'splash' kernel option and theme verified in the current UKI."
+    local -a uki_paths=()
+    mapfile -t uki_paths < <(get_configured_uki_paths | sort -u)
+    for path in "${uki_paths[@]}"; do
+        if ! sbctl_report_has_signature "$report" "$path"; then
+            warning "Rebuilt UKI is unsigned or unverified: $path"
+            return 1
+        fi
+    done
 
-    success "Secure Boot signatures verified; existing keys were not changed."
+    # Repair only identified fallback copies after the active loader and UKI
+    # verify with the existing key. This never creates or enrolls keys.
+    while IFS= read -r path; do
+        [[ "$path" == */EFI/BOOT/BOOT*.EFI && "$path" != "$loader" ]] || continue
+        if sbctl_report_has_signature "$report" "$path"; then
+            success "Fallback bootloader is signed:"
+        else
+            info "Signing and registering the systemd-boot fallback with the existing key:"
+            printf '       %s\n' "$path"
+            if sudo sbctl sign -s "$path" &&
+               repaired_report=$(read_sbctl_signature_report "$path") &&
+               sbctl_report_has_signature "$repaired_report" "$path"; then
+                SECURE_BOOT_AUTOMATIC_ACTION="systemd-boot fallback signed and registered"
+                success "Fallback bootloader is signed:"
+            else
+                SECURE_BOOT_OTHER_FILES_WARNING=true
+                SECURE_BOOT_AUTOMATIC_ACTION="fallback signing or verification failed"
+                warning "Fallback bootloader remains unsigned or unverified:"
+            fi
+        fi
+        printf '       %s\n' "$path"
+    done <<< "$loaders"
+
+    while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        if sbctl_report_has_signature "$report" "$path"; then
+            success "Standalone kernel is signed: $path"
+        else
+            info "$path is unsigned or unverified."
+            info "Not required to be signed for the active UKI boot path."
+        fi
+    done < <(jq -r '.[] | select(.file_name | startswith("/boot/vmlinuz-")) | .file_name' <<< "$report")
+
+    local known
+    known=$(printf '%s\n' "${uki_paths[@]}" "$loader" "$uki" "$loaders" |
+        jq -Rsc 'split("\n") | map(select(length > 0))')
+    while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        SECURE_BOOT_OTHER_FILES_WARNING=true
+        warning "Additional boot file is unsigned or unverified: $path"
+    done < <(jq -r --argjson known "$known" '.[] |
+        select(.is_signed != 1) | .file_name as $p |
+        select(($known | index($p)) == null) |
+        select($p | startswith("/boot/vmlinuz-") | not) | $p' <<< "$report")
+
+    SECURE_BOOT_VERIFY_STATUS="active Secure Boot chain verified"
+    if [[ "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]; then
+        SECURE_BOOT_VERIFY_STATUS+="; additional boot file warnings"
+    fi
+    success "Active Secure Boot chain verified."
+}
+
+uki_cmdline_matches_file() {
+    local embedded="$1" persistent="$2" tokens argument expected
+    [[ -s "$embedded" && -r "$persistent" ]] || return 1
+    tokens=$(tr '\0[:space:]' '\n' < "$embedded") || return 1
+    expected=$(awk '!/^[[:space:]]*#/ && NF' "$persistent") || return 1
+    [[ -n "$expected" ]] || return 1
+    while IFS= read -r argument; do
+        [[ -n "$argument" ]] || continue
+        grep -Fx -- "$argument" <<< "$tokens" >/dev/null || return 1
+    done < <(printf '%s\n' "$expected" | tr '[:space:]' '\n')
+    return 0
 }
 
 verify_uki_plymouth_setup() {
+    VERIFIED_PLYMOUTH_UKIS=()
     [[ "$UKI_ENABLED" == true ]] || return 0
 
     local hooks_line hooks_content theme uki_path readable_uki cmdline_file splash_file
@@ -1917,6 +2156,9 @@ verify_uki_plymouth_setup() {
         elif ! tr '\0' ' ' < "$cmdline_file" | grep -E '(^|[[:space:]])splash([[:space:]]|$)' >/dev/null; then
             warning "The generated UKI does not contain the splash kernel option: $uki_path"
             failed=true
+        elif ! uki_cmdline_matches_file "$cmdline_file" /etc/kernel/cmdline; then
+            warning "Could not verify the persistent kernel arguments in the generated UKI: $uki_path"
+            failed=true
         fi
         if [[ -n "$theme" ]] &&
            ! uki_contains_plymouth_theme "$readable_uki" "$theme"; then
@@ -1938,6 +2180,10 @@ verify_uki_plymouth_setup() {
         warning "UKI/Plymouth verification failed. Run the Plymouth section before signing Secure Boot files."
         return 1
     fi
+    for uki_path in "${uki_paths[@]}"; do
+        uki_path=$(realpath -ms -- "$uki_path") || return 1
+        VERIFIED_PLYMOUTH_UKIS["$uki_path"]=true
+    done
     success "Verified the Plymouth hook, selected theme, kernel option and generated UKIs."
 }
 
@@ -2166,6 +2412,7 @@ setup_plymouth() {
         warning "Plymouth setup failed: boot image rebuild failed. Resolve this before rebooting."
         return 1
     fi
+    BOOT_IMAGE_ACTION="rebuilt for Plymouth; signatures checked separately"
 
     local verification_failed=false
     if ! verify_uki_plymouth_setup; then
@@ -3550,6 +3797,18 @@ setup_secure_boot() {
     local efi_files=()
     local -A seen_efi_files=()
     local search_root efi_file
+    local identified_loaders
+
+    if ! identified_loaders=$(get_systemd_boot_files); then
+        warning "Secure Boot signing stopped: systemd-boot files could not be identified."
+        SECURE_BOOT_ACTION="boot loader discovery failed"
+        return 1
+    fi
+    while IFS= read -r efi_file; do
+        [[ -n "$efi_file" ]] || continue
+        efi_files+=("$efi_file")
+        seen_efi_files["$efi_file"]=1
+    done <<< "$identified_loaders"
 
     for search_root in /boot /efi; do
         [[ -d "$search_root" ]] || continue
@@ -3594,15 +3853,10 @@ setup_secure_boot() {
         fi
     done
 
-    if ! sudo sbctl sign-all; then
-        warning "sbctl sign-all reported a failure."
-        signing_failed=true
-    fi
-
     echo
     info "Verifying Secure Boot signatures..."
 
-    if sudo sbctl verify; then
+    if verify_secure_boot_files "${efi_files[@]}"; then
         if [[ "$signing_failed" == true ]]; then
             SECURE_BOOT_ACTION="verification passed with earlier signing warnings"
         else
@@ -3612,6 +3866,7 @@ setup_secure_boot() {
     else
         warning "sbctl verification reported unsigned or invalid EFI files."
         SECURE_BOOT_ACTION="verification failed"
+        return 1
     fi
 }
 
@@ -3696,7 +3951,10 @@ show_final_summary() {
     echo "  UKI setup:        $UKI_ACTION"
     echo "  SMB:              $SMB_ACTION"
     echo "  NFS:              $NFS_ACTION"
-    echo "  Secure Boot:      $SECURE_BOOT_ACTION"
+    echo "  Secure Boot setup: $SECURE_BOOT_ACTION"
+    echo "  Signature check:   $SECURE_BOOT_VERIFY_STATUS"
+    echo "  Boot images:       $BOOT_IMAGE_ACTION"
+    echo "  Automatic signing: $SECURE_BOOT_AUTOMATIC_ACTION"
     echo
 }
 
@@ -3744,7 +4002,7 @@ run_setup_module() {
             setup_plymouth
             ;;
         uki)
-            ensure_command_dependencies curl:curl file:file mkinitcpio:mkinitcpio
+            ensure_command_dependencies curl:curl file:file mkinitcpio:mkinitcpio jq:jq
             setup_uki
             ;;
         timeshift) wait_for_pacman_lock; check_timeshift ;;
@@ -3758,7 +4016,7 @@ run_setup_module() {
         browser) ensure_command_dependencies xdg-settings:xdg-utils; select_default_browser ;;
         shares) configure_network_shares ;;
         tailscale) wait_for_pacman_lock; configure_tailscale ;;
-        secure_boot) ensure_command_dependencies objcopy:binutils; wait_for_pacman_lock; setup_secure_boot ;;
+        secure_boot) ensure_command_dependencies objcopy:binutils jq:jq; wait_for_pacman_lock; setup_secure_boot ;;
         *) die "Unknown setup section: $1" ;;
     esac
 }
@@ -3817,7 +4075,11 @@ main() {
 
     echo
 
-    if [[ ${#FAILED_PACKAGES[@]} -gt 0 ]]; then
+    if [[ "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]; then
+
+        warning "Setup completed with additional boot file signature warnings; review the paths reported above."
+
+    elif [[ ${#FAILED_PACKAGES[@]} -gt 0 ]]; then
 
         warning "Setup completed with some package failures."
 
