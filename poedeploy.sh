@@ -609,7 +609,11 @@ detect_gpu() {
         return 0
     fi
 
-    gpu_info=$(lspci | grep -Ei 'VGA|3D|Display' || true)
+    gpu_info=$(
+        lspci | grep -Ei \
+            '^[[:xdigit:]]{2,4}(:[[:xdigit:]]{2})?:[[:xdigit:]]{2}\.[[:xdigit:]][[:space:]]+(VGA compatible controller|3D controller|Display controller):' ||
+            true
+    )
 
     if [[ -z "$gpu_info" ]]; then
 
@@ -619,25 +623,27 @@ detect_gpu() {
 
     fi
 
-    echo "$gpu_info"
+    printf '%s\n' "$gpu_info"
 
-    if echo "$gpu_info" | grep -qi "NVIDIA"; then
+    GPU_MODEL=$(
+        sed -E \
+            -e 's/^[^[:space:]]+[[:space:]]+(VGA compatible controller|3D controller|Display controller):[[:space:]]*//' \
+            -e 's/^(NVIDIA Corporation|Intel Corporation|Advanced Micro Devices, Inc\. \[AMD\/ATI\]|AMD\/ATI)[[:space:]]+//' \
+            <<< "$gpu_info" |
+            awk 'NF { printf "%s%s", separator, $0; separator=" + " } END { print "" }'
+    )
+
+    if grep -qi "NVIDIA" <<< "$gpu_info"; then
 
         GPU_VENDOR="NVIDIA"
 
-        GPU_MODEL=$(echo "$gpu_info" | sed -E 's/.*NVIDIA Corporation //')
-
-    elif echo "$gpu_info" | grep -qi "AMD"; then
+    elif grep -qi "AMD" <<< "$gpu_info"; then
 
         GPU_VENDOR="AMD"
 
-        GPU_MODEL=$(echo "$gpu_info" | sed -E 's/.*AMD\\/ATI //')
-
-    elif echo "$gpu_info" | grep -qi "Intel"; then
+    elif grep -qi "Intel" <<< "$gpu_info"; then
 
         GPU_VENDOR="Intel"
-
-        GPU_MODEL=$(echo "$gpu_info" | sed -E 's/.*Intel Corporation //')
 
     fi
 
@@ -1774,6 +1780,24 @@ stage_uki_for_verification() {
         -- "$source" "$destination"
 }
 
+uki_contains_plymouth_theme() {
+    local uki="$1" theme="$2"
+
+    # Do not use grep -q here. With pipefail enabled, an early grep exit can
+    # give lsinitcpio SIGPIPE and incorrectly turn a successful match into 141.
+    lsinitcpio "$uki" 2>/dev/null |
+        grep -Fx "usr/share/plymouth/themes/${theme}/${theme}.plymouth" >/dev/null
+}
+
+plymouth_theme_is_available() {
+    local theme="$1"
+
+    # Consume the complete list so plymouth-set-default-theme cannot be marked
+    # as failed by SIGPIPE after grep finds an early match.
+    plymouth-set-default-theme -l 2>/dev/null |
+        grep -Fx "$theme" >/dev/null
+}
+
 verify_uki_plymouth_setup() {
     [[ "$UKI_ENABLED" == true ]] || return 0
 
@@ -1841,8 +1865,7 @@ verify_uki_plymouth_setup() {
             failed=true
         fi
         if [[ -n "$theme" ]] &&
-           ! lsinitcpio "$readable_uki" 2>/dev/null |
-               grep -Fqx "usr/share/plymouth/themes/${theme}/${theme}.plymouth"; then
+           ! uki_contains_plymouth_theme "$readable_uki" "$theme"; then
             warning "The generated UKI does not contain the selected Plymouth theme '$theme': $uki_path"
             failed=true
         fi
@@ -1952,7 +1975,7 @@ install_poedeploy_plymouth_theme() {
         return 0
     fi
 
-    if ! plymouth-set-default-theme -l 2>/dev/null | grep -Fxq "$theme_name"; then
+    if ! plymouth_theme_is_available "$theme_name"; then
         warning "The files were copied, but Plymouth does not recognise the PoeDeploy theme."
         warning "Expected definition: ${theme_dir}/${theme_name}.plymouth"
         return 0
@@ -2036,7 +2059,7 @@ select_plymouth_theme() {
             info "Applying Plymouth theme: $selected_theme"
 
             if printf '%s\n' "${remote_themes[@]}" | grep -Fxq "$selected_theme" &&
-               ! plymouth-set-default-theme -l 2>/dev/null | grep -Fxq "$selected_theme"; then
+               ! plymouth_theme_is_available "$selected_theme"; then
                 if ! install_remote_plymouth_theme "$selected_theme"; then
                     warning "Failed to install repository theme '$selected_theme'."
                     return 0
