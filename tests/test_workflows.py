@@ -26,6 +26,15 @@ source "$1"
 trap - ERR
 sudo() { printf 'UNEXPECTED PRIVILEGED OPERATION: %s\n' "$*" >&2; exit 97; }
 wait_for_pacman_lock() { :; }
+# Workflow tests mock commands; dedicated timeout tests restore this helper
+# and execute GNU timeout against harmless fixture processes.
+original_boot_check=$(declare -f run_boot_verification_check)
+run_boot_verification_check() {
+    local label="$1"
+    shift
+    info "$label" >&2
+    sudo "$@"
+}
 '''
 
 
@@ -215,7 +224,7 @@ firmware_secure_boot_enabled() { return 0; }
 sbctl() { :; }
 get_configured_uki_paths() { printf '/boot/EFI/Linux/arch-linux.efi\n'; }
 sudo() {
-    [[ "$*" == 'sbctl --json verify' ]] || exit 97
+    [[ "$*" == 'sbctl --json verify /boot/EFI/Linux/arch-linux.efi' ]] || exit 97
     printf '%s\n' '[{"file_name":"/boot/EFI/Linux/arch-linux.efi","is_signed":1}]'
 }
 verify_secure_boot_after_uki_rebuild
@@ -255,28 +264,28 @@ main
         self.assertIn("SECURE_BOOT_ONLY", output)
         self.assertNotIn("UNEXPECTED", output)
 
-    def test_signature_report_distinguishes_signed_uki_and_unsigned_extras(self):
+    def test_targeted_verification_does_not_report_unrequested_files(self):
         output = self.check_run(r'''
 firmware_secure_boot_enabled() { return 0; }
 get_configured_uki_paths() { printf '/boot/EFI/Linux/arch-linux.efi\n'; }
 sbctl() { :; }
 sudo() {
-    [[ "$*" == 'sbctl --json verify' ]] || exit 97
+    [[ "$*" == 'sbctl --json verify /boot/EFI/Linux/arch-linux.efi' ]] || exit 97
     printf '%s\n' '[
       {"file_name":"/boot/EFI/Linux/arch-linux.efi","is_signed":1},
       {"file_name":"/boot/EFI/BOOT/BOOTX64.EFI","is_signed":0},
       {"file_name":"/boot/vmlinuz-linux","is_signed":0}]'
 }
 verify_secure_boot_after_uki_rebuild
-[[ "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]
-[[ "$SECURE_BOOT_VERIFY_STATUS" == 'UKI and identified boot loader signatures verified; additional boot file warnings' ]]
+[[ "$SECURE_BOOT_OTHER_FILES_WARNING" == false ]]
+[[ "$SECURE_BOOT_VERIFY_STATUS" == 'UKI and identified boot loader signatures verified' ]]
 [[ "$SECURE_BOOT_ACTION" == 'not selected' ]]
 check_graphical_environment() { :; }
 pacman() { return 1; }
 show_final_summary
 ''')
-        self.assertIn("Additional boot file reported unsigned or missing: /boot/EFI/BOOT/BOOTX64.EFI", output)
-        self.assertIn("Additional boot file reported unsigned or missing: /boot/vmlinuz-linux", output)
+        self.assertNotIn("Additional boot file reported unsigned", output)
+        self.assertIn("unrelated EFI files were not scanned", output)
         self.assertIn("Secure Boot setup: not selected", output)
         self.assertIn("Signature check:   UKI and identified boot loader signatures verified", output)
 
@@ -389,11 +398,16 @@ kernel_signed=0
 sign_calls=0
 sign_fails=false
 sign_ineffective=false
+signature_fail_path=''
+signature_fail_code=124
+identify_status=0
+second_uki_signed=1
 VERIFIED_PLYMOUTH_UKIS["$test_uki"]=true
 firmware_secure_boot_enabled() { return 0; }
 get_configured_uki_paths() { printf '%s\n' "$test_uki"; }
 original_discovery=$(declare -f get_systemd_boot_files)
 get_systemd_boot_files() { printf '%s\n' "$test_loader" "$fallback"; }
+get_present_fallback_boot_paths() { printf '%s\n' "$fallback"; }
 sbctl() { :; }
 sudo() {
     case "$*" in
@@ -401,8 +415,11 @@ sudo() {
         'bootctl status'*) echo UNEXPECTED_STATUS >&2; return 137 ;;
         'bootctl --print-loader-path') printf '%s\n' "$test_loader" ;;
         'bootctl --print-stub-path') printf '%s\n' "$test_uki" ;;
-        "bootctl kernel-identify $test_uki") printf 'uki\n' ;;
-        'sbctl --json verify'|"sbctl --json verify $fallback")
+        "bootctl kernel-identify $test_uki") printf 'uki\n'; return "$identify_status" ;;
+        'sbctl --json verify /boot/EFI/Linux/second.efi')
+            printf '[{"file_name":"/boot/EFI/Linux/second.efi","is_signed":%s}]\n' "$second_uki_signed" ;;
+        "sbctl --json verify $test_loader"|"sbctl --json verify $test_uki"|"sbctl --json verify $fallback")
+            [[ "$4" != "$signature_fail_path" ]] || return "$signature_fail_code"
             printf '[{"file_name":"%s","is_signed":%s},' "$test_loader" "$loader_signed"
             printf '{"file_name":"%s","is_signed":%s},' "$test_uki" "$uki_signed"
             printf '{"file_name":"%s","is_signed":%s},' "$fallback" "$fallback_signed"
@@ -429,6 +446,127 @@ verify_secure_boot_after_uki_rebuild
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("UNEXPECTED_STATUS", result.stdout + result.stderr)
 
+    def test_required_signature_timeout_stops_without_signing(self):
+        result = self.run_active_chain_case(r'''
+signature_fail_path="$test_uki"
+if verify_secure_boot_after_uki_rebuild; then exit 90; fi
+[[ "$sign_calls" == 0 ]]
+[[ "$SECURE_BOOT_VERIFY_STATUS" == 'verification failed' ]]
+''')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("Active Secure Boot chain verified.", result.stdout)
+        self.assertIn("Checking signature: /boot/EFI/Linux/arch-linux.efi", result.stderr)
+
+    def test_additional_configured_uki_must_also_be_signed(self):
+        result = self.run_active_chain_case(r'''
+get_configured_uki_paths() { printf '%s\n' "$test_uki" /boot/EFI/Linux/second.efi; }
+second_uki_signed=0
+if verify_secure_boot_after_uki_rebuild; then exit 90; fi
+[[ "$sign_calls" == 0 ]]
+[[ "$SECURE_BOOT_VERIFY_STATUS" == 'verification failed' ]]
+''')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Rebuilt UKI is unsigned or unverified: /boot/EFI/Linux/second.efi", result.stdout)
+
+    def test_next_steps_do_not_recommend_a_full_signature_scan(self):
+        output = self.check_run(r'''
+SECURE_BOOT_ACTION='configured and verified'
+show_secure_boot_next_steps
+''')
+        self.assertNotIn('sudo sbctl verify', output)
+        self.assertIn('individually verified', output)
+
+    def test_partial_uki_identification_output_does_not_override_failure(self):
+        result = self.run_active_chain_case(r'''
+identify_status=124
+if verify_secure_boot_after_uki_rebuild; then exit 90; fi
+[[ "$sign_calls" == 0 ]]
+''')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("Current UKI is signed.", result.stdout)
+
+    def test_fallback_timeout_never_authorizes_signing(self):
+        result = self.run_active_chain_case(r'''
+signature_fail_path="$fallback"
+verify_secure_boot_after_uki_rebuild
+[[ "$sign_calls" == 0 ]]
+[[ "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]
+[[ "$SECURE_BOOT_VERIFY_STATUS" == 'active Secure Boot chain verified; additional boot file warnings' ]]
+''')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Fallback signature check failed; not attempting signing", result.stdout)
+
+    def test_missing_fallback_never_authorizes_signing(self):
+        result = self.run_active_chain_case(r'''
+fallback_signed=-1
+verify_secure_boot_after_uki_rebuild
+[[ "$sign_calls" == 0 && "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]
+''')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Fallback bootloader is missing", result.stdout)
+
+    def test_targeted_report_deduplicates_paths_and_refuses_no_arguments(self):
+        output = self.check_run(r'''
+if read_sbctl_signature_report; then exit 90; fi
+sudo() {
+    [[ $# == 4 && "$1 $2 $3" == 'sbctl --json verify' ]] || exit 97
+    printf 'CHECKED:%s\n' "$4" >&2
+    jq -cn --arg path "$4" '[{file_name:$path,is_signed:1}]'
+}
+report=$(read_sbctl_signature_report /boot//test.efi /boot/test.efi /boot/second.efi)
+[[ $(jq length <<< "$report") == 2 ]]
+sbctl_report_has_signature "$report" /boot//test.efi
+printf '%s\n' "$report"
+''')
+        self.assertIn('"/boot/test.efi"', output)
+
+    def test_fallback_discovery_checks_only_standard_paths(self):
+        self.check_run(r'''
+sudo() {
+    case "$*" in
+        'bootctl --print-esp-path') echo /boot/ ;;
+        'test -f /boot/EFI/BOOT/BOOTX64.EFI') return 0 ;;
+        'test -f /boot/EFI/BOOT/BOOTIA32.EFI'|'test -f /boot/EFI/BOOT/BOOTAA64.EFI') return 1 ;;
+        *) exit 97 ;;
+    esac
+}
+[[ "$(get_present_fallback_boot_paths)" == /boot/EFI/BOOT/BOOTX64.EFI ]]
+''')
+
+    def test_real_verification_timeout_terminates_harmless_process(self):
+        for command, expected in (("sleep 5", 124), ('sh -c \'trap "" TERM; sleep 5\'', 137)):
+            with self.subTest(command=command):
+                result = run_bash(r'''
+eval "$original_boot_check"
+sudo() {
+    [[ "$1 $2 $3" == 'timeout --kill-after=5s 30s' ]] || exit 97
+    shift 3
+    # Keep the actual timeout implementation; shorten only the test duration.
+    command timeout --kill-after=0.1s 0.1s "$@"
+}
+status=0
+''' + f'run_boot_verification_check "Test verification" {command} || status=$?\n' +
+                    f'[[ "$status" == {expected} ]]\n')
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("Verification is incomplete", result.stderr)
+                self.assertIn("Test verification", result.stderr)
+
+    def test_verification_check_keeps_json_separate_from_progress(self):
+        result = run_bash(r'''
+eval "$original_boot_check"
+sudo() {
+    [[ "$1 $2 $3" == 'timeout --kill-after=5s 30s' ]] || exit 97
+    shift 3
+    command "$@"
+}
+report=$(run_boot_verification_check "Test verification" printf '[{"ok":true}]')
+[[ "$report" == '[{"ok":true}]' ]]
+printf '%s\n' "$report"
+''')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.strip(), '[{"ok":true}]')
+        self.assertIn("Test verification", result.stderr)
+
     def test_unsigned_fallback_is_automatically_signed_and_verified_once(self):
         result = self.run_active_chain_case(r'''
 verify_secure_boot_after_uki_rebuild
@@ -444,7 +582,7 @@ verify_secure_boot_after_uki_rebuild
         self.assertIn("Active bootloader is signed:", result.stdout)
         self.assertIn("Current UKI is signed.", result.stdout)
         self.assertIn("Fallback bootloader is signed:", result.stdout)
-        self.assertIn("Not required to be signed for the active UKI boot path.", result.stdout)
+        self.assertIn("not checked or signed separately for this UKI boot", result.stdout)
 
     def test_failed_or_ineffective_fallback_signing_keeps_separate_warning(self):
         for failure in ('sign_fails', 'sign_ineffective'):
@@ -478,7 +616,7 @@ verify_secure_boot_after_uki_rebuild
 [[ "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]
 ''')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Additional boot file is unsigned or unverified:", result.stdout)
+        self.assertIn("Fallback is not identified as systemd-boot; not checked or signed:", result.stdout)
 
     def test_signed_standalone_kernel_is_reported_without_resigning(self):
         result = self.run_active_chain_case(r'''
@@ -488,7 +626,8 @@ verify_secure_boot_after_uki_rebuild
 [[ "$sign_calls" == 0 ]]
 ''')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Standalone kernel is signed: /boot/vmlinuz-linux", result.stdout)
+        self.assertIn("Standalone /boot/vmlinuz-* kernels are not checked or signed separately", result.stdout)
+        self.assertNotIn("Standalone kernel is signed:", result.stdout)
 
     def test_embedded_cmdline_preserves_required_root_and_plymouth_options(self):
         self.check_run(r'''
@@ -514,7 +653,7 @@ sudo() {
 verify_secure_boot_files /boot/test.efi
 [[ "$SECURE_BOOT_OTHER_FILES_WARNING" == false ]]
 ''')
-        self.assertIn("Standalone kernel outside the current UKI boot chain", output)
+        self.assertIn("Only the listed boot files were checked", output)
 
     def test_unsigned_required_uki_fails_even_when_sbctl_exits_zero(self):
         self.check_run(r'''

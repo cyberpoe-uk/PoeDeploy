@@ -153,8 +153,9 @@ enabled, the mkinitcpio `sbctl` post-hook signs the rebuilt image and PoeDeploy 
 `sbctl verify` afterward. The full key creation and enrollment section runs only
 when the user explicitly selects Secure Boot.
 
-Signature verification reads `sbctl --json verify` per-file results: a successful
-command exit alone does not mean all files are signed. A Plymouth rebuild requires
+Signature verification calls `sbctl --json verify FILE` separately for each
+target, never an unqualified scan of the entire ESP or signing database. A
+successful command exit alone does not mean the file is signed. A Plymouth rebuild requires
 every configured active UKI to have a signed result. With systemd-boot, it also
 checks the current loader and identified fallback copies on the ESP. Discovery
 uses targeted `bootctl` path queries and the embedded systemd-boot `LoaderInfo`
@@ -170,15 +171,26 @@ and confirms the current UKI's Plymouth configuration. It never signs an unknown
 fallback merely because its filename matches, and does not reopen key enrollment.
 It verifies the fallback again after signing; a failure remains a separate warning
 without claiming that fallback protection passed.
-Other unsigned files are reported separately. On a verified UKI boot, the unsigned
-standalone `/boot/vmlinuz-*` kernel is informational because it is outside that boot
-chain; it remains a failure if explicitly included among required files.
+Present standard fallback paths are checked individually when identified as
+systemd-boot; unknown fallback loaders are reported but never automatically signed.
+A failed or timed-out fallback check is not treated as permission to sign it.
+Unrelated EFI files and standalone `/boot/vmlinuz-*` kernels are not scanned.
+The summary explicitly states this scope rather than claiming their signatures
+were checked. A standalone kernel still requires a signature if explicitly passed
+to the required-file verifier.
 The report identifies the active loader and current UKI by path, verifies the
 persistent kernel arguments embedded in the UKI, and reports fallback and standalone
-kernel signatures separately. Standalone kernel signatures are reported only.
+kernel verification scope separately.
 The summary separates Secure Boot setup, signature verification, boot image rebuilds,
 and automatic fallback signing. Signing a standalone kernel does not authenticate
 an external initramfs or command line; the signed UKI remains the intended boot path.
+
+Read-only bootloader discovery queries, UKI identification, and each signature
+check print progress and use a 30-second timeout followed by a five-second kill
+grace period. Required-file failures stop verification without reporting success;
+fallback failures remain separate warnings. Timeouts do not repair kernel faults
+or guarantee recovery from uninterruptible kernel operations. Signing and image
+rebuilds are not interrupted by these verification timeouts.
 
 If the summary reports **keys created but not enrolled**, use the firmware's
 documented procedure to enter Secure Boot Setup Mode. Custom mode by itself may
@@ -190,8 +202,11 @@ whether those exact keys have already been enrolled before proceeding to sign.
 
 If the UKI reboot test is still pending, first boot through the UKI entry and then
 rerun the Secure Boot section. After enrollment and signing, check
-`sudo sbctl status` and `sudo sbctl verify` before enabling Secure Boot enforcement
-in firmware. See the [sbctl workflow](https://github.com/Foxboron/sbctl/blob/master/docs/sbctl.8.txt).
+`sudo sbctl status` and review PoeDeploy's per-file signature results before
+enabling Secure Boot enforcement in firmware. To recheck manually, use
+`sudo timeout --kill-after=5s 30s sbctl verify /absolute/path/to/boot-file.efi`
+with each actual boot file path, not a full ESP scan. See the
+[sbctl workflow](https://github.com/Foxboron/sbctl/blob/master/docs/sbctl.8.txt).
 
 ## Network Shares
 

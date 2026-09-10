@@ -817,7 +817,7 @@ detect_bootloader() {
 
         # The full status report also inspects boot entries and UKIs. It is not
         # needed to identify the loader and can fail independently of booting.
-        if loader_path=$(sudo bootctl --print-loader-path) &&
+        if loader_path=$(run_boot_verification_check "Locating the active bootloader" bootctl --print-loader-path) &&
            [[ "$loader_path" == /* ]] && is_systemd_boot_binary "$loader_path"; then
 
             BOOTLOADER="systemd-boot"
@@ -1914,14 +1914,45 @@ is_systemd_boot_binary() {
         '#### LoaderInfo: systemd-boot [^#[:cntrl:]]{1,256} ####' "$path" >/dev/null
 }
 
+run_boot_verification_check() {
+    local label="$1" status
+    shift
+    info "$label (timeout: 30 seconds)" >&2
+    if sudo timeout --kill-after=5s 30s "$@"; then
+        return 0
+    else
+        status=$?
+    fi
+    case "$status" in
+        124|137)
+            warning "$label timed out or was killed (exit $status). Verification is incomplete." >&2
+            warning "Do not repeat the installer if kernel faults recur; inspect the kernel journal." >&2
+            ;;
+        *) warning "$label failed (exit $status)." >&2 ;;
+    esac
+    return "$status"
+}
+
+get_present_fallback_boot_paths() {
+    local esp architecture path
+    esp=$(run_boot_verification_check "Locating the EFI partition" bootctl --print-esp-path) || return 1
+    [[ "$esp" == /* ]] || return 1
+    esp=$(realpath -ms -- "$esp") || return 1
+    for architecture in X64 IA32 AA64; do
+        path="${esp%/}/EFI/BOOT/BOOT${architecture}.EFI"
+        if sudo test -f "$path"; then printf '%s\n' "$path"; fi
+    done
+    return 0
+}
+
 get_systemd_boot_files() {
     local esp current path architecture
     local -a paths=()
-    if ! esp=$(sudo bootctl --print-esp-path); then
+    if ! esp=$(run_boot_verification_check "Locating the EFI partition" bootctl --print-esp-path); then
         warning "Could not read the ESP path (bootctl --print-esp-path)." >&2
         return 1
     fi
-    if ! current=$(sudo bootctl --print-loader-path); then
+    if ! current=$(run_boot_verification_check "Locating the active bootloader" bootctl --print-loader-path); then
         warning "Could not read the active loader path (bootctl --print-loader-path)." >&2
         return 1
     fi
@@ -1952,18 +1983,39 @@ get_systemd_boot_files() {
 }
 
 read_sbctl_signature_report() {
-    local report
-    report=$(sudo sbctl --json verify "$@") || return 1
-    jq -e 'type == "array" and length > 0 and all(.[];
-        (.file_name | type == "string") and
-        (.is_signed == 1 or .is_signed == 0 or .is_signed == -1))' \
-        <<< "$report" >/dev/null 2>&1 || return 1
-    # bootctl may use doubled slashes whereas sbctl uses canonical spelling.
-    jq 'map(.file_name |= gsub("/+"; "/"))' <<< "$report"
+    local report file entry combined='[]'
+    local -A seen=()
+    if (( $# == 0 )); then
+        warning "Refusing an untargeted Secure Boot signature scan." >&2
+        return 1
+    fi
+    for file in "$@"; do
+        [[ "$file" == /* ]] || return 1
+        file=$(realpath -ms -- "$file") || return 1
+        [[ "${seen[$file]:-false}" != true ]] || continue
+        seen["$file"]=true
+        report=$(run_boot_verification_check "Checking signature: $file" \
+            sbctl --json verify "$file") || return 1
+        # A zero command exit is not proof of a signature. Require an explicit,
+        # well-formed result for this file; never accept a partial/other report.
+        if ! entry=$(jq -ce --arg path "$file" '
+            if type != "array" then error("expected array") else . end |
+            map(.file_name |= gsub("/+"; "/")) |
+            map(select(.file_name == $path)) |
+            if length == 1 and
+                (.[0].is_signed == 1 or .[0].is_signed == 0 or .[0].is_signed == -1)
+            then . else error("missing or invalid per-file result") end' <<< "$report" 2>/dev/null); then
+            warning "Invalid signature report for: $file" >&2
+            return 1
+        fi
+        combined=$(jq -cn --argjson old "$combined" --argjson new "$entry" '$old + $new') || return 1
+    done
+    printf '%s\n' "$combined"
 }
 
 sbctl_report_has_signature() {
     local report="$1" path="$2"
+    path=$(realpath -ms -- "$path") || return 1
     jq -e --arg path "$path" '[.[] | select(.file_name == $path)] |
         length > 0 and all(.[]; .is_signed == 1)' <<< "$report" >/dev/null
 }
@@ -1983,7 +2035,7 @@ verify_secure_boot_files() {
 
     # sbctl can exit zero even when files are unsigned or missing.
     # Inspect its structured per-file results instead of trusting that exit code.
-    if ! report=$(read_sbctl_signature_report); then
+    if ! report=$(read_sbctl_signature_report "$@"); then
         warning "Could not read a valid per-file signature report from sbctl."
         return 1
     fi
@@ -1997,26 +2049,7 @@ verify_secure_boot_files() {
         fi
     done
 
-    local required
-    required=$(printf '%s\n' "$@" | jq -Rsc 'split("\n")[:-1]')
-    while IFS= read -r file; do
-        [[ -n "$file" ]] || continue
-        if [[ "${UKI_BOOTED:-false}" == true && "$file" == /boot/vmlinuz-* ]]; then
-            info "Standalone kernel outside the current UKI boot chain: $file (not signed separately)."
-            continue
-        fi
-        SECURE_BOOT_OTHER_FILES_WARNING=true
-        warning "Additional boot file reported unsigned or missing: $file"
-    done < <(jq -r --argjson required "$required" '
-        .[] | select(.is_signed != 1) |
-        .file_name as $path | select(($required | index($path)) == null) |
-        .file_name' <<< "$report")
-
-    if [[ "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]; then
-        info "These additional files were not required by this check and have not been modified."
-        info "An EFI/BOOT fallback loader needs a trusted signature if firmware boots through it."
-        info "A standalone vmlinuz kernel is separate from the signed UKI used by a UKI boot."
-    fi
+    info "Only the listed boot files were checked; unrelated EFI files were not scanned."
     [[ "$failed" == false ]] || return 1
     SECURE_BOOT_VERIFY_STATUS="selected boot files verified"
 }
@@ -2057,16 +2090,17 @@ verify_secure_boot_after_uki_rebuild() {
 verify_active_secure_boot_chain() {
     SECURE_BOOT_VERIFY_STATUS="verification failed"
     SECURE_BOOT_OTHER_FILES_WARNING=false
-    local loaders loader uki report path repaired_report
+    local loaders loader uki report path repaired_report fallbacks fallback_report image_type
+    local -a uki_paths=()
     if ! loaders=$(get_systemd_boot_files); then
         warning "Could not identify the active boot chain."
         return 1
     fi
-    if ! loader=$(sudo bootctl --print-loader-path); then
+    if ! loader=$(run_boot_verification_check "Locating the active bootloader" bootctl --print-loader-path); then
         warning "Could not read the active loader path (bootctl --print-loader-path)."
         return 1
     fi
-    if ! uki=$(sudo bootctl --print-stub-path); then
+    if ! uki=$(run_boot_verification_check "Locating the current UKI" bootctl --print-stub-path); then
         warning "Could not read the current UKI path (bootctl --print-stub-path)."
         return 1
     fi
@@ -2077,11 +2111,13 @@ verify_active_secure_boot_chain() {
         warning "The active loader was not identified as systemd-boot."
         return 1
     fi
-    if [[ "$(sudo bootctl kernel-identify "$uki")" != uki ]]; then
+    if ! image_type=$(run_boot_verification_check "Identifying the current UKI: $uki" bootctl kernel-identify "$uki") ||
+       [[ "$image_type" != uki ]]; then
         warning "The current boot image could not be identified as a UKI: $uki"
         return 1
     fi
-    if ! report=$(read_sbctl_signature_report); then
+    mapfile -t uki_paths < <(get_configured_uki_paths | sort -u)
+    if ! report=$(read_sbctl_signature_report "$loader" "$uki" "${uki_paths[@]}"); then
         warning "Could not read a valid signature report."
         return 1
     fi
@@ -2106,8 +2142,6 @@ verify_active_secure_boot_chain() {
     fi
     success "Current UKI contains the required persistent kernel command line."
     success "Plymouth 'splash' kernel option and theme verified in the current UKI."
-    local -a uki_paths=()
-    mapfile -t uki_paths < <(get_configured_uki_paths | sort -u)
     for path in "${uki_paths[@]}"; do
         if ! sbctl_report_has_signature "$report" "$path"; then
             warning "Rebuilt UKI is unsigned or unverified: $path"
@@ -2117,11 +2151,26 @@ verify_active_secure_boot_chain() {
 
     # Repair only identified fallback copies after the active loader and UKI
     # verify with the existing key. This never creates or enrolls keys.
+    if ! fallbacks=$(get_present_fallback_boot_paths); then
+        SECURE_BOOT_OTHER_FILES_WARNING=true
+        warning "Fallback discovery failed; fallback protection is unverified."
+        fallbacks=""
+    fi
     while IFS= read -r path; do
         [[ "$path" == */EFI/BOOT/BOOT*.EFI && "$path" != "$loader" ]] || continue
-        if sbctl_report_has_signature "$report" "$path"; then
+        if ! grep -Fx "$path" <<< "$loaders" >/dev/null; then
+            SECURE_BOOT_OTHER_FILES_WARNING=true
+            warning "Fallback is not identified as systemd-boot; not checked or signed: $path"
+            continue
+        fi
+        if ! fallback_report=$(read_sbctl_signature_report "$path"); then
+            SECURE_BOOT_OTHER_FILES_WARNING=true
+            warning "Fallback signature check failed; not attempting signing: $path"
+            continue
+        fi
+        if sbctl_report_has_signature "$fallback_report" "$path"; then
             success "Fallback bootloader is signed:"
-        else
+        elif jq -e '.[0].is_signed == 0' <<< "$fallback_report" >/dev/null; then
             info "Signing and registering the systemd-boot fallback with the existing key:"
             printf '       %s\n' "$path"
             if sudo sbctl sign -s "$path" &&
@@ -2134,31 +2183,15 @@ verify_active_secure_boot_chain() {
                 SECURE_BOOT_AUTOMATIC_ACTION="fallback signing or verification failed"
                 warning "Fallback bootloader remains unsigned or unverified:"
             fi
+        else
+            SECURE_BOOT_OTHER_FILES_WARNING=true
+            warning "Fallback bootloader is missing; not attempting signing:"
         fi
         printf '       %s\n' "$path"
-    done <<< "$loaders"
+    done < <(printf '%s\n' "$loaders" "$fallbacks" | sort -u)
 
-    while IFS= read -r path; do
-        [[ -n "$path" ]] || continue
-        if sbctl_report_has_signature "$report" "$path"; then
-            success "Standalone kernel is signed: $path"
-        else
-            info "$path is unsigned or unverified."
-            info "Not required to be signed for the active UKI boot path."
-        fi
-    done < <(jq -r '.[] | select(.file_name | startswith("/boot/vmlinuz-")) | .file_name' <<< "$report")
-
-    local known
-    known=$(printf '%s\n' "${uki_paths[@]}" "$loader" "$uki" "$loaders" |
-        jq -Rsc 'split("\n") | map(select(length > 0))')
-    while IFS= read -r path; do
-        [[ -n "$path" ]] || continue
-        SECURE_BOOT_OTHER_FILES_WARNING=true
-        warning "Additional boot file is unsigned or unverified: $path"
-    done < <(jq -r --argjson known "$known" '.[] |
-        select(.is_signed != 1) | .file_name as $p |
-        select(($known | index($p)) == null) |
-        select($p | startswith("/boot/vmlinuz-") | not) | $p' <<< "$report")
+    info "Standalone /boot/vmlinuz-* kernels are not checked or signed separately for this UKI boot."
+    info "Unrelated EFI files were not scanned."
 
     SECURE_BOOT_VERIFY_STATUS="active Secure Boot chain verified"
     if [[ "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]; then
@@ -4061,7 +4094,7 @@ show_secure_boot_next_steps() {
             info "Reboot through the UKI entry first, then rerun only the Secure Boot section."
             ;;
         "configured and verified")
-            info "Boot files have been signed. Confirm with: sudo sbctl status && sudo sbctl verify"
+            info "The listed boot files have been signed and individually verified; no full ESP scan is needed."
             info "With your keys enrolled and boot files verified, enable Secure Boot in firmware if needed."
             info "Boot the signed UKI and confirm that sudo sbctl status reports Secure Boot: Enabled."
             ;;
