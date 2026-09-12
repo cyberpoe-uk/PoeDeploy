@@ -14,5 +14,6 @@
 
 # Local testing
 test/
+tests/
 tmp/
 latest-release
