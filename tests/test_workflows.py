@@ -373,7 +373,7 @@ verify_secure_boot_after_uki_rebuild
 [[ "$SECURE_BOOT_VERIFY_STATUS" == 'UKI and identified boot loader signatures verified' ]]
 ''')
         self.assertIn("Signature verified: /boot/EFI/Linux/arch-linux.efi", output)
-        self.assertIn("existing keys were not changed", output)
+        self.assertIn("Existing keys were not changed", output)
 
     def test_main_secure_boot_only_skips_updates_and_installers(self):
         output = self.check_run(r'''
@@ -426,7 +426,7 @@ pacman() { return 1; }
 show_final_summary
 ''')
         self.assertNotIn("Additional boot file reported unsigned", output)
-        self.assertIn("unrelated EFI files were not scanned", output)
+        self.assertIn("Unrelated EFI files were not scanned", output)
         self.assertIn("Secure Boot setup: not selected", output)
         self.assertIn("Signature check:   UKI and identified boot loader signatures verified", output)
 
@@ -666,10 +666,10 @@ signature_fail_path="$fallback"
 verify_secure_boot_after_uki_rebuild
 [[ "$sign_calls" == 0 ]]
 [[ "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]
-[[ "$SECURE_BOOT_VERIFY_STATUS" == 'active Secure Boot chain verified; additional boot file warnings' ]]
+[[ "$SECURE_BOOT_VERIFY_STATUS" == 'active Secure Boot chain verified, additional boot file warnings' ]]
 ''')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Fallback signature check failed; not attempting signing", result.stdout)
+        self.assertIn("Fallback signature check failed. Signing will not be attempted", result.stdout)
 
     def test_missing_fallback_never_authorizes_signing(self):
         result = self.run_active_chain_case(r'''
@@ -766,7 +766,7 @@ verify_secure_boot_after_uki_rebuild
 verify_secure_boot_after_uki_rebuild
 [[ "$sign_calls" == 1 ]]
 [[ "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]
-[[ "$SECURE_BOOT_VERIFY_STATUS" == 'active Secure Boot chain verified; additional boot file warnings' ]]
+[[ "$SECURE_BOOT_VERIFY_STATUS" == 'active Secure Boot chain verified, additional boot file warnings' ]]
 ''')
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("Fallback bootloader remains unsigned or unverified:", result.stdout)
@@ -791,7 +791,7 @@ verify_secure_boot_after_uki_rebuild
 [[ "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]
 ''')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Fallback is not identified as systemd-boot; not checked or signed:", result.stdout)
+        self.assertIn("Fallback is not identified as systemd-boot and was not checked or signed:", result.stdout)
 
     def test_signed_standalone_kernel_is_reported_without_resigning(self):
         result = self.run_active_chain_case(r'''
