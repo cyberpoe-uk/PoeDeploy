@@ -27,7 +27,7 @@ bash themes/poedeploy/build.sh
 ```
 
 The builder retains the existing password and keyboard prompt assets from the
-archive. `preview.png` shows the normal boot layout at 1920×1080; it is a rendered
+archive. `preview.png` shows the normal boot layout at 1920×1080. It is a rendered
 layout preview, not a capture of a running boot session.
 
 ![PoeDeploy boot layout](preview.png)

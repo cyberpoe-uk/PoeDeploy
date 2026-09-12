@@ -1,6 +1,7 @@
 """Network-share safety tests. Never mount a real share or edit the host fstab."""
 
 import unittest
+import re
 from pathlib import Path
 
 from test_workflows import run_bash
@@ -18,13 +19,24 @@ class NetworkShareTests(unittest.TestCase):
         self.assertIn('PoeDeploy will save this share for future use only after confirming', output)
         self.assertNotIn('test first', output)
 
-    def test_script_and_documentation_do_not_use_em_dashes(self):
+    def test_script_and_documentation_avoid_unwanted_punctuation(self):
         root = Path(__file__).resolve().parents[1]
         paths = [root / 'poedeploy.sh', *root.glob('*.md'), *root.glob('docs/**/*.md'),
                  *root.glob('themes/**/*.md')]
         for path in paths:
             with self.subTest(path=path.relative_to(root)):
                 self.assertNotIn(chr(0x2014), path.read_text())
+                if path.suffix == '.md':
+                    self.assertNotIn(';', path.read_text())
+
+    def test_user_facing_script_text_does_not_use_semicolons(self):
+        script = Path(__file__).resolve().parents[1] / 'poedeploy.sh'
+        for number, line in enumerate(script.read_text().splitlines(), 1):
+            stripped = line.strip()
+            match = re.match(r'(?:info|success|warning|error|die|echo)\s+"([^"]*)"', stripped)
+            if match:
+                with self.subTest(line=number):
+                    self.assertNotIn(';', match.group(1))
 
     def test_rejects_unsafe_mountpoints_and_fstab_fields(self):
         self.check_run(r'''

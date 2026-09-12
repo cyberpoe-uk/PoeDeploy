@@ -2,7 +2,7 @@
 
 Use a normal package update to test the persistent configuration. Do not rerun
 PoeDeploy, select Plymouth again, manually run `mkinitcpio -P`, or manually sign
-files between the update and verification: that could hide a failed update hook.
+files between the update and verification. That could hide a failed update hook.
 The menu/summary cleanup does not require reinstalling the existing boot setup.
 
 Before updating, save your work, have backups and recovery media available, and
@@ -17,7 +17,7 @@ plymouth-set-default-theme
 ```
 
 Then run `sudo pacman -Syu` directly and retain its output. Confirm that the
-transaction actually upgrades the kernel; otherwise this is not a kernel-upgrade
+transaction actually upgrades the kernel. Otherwise this is not a kernel-upgrade
 test. Watch for successful initramfs generation and, on a UKI system, UKI creation
 and automatic signing. If the update or boot-image hooks fail, stop before
 rebooting and investigate. Do not use a standalone `pacman -Sy`.
@@ -40,7 +40,7 @@ sudo timeout --kill-after=5s 30s sbctl verify \
     /boot/EFI/BOOT/BOOTX64.EFI
 ```
 
-These are example paths for the previously tested x64 laptop; use the machine's
+These are example paths for the previously tested x64 laptop. Use the machine's
 actual configured paths. Read each file's result, not just the command exit code.
 An ordinary initramfs system does not exercise UKI generation or Secure Boot
 signing, and does not need converting to UKI just for this test.
@@ -51,6 +51,6 @@ full PoeDeploy theme appears with its blue progress bar. On the UKI laptop also
 check the expected black early splash, Secure Boot status, and signatures again.
 Review `sudo journalctl -k -b -p warning --no-pager` for new kernel faults. A clean
 update/reboot does not by itself resolve the earlier kernel fault or establish
-whether suspend/resume was involved; that is a separate test.
+whether suspend or resume was involved. That is a separate test.
 
 [Back to the README](../README.md)

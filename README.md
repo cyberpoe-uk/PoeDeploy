@@ -4,114 +4,120 @@
   <img src="assets/poedeploy-logo.png" alt="PoeDeploy logo" width="500">
 </p>
 
-**Set up Arch Linux. Or just the part you need.**
+## Set up Arch Linux, or just the part you need
 
-PoeDeploy is a guided Bash toolkit for fresh installations and everyday configuration.
-Build out a desktop, connect an SMB/NFS share, change your boot theme, or work
-through UKI and Secure Boot setup without running the whole installer.
+I made PoeDeploy to help me set up my Arch Linux machines without having to
+remember every command each time. It can guide you through a full setup, but you
+do not have to use it that way.
 
-## Get started
+You can also open PoeDeploy when you only want help with one job, such as:
 
-Run as your regular user on Arch Linux, with internet access and sudo available:
+- connecting an SMB or NFS network share
+- setting up a Plymouth boot theme
+- creating a Unified Kernel Image, also known as a UKI
+- setting up Secure Boot
+- installing a few optional applications
+- setting your default browser
+- configuring Tailscale
+
+PoeDeploy shows what it plans to run before it starts. You can use it on a new
+installation or come back later and choose another section.
+
+## Start PoeDeploy
+
+PoeDeploy is made for Arch Linux. Run it as your normal user. It will ask for
+your sudo password only when a task needs administrator access.
 
 ```bash
 bash <(curl -fsSL https://cyberpoe.uk/latest-release)
 ```
 
-The launcher downloads the latest stable tagged release and shows its version.
-If Git is missing, it explains the prerequisite and asks permission before
-installing it. PoeDeploy then offers:
+This command downloads the latest stable release and shows you its version. If
+Git is missing, PoeDeploy explains why it is needed and asks before installing it.
 
-- **Choose sections:** select specific tasks; this is the default.
-- **Full setup:** visit every section, with optional choices along the way.
-- **Exit:** leave before setup begins.
+You will then see three choices:
 
-Either mode works on a first or later run. Review your selected sections before
-confirming changes. Missing dependencies for those sections may also be installed.
+- **Choose sections:** pick only the jobs you want to run. This is the default.
+- **Full setup:** go through the complete Arch setup with optional choices.
+- **Exit:** close PoeDeploy without starting the setup.
 
-Prefer to inspect the code first? Clone the
-[PoeDeploy repository](https://github.com/cyberpoe-uk/PoeDeploy), review
-`poedeploy.sh`, then run it with Bash.
+If you are unsure, choose **Choose sections**. Nothing is selected at first and
+nothing starts until you review your choices and confirm them.
 
-## What can I use it for?
+You can also clone the
+[PoeDeploy repository](https://github.com/cyberpoe-uk/PoeDeploy) and read the
+script before running it.
 
-- **A fresh desktop:** system updates, base tools, GPU drivers, NetworkManager,
-  optional ML4W/Hyprland, and SDDM.
-- **One useful task:** connect an SMB/NFS share, choose a Plymouth theme, install
-  apps, change your default browser, or configure Tailscale.
-- **Boot configuration:** guided UKI creation and Secure Boot key enrollment,
-  signing and verification on supported UEFI/systemd-boot systems.
-- **Recovery preparation:** install Timeshift as its own section.
+## A few examples
 
-For example, choose **Choose sections → SMB / NFS shares** to configure a NAS.
-You do not need to install a desktop, change your theme, or run a full update.
+If you only want to connect your NAS, choose **Choose sections**, select
+**SMB / NFS shares**, and continue. PoeDeploy will not install the desktop or
+change your boot setup.
 
-With `gum`, use **↑/↓** to navigate, **x** to toggle checklist items, and **Enter**
-to continue. **Esc/Ctrl+C** cancels the menu. Without it, startup uses numbered
-menus; no package is installed just to show those menus.
+If you want to change the boot animation, select **Plymouth boot theme**.
 
-## Optional apps, not a bundle
+If you are setting up a fresh machine, **Full setup** takes you through every
+section. Optional applications still start unselected, so you choose what you
+actually want.
 
-All apps start unchecked, even during full setup:
+## Optional applications
+
+The application list includes:
 
 7-Zip, Discord, Firefox, GIMP, HyprMod, LibreOffice, LocalSend, OBS Studio,
 PowerTOP, Spotify, Tailscale, Thunderbird, Visual Studio Code, and VLC.
 
-Official Arch packages are preferred, with `yay` used for AUR packages.
-HyprMod follows the Arch package route used by ML4W; it is not launched
-automatically. Selecting VLC also installs its plugins.
+PoeDeploy prefers packages from the official Arch repositories. It uses `yay`
+when an application is only available from the Arch User Repository, usually
+called the AUR.
 
-During an optional app install, press **Ctrl+C** once. After the package command
-exits, choose **Skip**, **Retry**, or **Quit**. Installed dependencies are kept;
-cancellation is not an uninstall or rollback.
+If an optional application is taking too long, press **Ctrl+C** once. You can
+then skip that application, retry it, or stop PoeDeploy. Skipping an application
+does not remove anything that was already installed.
 
-## Network shares: test before saving
+## Safer network share setup
 
-SMB and NFS setup tests the mount and checks that your user can list the share
-**before adding it to `/etc/fstab`**. If a test fails, its temporary configuration
-is cleaned up and you can retry with corrected details or skip.
+PoeDeploy checks an SMB or NFS share before saving it for future use. It first
+tries to connect and confirms that your user can see the files.
 
-Successful entries use on-demand mounting, `nofail`, and a mount timeout.
-Existing entries, mounts and credentials are not overwritten. Use a dedicated,
-empty directory under `/mnt` or `/media`; system directories and symlink paths
-are rejected. The script backs up `fstab` before saving.
+If the check fails, the share is not added to `/etc/fstab`. PoeDeploy removes
+the temporary setup and lets you retry with corrected details or skip it. This
+helps protect you from a typing mistake causing trouble on the next boot.
 
-This checks connectivity and read access now, not future server availability or
-write permissions. Cleanup failures stop the run for inspection rather than
-claiming everything is safe. [Share setup and safety details](docs/network-shares.md).
+Use a new, empty folder under `/mnt` or `/media` for the local mount point. For
+example, you could use `/mnt/NAS`. PoeDeploy will not overwrite an existing share
+or mount over a folder that already contains files.
 
-## Before changing boot settings
+For more information, read the
+[SMB and NFS share guide](docs/network-shares.md).
 
-PoeDeploy changes real system configuration; keep backups and recovery media.
-Automated UKI/Secure Boot setup requires UEFI and systemd-boot. A newly configured
-UKI must be booted successfully before enrollment/signing proceeds.
+## Please read before using the boot sections
 
-Creating keys, enrolling keys and signing files have separate confirmations.
-Firmware Setup Mode is required for new enrollment; custom mode alone may not
-be sufficient. A Plymouth-only rerun does not repeat key enrollment, but rebuilt
-UKIs still need valid signatures when Secure Boot is enabled.
+The UKI and Secure Boot sections make important changes to how your computer
+starts. Keep a backup and recovery USB available before using them.
+
+PoeDeploy checks its work and asks separately before creating keys, enrolling
+keys, or signing boot files. However, your firmware settings and hardware can be
+different from another machine.
 
 Read the [UKI, Plymouth and Secure Boot guide](docs/boot-and-secure-boot.md) before
-using those sections. Boot verification failures must be resolved before rebooting.
+using those sections. There is also a separate
+[kernel update test guide](docs/kernel-update-check.md).
 
-## Guides and development
+## More information
 
-- [SMB/NFS validation, persistence and cleanup](docs/network-shares.md)
+- [SMB and NFS share setup](docs/network-shares.md)
 - [UKI, Plymouth and Secure Boot](docs/boot-and-secure-boot.md)
-- [Testing a real kernel upgrade](docs/kernel-update-check.md)
-- [PoeDeploy theme assets](themes/README.md)
+- [Testing a kernel update](docs/kernel-update-check.md)
+- [PoeDeploy theme files](themes/README.md)
 
-ML4W installation is optional. Its installer is downloaded completely and checked
-for empty content/Bash syntax errors before execution; download and installer
-failures are reported separately. This is not a security audit of upstream code.
+The tests folder is for checking changes before a new release. It is not needed
+when you run PoeDeploy through the command above, but keeping it in the GitHub
+repository helps make sure the same safety checks are available on every machine.
 
-Run the local checks:
+To run those checks while developing PoeDeploy:
 
 ```bash
 bash -n poedeploy.sh
 python3 -m unittest discover -s tests -v
 ```
-
-Tests mock privileged operations and network mounts; they do not change your
-host's shares, packages, boot images or firmware. Real server and reboot testing
-is still needed for your machine.

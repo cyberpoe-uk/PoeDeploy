@@ -9,7 +9,7 @@ Secure Boot configuration is optional and uses `sbctl`. PoeDeploy requires separ
 PoeDeploy builds configured UKIs before signing systemd-boot and the final UKIs, then runs `sbctl verify`. Firmware configuration and recovery knowledge are still the administrator's responsibility.
 
 The UKI contains two distinct splash stages. Its PE `.splash` section is a static
-firmware image shown by `systemd-stub`; PoeDeploy replaces the default Arch image
+firmware image shown by `systemd-stub`. PoeDeploy replaces the default Arch image
 with plain black. Plymouth is stored inside the UKI's embedded initramfs and then
 shows the selected animated theme. Building or signing a UKI does not replace the
 Plymouth theme.
@@ -41,19 +41,19 @@ every configured active UKI to have a signed result. With systemd-boot, it also
 checks the current loader and identified fallback copies on the ESP. Discovery
 uses targeted `bootctl` path queries and the embedded systemd-boot `LoaderInfo`
 marker in the EFI binaries, not the full `bootctl status` report. The marker only
-identifies the product; signatures are still checked separately with `sbctl`.
+identifies the product. Signatures are still checked separately with `sbctl`.
 The Secure Boot setup section registers and signs these identified copies,
 including `EFI/BOOT/BOOTX64.EFI`. PoeDeploy does not register or separately sign
-standalone `/boot/vmlinuz-*` kernels; its signing commands target bootloaders and UKIs.
+standalone `/boot/vmlinuz-*` kernels. Its signing commands target bootloaders and UKIs.
 After an already-enabled Secure Boot system rebuilds its UKIs, PoeDeploy can also
 automatically sign and register an unsigned identified systemd-boot fallback. It
 first verifies the active loader and current UKI against the existing signing key
 and confirms the current UKI's Plymouth configuration. It never signs an unknown
 fallback merely because its filename matches, and does not reopen key enrollment.
-It verifies the fallback again after signing; a failure remains a separate warning
+It verifies the fallback again after signing. A failure remains a separate warning
 without claiming that fallback protection passed.
 Present standard fallback paths are checked individually when identified as
-systemd-boot; unknown fallback loaders are reported but never automatically signed.
+systemd-boot. Unknown fallback loaders are reported but never automatically signed.
 A failed or timed-out fallback check is not treated as permission to sign it.
 Unrelated EFI files and standalone `/boot/vmlinuz-*` kernels are not scanned.
 The summary explicitly states this scope rather than claiming their signatures
@@ -64,18 +64,18 @@ persistent kernel arguments embedded in the UKI, and reports fallback and standa
 kernel verification scope separately.
 The summary separates Secure Boot setup, signature verification, boot image rebuilds,
 and automatic fallback signing. Signing a standalone kernel does not authenticate
-an external initramfs or command line; the signed UKI remains the intended boot path.
+an external initramfs or command line. The signed UKI remains the intended boot path.
 
 Read-only bootloader discovery queries, UKI identification, and each signature
 check print progress and use a 30-second timeout followed by a five-second kill
-grace period. Required-file failures stop verification without reporting success;
+grace period. Required-file failures stop verification without reporting success.
 fallback failures remain separate warnings. Timeouts do not repair kernel faults
 or guarantee recovery from uninterruptible kernel operations. Signing and image
 rebuilds are not interrupted by these verification timeouts.
 
 If the summary reports **keys created but not enrolled**, use the firmware's
 documented procedure to enter Secure Boot Setup Mode. Custom mode by itself may
-not enable Setup Mode; check using `sudo sbctl status` after returning to Arch.
+not enable Setup Mode. Check using `sudo sbctl status` after returning to Arch.
 Rerun PoeDeploy, choose **Choose sections**, and select only
 **Secure Boot** to complete enrollment and signing. Existing key files are not
 treated as proof of enrollment: when Setup Mode is disabled, PoeDeploy asks

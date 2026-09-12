@@ -286,7 +286,7 @@ choose_setup_checklist() {
                 fi
             done
             if [[ "$matched" != true ]]; then
-                warning "The checklist returned an unknown section; cancelling."
+                warning "The checklist returned an unknown section. Cancelling."
                 SELECTED_SETUP_MODULES=()
                 return 1
             fi
@@ -365,7 +365,7 @@ choose_setup_modules() {
             fi
             printf '  [%s] %2d. %s\n' "$marker" "$((index + 1))" "${SETUP_MODULE_LABELS[$module]}"
         done
-        echo "Enter numbers to toggle, e.g. 6 11; or all, none, run, quit."
+        echo "Enter numbers to toggle, for example 6 11. You can also enter all, none, run, or quit."
         if ! read -rp "Selection: " input; then
             return 1
         fi
@@ -504,7 +504,7 @@ wait_for_pacman_lock() {
         # libalpm may close its lock descriptor during a transaction: an empty
         # fuser result alone is not evidence of a stale lock.
         if ! command -v pgrep >/dev/null 2>&1 || ! command -v fuser >/dev/null 2>&1; then
-            error "Cannot safely inspect the Pacman lock; pgrep (procps-ng) and fuser (psmisc) are required."
+            error "Cannot safely inspect the Pacman lock. pgrep (procps-ng) and fuser (psmisc) are required."
             error "The lock has been left intact. Check running package operations before removing it manually."
             return 1
         fi
@@ -535,9 +535,9 @@ wait_for_pacman_lock() {
 
             if ((waited_seconds == 0)); then
                 warning "Another package operation is using the Pacman database."
-                info "Waiting for it to finish; do not close PoeDeploy..."
+                info "Waiting for it to finish. Do not close PoeDeploy..."
             elif ((waited_seconds % 30 == 0)); then
-                info "Pacman is still busy; waited ${waited_seconds} seconds..."
+                info "Pacman is still busy. Waited ${waited_seconds} seconds..."
             fi
 
             sleep 5
@@ -997,7 +997,7 @@ detect_uki() {
         UKI_STATUS="configured and current boot verified"
         success "Unified kernel image is configured and in use for the current boot."
     else
-        UKI_STATUS="configured; reboot test pending"
+        UKI_STATUS="configured, reboot test pending"
         success "Unified kernel image configuration detected."
         info "The current boot has not been verified as a UKI boot."
     fi
@@ -1097,13 +1097,13 @@ prepare_uki_kernel_cmdline() {
     echo
     printf '  %s\n' "$candidate"
     echo
-    info "Plymouth requires 'quiet splash'; 'bgrt_disable' suppresses the firmware/default Arch logo."
-    info "Root and filesystem arguments will be preserved; legacy BOOT_IMAGE/initrd references are omitted for the UKI."
-    info "Updating /etc/kernel/cmdline; sudo may request your password."
+    info "Plymouth requires 'quiet splash'. The 'bgrt_disable' option hides the firmware or default Arch logo."
+    info "Root and filesystem settings will be kept. Old BOOT_IMAGE and initrd references are not needed in the UKI."
+    info "Updating /etc/kernel/cmdline. sudo may request your password."
 
     if [[ -e /etc/kernel/cmdline ]] && ! sudo test -e /etc/kernel/cmdline.poedeploy.bak; then
         if ! sudo cp -n /etc/kernel/cmdline /etc/kernel/cmdline.poedeploy.bak; then
-            warning "Could not preserve the kernel command line backup; leaving the file unchanged."
+            warning "Could not preserve the kernel command line backup. The file was left unchanged."
             return 1
         fi
     fi
@@ -1175,7 +1175,7 @@ setup_uki() {
         else
             info "UKI setup already exists, but this boot has not verified it yet."
             info "Select the UKI entry from the systemd-boot menu on the next reboot."
-            UKI_ACTION="configured; reboot test pending"
+            UKI_ACTION="configured, reboot test pending"
         fi
 
         return 0
@@ -1191,7 +1191,7 @@ setup_uki() {
     fi
 
     if [[ ! -d /sys/firmware/efi ]]; then
-        warning "The system was not booted in UEFI mode; UKI setup is unavailable."
+        warning "The system was not booted in UEFI mode. UKI setup is unavailable."
         UKI_ACTION="not available (non-UEFI boot)"
         return 0
     fi
@@ -1290,12 +1290,12 @@ setup_uki() {
         done
 
         if [[ -z "$selected_preset" ]]; then
-            warning "No normal build preset was found in $preset; skipping it."
+            warning "No normal build preset was found in $preset. Skipping it."
             continue
         fi
 
         if grep -Eq "^[[:space:]]*${selected_preset}_uki[[:space:]]*=" "$preset"; then
-            info "A UKI path already exists for $(basename "$preset"); preserving it."
+            info "A UKI path already exists for $(basename "$preset"). Keeping it."
             continue
         fi
 
@@ -1304,7 +1304,7 @@ setup_uki() {
         uki_path="${UKI_BOOT_ROOT}/EFI/Linux/poedeploy-${kernel_name}.efi"
 
         if [[ -e "$uki_path" ]]; then
-            warning "A file already exists at the planned UKI path; preserving it: $uki_path"
+            warning "A file already exists at the planned UKI path. Keeping it: $uki_path"
             continue
         fi
 
@@ -1350,7 +1350,7 @@ setup_uki() {
         restore_failed_uki_setup "$backup_dir" "$cmdline_existed" "${modified_presets[@]}"
         rm -rf "$backup_dir"
         detect_uki
-        UKI_ACTION="splash configuration failed; configuration restored"
+        UKI_ACTION="splash configuration failed, configuration restored"
         return 0
     fi
 
@@ -1363,7 +1363,7 @@ setup_uki() {
         sudo mkinitcpio -P || warning "The recovery initramfs rebuild also reported a failure."
         rm -rf "$backup_dir"
         detect_uki
-        UKI_ACTION="build failed; configuration restored"
+        UKI_ACTION="build failed, configuration restored"
         return 0
     fi
 
@@ -1394,7 +1394,7 @@ setup_uki() {
         sudo mkinitcpio -P || warning "The recovery initramfs rebuild also reported a failure."
         rm -rf "$backup_dir"
         detect_uki
-        UKI_ACTION="verification failed; configuration restored"
+        UKI_ACTION="verification failed, configuration restored"
         return 0
     fi
 
@@ -1413,7 +1413,7 @@ setup_uki() {
 
     rm -rf "$backup_dir"
     detect_uki
-    UKI_ACTION="created; reboot test pending"
+    UKI_ACTION="created, reboot test pending"
 
     echo
     success "UKI setup completed without removing the traditional boot images."
@@ -1821,7 +1821,7 @@ set_mkinitcpio_preset_splash() {
         value="${value#"${value%%[![:space:]]*}"}"
         value="${value%"${value##*[![:space:]]}"}"
         if [[ "$value" == \(* ]]; then
-            warning "Array-style options in $preset require manual splash configuration; leaving the preset unchanged."
+            warning "Array-style options in $preset require manual splash configuration. The preset was left unchanged."
             return 1
         fi
         value="${value#\"}"
@@ -1961,7 +1961,7 @@ run_boot_verification_check() {
     case "$status" in
         124|137)
             warning "$label timed out or was killed (exit $status). Verification is incomplete." >&2
-            warning "Do not repeat the installer if kernel faults recur; inspect the kernel journal." >&2
+            warning "Do not repeat the installer if kernel faults happen again. Inspect the kernel journal." >&2
             ;;
         *) warning "$label failed (exit $status)." >&2 ;;
     esac
@@ -2086,7 +2086,7 @@ verify_secure_boot_files() {
         fi
     done
 
-    info "Only the listed boot files were checked; unrelated EFI files were not scanned."
+    info "Only the listed boot files were checked. Unrelated EFI files were not scanned."
     [[ "$failed" == false ]] || return 1
     SECURE_BOOT_VERIFY_STATUS="selected boot files verified"
 }
@@ -2119,9 +2119,9 @@ verify_secure_boot_after_uki_rebuild() {
     verify_secure_boot_files "${uki_paths[@]}" || return 1
     SECURE_BOOT_VERIFY_STATUS="UKI and identified boot loader signatures verified"
     if [[ "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]; then
-        SECURE_BOOT_VERIFY_STATUS+="; additional boot file warnings"
+        SECURE_BOOT_VERIFY_STATUS+=", additional boot file warnings"
     fi
-    success "UKI and identified boot loader signatures verified; existing keys were not changed."
+    success "UKI and identified boot loader signatures verified. Existing keys were not changed."
 }
 
 verify_active_secure_boot_chain() {
@@ -2195,19 +2195,19 @@ verify_active_secure_boot_chain() {
     # verify with the existing key. This never creates or enrolls keys.
     if ! fallbacks=$(get_present_fallback_boot_paths "$esp"); then
         SECURE_BOOT_OTHER_FILES_WARNING=true
-        warning "Fallback discovery failed; fallback protection is unverified."
+        warning "Fallback discovery failed. Fallback protection is unverified."
         fallbacks=""
     fi
     while IFS= read -r path; do
         [[ "$path" == */EFI/BOOT/BOOT*.EFI && "$path" != "$loader" ]] || continue
         if ! grep -Fx "$path" <<< "$loaders" >/dev/null; then
             SECURE_BOOT_OTHER_FILES_WARNING=true
-            warning "Fallback is not identified as systemd-boot; not checked or signed: $path"
+            warning "Fallback is not identified as systemd-boot and was not checked or signed: $path"
             continue
         fi
         if ! fallback_report=$(read_sbctl_signature_report "$path"); then
             SECURE_BOOT_OTHER_FILES_WARNING=true
-            warning "Fallback signature check failed; not attempting signing: $path"
+            warning "Fallback signature check failed. Signing will not be attempted: $path"
             continue
         fi
         if sbctl_report_has_signature "$fallback_report" "$path"; then
@@ -2227,7 +2227,7 @@ verify_active_secure_boot_chain() {
             fi
         else
             SECURE_BOOT_OTHER_FILES_WARNING=true
-            warning "Fallback bootloader is missing; not attempting signing:"
+            warning "Fallback bootloader is missing. Signing will not be attempted:"
         fi
         printf '       %s\n' "$path"
     done < <(printf '%s\n' "$loaders" "$fallbacks" | sort -u)
@@ -2237,7 +2237,7 @@ verify_active_secure_boot_chain() {
 
     SECURE_BOOT_VERIFY_STATUS="active Secure Boot chain verified"
     if [[ "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]; then
-        SECURE_BOOT_VERIFY_STATUS+="; additional boot file warnings"
+        SECURE_BOOT_VERIFY_STATUS+=", additional boot file warnings"
     fi
     success "Active Secure Boot chain verified."
 }
@@ -2280,10 +2280,10 @@ verify_uki_plymouth_setup() {
         warning "Plymouth is missing from the mkinitcpio hooks."
         failed=true
     elif ((systemd_index >= 0 && plymouth_index < systemd_index)); then
-        warning "The Plymouth hook is before systemd; it cannot start correctly in this initramfs."
+        warning "The Plymouth hook is before systemd. It cannot start correctly in this initramfs."
         failed=true
     elif ((systemd_index < 0 && udev_index >= 0 && plymouth_index < udev_index)); then
-        warning "The Plymouth hook is before udev; it cannot start correctly in this initramfs."
+        warning "The Plymouth hook is before udev. It cannot start correctly in this initramfs."
         failed=true
     fi
 
@@ -2370,12 +2370,12 @@ install_poedeploy_plymouth_theme() {
     fi
 
     if ! command -v curl >/dev/null 2>&1; then
-        warning "curl is unavailable; skipping the PoeDeploy Plymouth theme download."
+        warning "curl is unavailable. Skipping the PoeDeploy Plymouth theme download."
         return 1
     fi
 
     if ! command -v unzip >/dev/null 2>&1; then
-        warning "unzip is unavailable; skipping the PoeDeploy Plymouth theme download."
+        warning "unzip is unavailable. Skipping the PoeDeploy Plymouth theme download."
         return 1
     fi
 
@@ -2579,7 +2579,7 @@ setup_plymouth() {
         warning "Plymouth setup failed: boot image rebuild failed. Resolve this before rebooting."
         return 1
     fi
-    BOOT_IMAGE_ACTION="rebuilt for Plymouth; signatures checked separately"
+    BOOT_IMAGE_ACTION="rebuilt for Plymouth, signatures checked separately"
 
     local verification_failed=false
     if ! verify_uki_plymouth_setup; then
@@ -2825,11 +2825,11 @@ install_ml4w() {
         fi
         if ! curl -fsSL --connect-timeout 15 --max-time 180 --retry 2 \
             --output "$installer_file" "$ML4W_URL"; then
-            warning "ML4W download failed; no downloaded code was run. Select ML4W again to retry."
+            warning "ML4W download failed. No downloaded code was run. Select ML4W again to retry."
             ML4W_ENABLED=false
             ML4W_ACTION="download failed"
         elif [[ ! -s "$installer_file" ]] || ! bash -n "$installer_file"; then
-            warning "ML4W download is empty or has invalid Bash syntax; it was not run."
+            warning "ML4W download is empty or has invalid Bash syntax. It was not run."
             ML4W_ENABLED=false
             ML4W_ACTION="invalid download"
         elif ! bash "$installer_file"; then
@@ -3047,7 +3047,7 @@ select_applications() {
 
     echo "Press Enter when finished, or Esc/Ctrl+C to skip application selection."
 
-    echo "No applications start selected; choose only the ones you want to install."
+    echo "No applications start selected. Choose only the ones you want to install."
 
     echo
 
@@ -3070,7 +3070,7 @@ select_applications() {
 
     if ! selection=$(printf '%s\n' "${options[@]}" |
         choose_checklist "Select applications" ""); then
-        info "Application selection cancelled; skipping optional applications."
+        info "Application selection cancelled. Skipping optional applications."
         APPLICATIONS_ACTION="selection cancelled"
         return 0
     fi
@@ -3158,7 +3158,7 @@ install_optional_package() {
 
         if [[ "$interrupted" == true ]] || ((status == 130)); then
             warning "$package was interrupted. The package command has exited."
-            info "Already installed dependencies are kept; skipping does not uninstall or roll back files."
+            info "Already installed dependencies are kept. Skipping does not uninstall or roll back files."
             while true; do
                 if ! read -rp "[s] Skip this package, [r] Retry, [q] Quit PoeDeploy [s]: " choice; then
                     exit 130
@@ -3166,7 +3166,7 @@ install_optional_package() {
                 case "${choice,,}" in
                     s|skip|"")
                         SKIPPED_PACKAGES+=("$package")
-                        warning "Skipped $package; select it in Applications on a later run."
+                        warning "Skipped $package. Select it in Applications on a later run."
                         return 0
                         ;;
                     r|retry) break ;;
@@ -3210,7 +3210,7 @@ install_selected_applications() {
             install_optional_package "$package" sudo pacman -S --needed --noconfirm "$package"
         else
             if ! command -v yay >/dev/null 2>&1; then
-                info "$package needs an AUR helper; installing yay as a dependency."
+                info "$package needs an AUR helper. Installing yay as a dependency."
                 install_yay
             fi
             if yay -Si "$package" &>/dev/null; then
@@ -3221,7 +3221,7 @@ install_selected_applications() {
             fi
         fi
     done
-    APPLICATIONS_ACTION="${#INSTALLED_PACKAGES[@]} installed/already present; ${#SKIPPED_PACKAGES[@]} skipped; ${#FAILED_PACKAGES[@]} failed"
+    APPLICATIONS_ACTION="${#INSTALLED_PACKAGES[@]} installed or already present, ${#SKIPPED_PACKAGES[@]} skipped, ${#FAILED_PACKAGES[@]} failed"
 }
 
 select_default_browser() {
@@ -3393,7 +3393,7 @@ cleanup() {
         elif cmp -s -- "$fstab" "$expected" &&
             cp --preserve=all -- "$backup" "$candidate" &&
             mv -fT -- "$candidate" "$fstab"; then
-            printf '[WARN] New share entry rolled back; previous fstab restored.\n' >&2
+            printf '[WARN] New share entry rolled back. Previous fstab restored.\n' >&2
             systemctl daemon-reload || status=2
         else
             printf '[ERROR] Could not safely roll back fstab. Inspect it before rebooting. Backup: %s\n' "$backup" >&2
@@ -3411,7 +3411,7 @@ trap 'exit 143' TERM
 exec 9>"${fstab}.poedeploy.lock"
 flock -w 10 9
 if findmnt --fstab --tab-file "$fstab" --nocanonicalize --noheadings --mountpoint "$target" >/dev/null; then
-    echo "An fstab entry already uses this mount point; leaving it unchanged." >&2
+    echo "An fstab entry already uses this mount point. It was left unchanged." >&2
     exit 1
 fi
 backup=$(mktemp "${fstab}.poedeploy-backup.XXXXXX")
@@ -3422,12 +3422,12 @@ cp --preserve=all -- "$fstab" "$candidate"
 printf '\n%s\n' "$line" >> "$candidate"
 findmnt --verify --tab-file "$candidate"
 cp --preserve=all -- "$candidate" "$expected"
-cmp -s -- "$fstab" "$backup" || { echo "fstab changed during setup; not overwriting it." >&2; exit 1; }
+cmp -s -- "$fstab" "$backup" || { echo "fstab changed during setup. It will not be overwritten." >&2; exit 1; }
 # Mark intent first so an interrupt immediately after rename still rolls back.
 installed=true
 mv -fT -- "$candidate" "$fstab"
 systemctl daemon-reload
-cmp -s -- "$fstab" "$expected" || { echo "fstab changed after saving; inspect the new entry." >&2; exit 1; }
+cmp -s -- "$fstab" "$expected" || { echo "fstab changed after saving. Inspect the new entry." >&2; exit 1; }
 printf '[ OK ] Tested share saved. fstab backup: %s\n' "$backup"
 POEDEPLOY_FSTAB
 }
@@ -3443,7 +3443,7 @@ try_network_share() (
         trap - EXIT INT TERM
         if [[ "$committed" != true && "$attempted" == true ]]; then
             if fstab_has_mountpoint "$mountpoint"; then
-                warning "An entry now references $mountpoint; retaining its mount/credentials for inspection."
+                warning "An entry now references $mountpoint. Keeping its mount and credentials for inspection."
                 cleanup_failed=true
             elif current=$(share_mount_record "$mountpoint") && [[ -n "$current" ]]; then
                 if [[ "$current" == "$source $expected_type" ||
@@ -3453,7 +3453,7 @@ try_network_share() (
                         cleanup_failed=true
                     fi
                 else
-                    warning "Mount ownership is uncertain at $mountpoint; it was not unmounted."
+                    warning "Mount ownership is uncertain at $mountpoint. It was not unmounted."
                     cleanup_failed=true
                 fi
             fi
@@ -3467,7 +3467,7 @@ try_network_share() (
             exit 2
         fi
         if ((exit_status != 0)); then
-            info "No new persistent share was kept. Temporary configuration was removed; empty mount directories may remain."
+            info "No new persistent share was kept. Temporary configuration was removed. Empty mount directories may remain."
         fi
         exit "$exit_status"
     }
@@ -3487,7 +3487,7 @@ try_network_share() (
         [[ -d "$mountpoint" ]] || { warning "Mount point is not a directory."; exit 1; }
         local contents
         contents=$(sudo find "$mountpoint" -mindepth 1 -maxdepth 1 -printf x -quit) || exit 1
-        [[ -z "$contents" ]] || { warning "Mount directory is not empty; refusing to hide existing files."; exit 1; }
+        [[ -z "$contents" ]] || { warning "Mount directory is not empty. Existing files will not be hidden."; exit 1; }
     fi
     sudo mkdir -p -- "$mountpoint" || exit 1
     options="_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=30s,nosuid,nodev"
@@ -3581,7 +3581,7 @@ setup_network_share() {
             fi
         fi
         password=""
-        action="failed; not saved"
+        action="failed, not saved"
         if ((status == 2)); then
             action="cleanup needs attention"
             die "$kind cleanup could not be verified. Resolve the warning before retrying or rebooting."
@@ -3796,7 +3796,7 @@ setup_secure_boot() {
     fi
 
     if [[ ! -d /sys/firmware/efi ]]; then
-        info "The system was not booted in UEFI mode; Secure Boot setup is unavailable."
+        info "The system was not booted in UEFI mode. Secure Boot setup is unavailable."
         SECURE_BOOT_ACTION="not available (non-UEFI boot)"
         return 0
     fi
@@ -3808,7 +3808,7 @@ setup_secure_boot() {
     fi
 
     if [[ "$UKI_ENABLED" != true ]]; then
-        warning "No mkinitcpio UKI preset was detected; Secure Boot setup will not continue."
+        warning "No mkinitcpio UKI preset was detected. Secure Boot setup will not continue."
         SECURE_BOOT_ACTION="unavailable (UKI not configured)"
         return 0
     fi
@@ -3870,7 +3870,7 @@ setup_secure_boot() {
         keys_exist=true
         created_keys=true
     else
-        success "Existing sbctl keys detected; no new keys will be created."
+        success "Existing sbctl keys detected. No new keys will be created."
     fi
 
     status_output=$(LC_ALL=C sudo sbctl status 2>&1 || true)
@@ -3899,7 +3899,7 @@ setup_secure_boot() {
             return 0
         fi
     else
-        warning "Firmware Setup Mode is not enabled; PoeDeploy will not attempt key enrollment."
+        warning "Firmware Setup Mode is not enabled. PoeDeploy will not attempt key enrollment."
 
         if [[ "$created_keys" == true ]]; then
             warning "The new keys are not enrolled, so PoeDeploy will not sign the boot chain with them."
@@ -3929,7 +3929,7 @@ setup_secure_boot() {
     info "Building all configured initramfs images and UKIs before signing..."
 
     if ! sudo mkinitcpio -P; then
-        warning "UKI generation failed; Secure Boot signing was stopped."
+        warning "UKI generation failed. Secure Boot signing was stopped."
         SECURE_BOOT_ACTION="UKI build failed"
         return 0
     fi
@@ -4122,7 +4122,7 @@ show_secure_boot_next_steps() {
             info "Reboot through the UKI entry first, then rerun only the Secure Boot section."
             ;;
         "configured and verified")
-            info "The listed boot files have been signed and individually verified; no full ESP scan is needed."
+            info "The listed boot files have been signed and individually verified. No full ESP scan is needed."
             info "With your keys enrolled and boot files verified, enable Secure Boot in firmware if needed."
             info "Boot the signed UKI and confirm that sudo sbctl status reports Secure Boot: Enabled."
             ;;
@@ -4228,7 +4228,7 @@ main() {
 
     if [[ "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]; then
 
-        warning "Setup completed with additional boot file signature warnings; review the paths reported above."
+        warning "Setup completed with additional boot file signature warnings. Review the paths reported above."
 
     elif [[ ${#FAILED_PACKAGES[@]} -gt 0 ]]; then
 
