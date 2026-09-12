@@ -179,23 +179,28 @@ trap 'unexpected_error "$?" "$LINENO"' ERR
 # ============================================================
 
 show_header() {
-
-    clear || true
-
-    echo
-
-    echo "========================================"
-
-    echo "              POEDEPLOY"
-
-    echo "========================================"
-
-    echo "Version: $SCRIPT_VERSION"
-
-    echo "========================================"
-
-    echo
-
+    local width=80 colour='' reset=''
+    if [[ -t 1 && "${TERM:-dumb}" != dumb ]]; then
+        clear || true
+        width=$(tput cols 2>/dev/null) || width=80
+        if [[ -z "${NO_COLOR:-}" ]]; then
+            colour=$'\033[38;2;0;79;254m'
+            reset=$'\033[0m'
+        fi
+    fi
+    printf '\n%s' "$colour"
+    if [[ "$width" =~ ^[0-9]+$ ]] && ((width >= 54)); then
+        printf '%s\n' \
+            '    ____             ____             __' \
+            '   / __ \____  ___  / __ \___  ____  / /___  __  __' \
+            '  / /_/ / __ \/ _ \/ / / / _ \/ __ \/ / __ \/ / / /' \
+            ' / ____/ /_/ /  __/ /_/ /  __/ /_/ / / /_/ / /_/ /' \
+            '/_/    \____/\___/_____/\___/ .___/_/\____/\__, /' \
+            '                         /_/            /____/'
+    else
+        printf 'PoeDeploy\n'
+    fi
+    printf '%s\nVersion: %s\n\n' "$reset" "$SCRIPT_VERSION"
 }
 
 confirm_start() {
@@ -290,28 +295,58 @@ choose_setup_checklist() {
     done
 }
 
+choose_run_mode() {
+    local selection
+    local -a options=(
+        'Choose sections (Select specific setup tasks)'
+        'Full setup (Go through all setup, with optional choices.)'
+        'Exit'
+    )
+    echo "Set up your system, or choose individual sections."
+    echo "Either option works on your first run or any later run."
+    echo
+    if can_use_checklist; then
+        if ! selection=$(printf '%s\n' "${options[@]}" | gum choose \
+            --selected="${options[0]}" --height=3 --cursor='> ' --show-help \
+            --cursor.foreground='#004FFE' --selected.foreground='#004FFE' \
+            --header.foreground='#004FFE' --header='What would you like to do?'); then
+            return 1
+        fi
+        case "$selection" in
+            "${options[0]}") RUN_MODE=selected ;;
+            "${options[1]}") RUN_MODE=full ;;
+            *) return 1 ;;
+        esac
+        return 0
+    fi
+    printf 'What would you like to do?\n\n'
+    printf '  1. %s\n  2. %s\n  3. %s\n\n' "${options[@]}"
+    echo "Enter 1–3 · Enter defaults to Choose sections · Ctrl+C exits"
+    while true; do
+        if ! read -rp "Choice [1]: " selection; then
+            return 1
+        fi
+        case "$selection" in
+            1|"") RUN_MODE=selected; return 0 ;;
+            2) RUN_MODE=full; return 0 ;;
+            3|q|quit|exit) return 1 ;;
+            *) warning "Choose 1, 2 or 3." ;;
+        esac
+    done
+}
+
 choose_setup_modules() {
-    local answer module input token index marker
+    local module input token index marker
     local valid
     local -a tokens=()
     SELECTED_SETUP_MODULES=()
-
-    while true; do
-        if ! read -rp "Have you run PoeDeploy before on this Arch installation? [y/N]: " answer; then
-            return 1
-        fi
-        case "$answer" in
-            [Nn]|[Nn][Oo]|"")
-                RUN_MODE="full"
-                for module in "${SETUP_MODULE_IDS[@]}"; do
-                    SELECTED_SETUP_MODULES["$module"]=true
-                done
-                return 0
-                ;;
-            [Yy]|[Yy][Ee][Ss]) RUN_MODE="selected"; break ;;
-            *) warning "Please answer yes or no." ;;
-        esac
-    done
+    choose_run_mode || return 1
+    if [[ "$RUN_MODE" == full ]]; then
+        for module in "${SETUP_MODULE_IDS[@]}"; do
+            SELECTED_SETUP_MODULES["$module"]=true
+        done
+        return 0
+    fi
 
     if can_use_checklist; then
         choose_setup_checklist
@@ -2762,6 +2797,7 @@ show_summary() {
 # ============================================================
 
 install_ml4w() {
+    local answer installer_file
     echo
     echo "========================================"
     echo "          ML4W INSTALLATION"
@@ -2778,10 +2814,25 @@ install_ml4w() {
         ML4W_ENABLED=true
 
         echo
-        info "Starting ML4W installer..."
+        info "Downloading the ML4W installer before running it..."
         echo
 
-        if ! bash <(curl -fsSL "$ML4W_URL"); then
+        if ! installer_file=$(mktemp -t poedeploy-ml4w-XXXXXX); then
+            warning "Could not create a temporary file for the ML4W installer."
+            ML4W_ENABLED=false
+            ML4W_ACTION="download failed"
+            return 0
+        fi
+        if ! curl -fsSL --connect-timeout 15 --max-time 180 --retry 2 \
+            --output "$installer_file" "$ML4W_URL"; then
+            warning "ML4W download failed; no downloaded code was run. Select ML4W again to retry."
+            ML4W_ENABLED=false
+            ML4W_ACTION="download failed"
+        elif [[ ! -s "$installer_file" ]] || ! bash -n "$installer_file"; then
+            warning "ML4W download is empty or has invalid Bash syntax; it was not run."
+            ML4W_ENABLED=false
+            ML4W_ACTION="invalid download"
+        elif ! bash "$installer_file"; then
             warning "ML4W installer returned a failure."
             warning "Continuing with the rest of the Arch setup."
             ML4W_ACTION="installation failed"
@@ -2789,6 +2840,7 @@ install_ml4w() {
             success "ML4W installer finished."
             ML4W_ACTION="installed successfully"
         fi
+        rm -f -- "$installer_file"
     fi
 
 }
@@ -2952,6 +3004,8 @@ declare -A APPLICATIONS=(
 
     ["GIMP"]="gimp"
 
+    ["HyprMod (Hyprland settings)"]="hyprmod"
+
     ["LibreOffice"]="libreoffice-fresh"
 
     ["PowerTOP"]="powertop"
@@ -2993,22 +3047,14 @@ select_applications() {
 
     echo "Press Enter when finished, or Esc/Ctrl+C to skip application selection."
 
-    if [[ "$RUN_MODE" == full ]]; then
-        echo "All applications start selected."
-    else
-        echo "No applications start selected; choose only the ones you want to install."
-    fi
+    echo "No applications start selected; choose only the ones you want to install."
 
     echo
 
-    local app selection selection_defaults=""
+    local app selection
     local options=()
     SELECTED_APPS=()
     SELECTED_PACKAGES=()
-
-    if [[ "$RUN_MODE" == full ]]; then
-        selection_defaults='*'
-    fi
 
     for app in "${!APPLICATIONS[@]}"; do
 
@@ -3023,7 +3069,7 @@ select_applications() {
     )
 
     if ! selection=$(printf '%s\n' "${options[@]}" |
-        choose_checklist "Select applications" "$selection_defaults"); then
+        choose_checklist "Select applications" ""); then
         info "Application selection cancelled; skipping optional applications."
         APPLICATIONS_ACTION="selection cancelled"
         return 0
@@ -3261,334 +3307,305 @@ select_default_browser() {
 
 # ============================================================
 
-validate_mountpoint() {
-
-    local mountpoint="$1"
-
-    if [[ -z "$mountpoint" ]]; then
-
-        warning "Mount point cannot be empty."
-
+validate_fstab_value() {
+    local label="$1" value="$2"
+    if [[ -z "$value" || "$value" =~ [[:space:][:cntrl:]#\\,] ]]; then
+        warning "$label cannot be empty or contain whitespace, control characters, #, backslashes or commas."
         return 1
-
     fi
-
-    if [[ "$mountpoint" != /* ]]; then
-
-        warning "Mount point must be an absolute path."
-
-        return 1
-
-    fi
-
-    if [[ "$mountpoint" =~ [[:space:]#] ]]; then
-
-        warning "Mount points containing whitespace or # are not supported."
-
-        return 1
-
-    fi
-
-    return 0
-
 }
 
-validate_fstab_value() {
-
-    local label="$1"
-    local value="$2"
-
-    if [[ "$value" =~ [[:space:]#] ]]; then
-        warning "$label cannot contain whitespace or #."
+validate_mountpoint() {
+    local mountpoint="$1" resolved
+    validate_fstab_value "Mount point" "$mountpoint" || return 1
+    case "$mountpoint" in
+        /mnt/?*|/media/?*) ;;
+        *) warning "Choose a dedicated directory under /mnt or /media (for example /mnt/NAS)."; return 1 ;;
+    esac
+    resolved=$(realpath -m -- "$mountpoint") || return 1
+    if [[ "$resolved" != "$mountpoint" ]]; then
+        warning "Use a canonical mount point without symlinks, .., repeated or trailing slashes."
         return 1
     fi
+}
 
-    return 0
+validate_share_source() {
+    local kind="$1" server="$2" share="$3"
+    validate_fstab_value "Server" "$server" &&
+        validate_fstab_value "Share/export" "$share" || return 1
+    # Hostnames/IPv4 and bracketed IPv6; never accept a URL, mount option or UNC path here.
+    if [[ ! "$server" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ &&
+          ! "$server" =~ ^\[[a-fA-F0-9:]+\]$ ]]; then
+        warning "Enter a hostname/IP, not a URL or share path. Enclose IPv6 addresses in brackets."
+        return 1
+    fi
+    if [[ "$kind" == SMB && ( "$share" == */* || "$share" == "." || "$share" == ".." ) ]]; then
+        warning "Enter only the SMB share name, not a path or URL."
+        return 1
+    fi
+    if [[ "$kind" == NFS && "$share" != /* ]]; then
+        warning "An NFS export must be an absolute server path (for example /exports/data)."
+        return 1
+    fi
 }
 
 fstab_has_mountpoint() {
-
-    local mountpoint="$1"
-
-    awk -v target="$mountpoint" '
-        $0 !~ /^[[:space:]]*#/ && NF >= 2 && $2 == target { found = 1 }
-        END { exit !found }
-    ' /etc/fstab
+    # libmount decodes escaped fstab paths.
+    findmnt --fstab --tab-file /etc/fstab --nocanonicalize --noheadings --mountpoint "$1" >/dev/null
 }
 
-
-
-# ============================================================
-
-# 16.1 SMB / NFS Require Input Function
-
-# ============================================================
+share_mount_record() {
+    findmnt --kernel --nocanonicalize --raw --noheadings --output SOURCE,FSTYPE \
+        --mountpoint "$1"
+}
 
 require_input() {
-
-    local prompt="$1"
-
-    local value
-
-    local retry
-
+    local prompt="$1" value retry
     while true; do
-
-        read -rp "$prompt" value
-
-        # Trim leading and trailing whitespace
-
+        read -rp "$prompt" value || return 1
         value="${value#"${value%%[![:space:]]*}"}"
-
         value="${value%"${value##*[![:space:]]}"}"
-
         if [[ -n "$value" ]]; then
-
             REPLY="$value"
-
             return 0
-
         fi
-
         warning "This field cannot be empty."
-
-        read -rp "Try again? [Y/n]: " retry
-
-        if [[ -n "$retry" && ! "$retry" =~ ^[Yy]$ ]]; then
-
-            return 1
-
-        fi
-
+        read -rp "Try again? [Y/n]: " retry || return 1
+        [[ -z "$retry" || "$retry" =~ ^[Yy]$ ]] || return 1
     done
-
 }
 
-setup_smb_share() {
-
-    echo
-
-    echo "========================================"
-
-    echo "           SMB SHARE SETUP"
-
-    echo "========================================"
-
-    echo
-
-    SMB_ACTION="selected"
-
-    local server share username password domain mountpoint credentials_file fstab_line
-
-    if ! require_input "SMB server IP/hostname: "; then
-        info "SMB setup cancelled."
-        SMB_ACTION="cancelled"
-        return 0
-    fi
-    server="$REPLY"
-
-    if ! require_input "SMB share name: "; then
-        info "SMB setup cancelled."
-        SMB_ACTION="cancelled"
-        return 0
-    fi
-    share="$REPLY"
-
-    if ! validate_fstab_value "SMB server" "$server" ||
-       ! validate_fstab_value "SMB share name" "$share"; then
-        SMB_ACTION="failed"
-        return 0
-    fi
-
-    if ! require_input "SMB username: "; then
-        info "SMB setup cancelled."
-        SMB_ACTION="cancelled"
-        return 0
-    fi
-    username="$REPLY"
-
-    while true; do
-        read -rsp "SMB password: " password
-        echo
-
-        if [[ -n "$password" ]]; then
-            break
+# Save only an already-tested entry. The optional third argument is for isolated
+# fixture tests; production callers always use /etc/fstab.
+persist_verified_share() {
+    sudo bash -s -- "$1" "$2" "${3:-/etc/fstab}" <<'POEDEPLOY_FSTAB'
+set -Eeuo pipefail
+umask 077
+line="$1" target="$2" fstab="$3"
+backup="" candidate="" expected="" installed=false
+cleanup() {
+    status=$?
+    trap - EXIT INT TERM
+    if ((status != 0)) && [[ "$installed" == true ]]; then
+        # Do not undo an unrelated edit made after our replacement.
+        if cmp -s -- "$fstab" "$backup"; then
+            : # Rename failed before replacing the original file.
+        elif cmp -s -- "$fstab" "$expected" &&
+            cp --preserve=all -- "$backup" "$candidate" &&
+            mv -fT -- "$candidate" "$fstab"; then
+            printf '[WARN] New share entry rolled back; previous fstab restored.\n' >&2
+            systemctl daemon-reload || status=2
+        else
+            printf '[ERROR] Could not safely roll back fstab. Inspect it before rebooting. Backup: %s\n' "$backup" >&2
+            status=2
         fi
+    fi
+    [[ -z "$candidate" ]] || rm -f -- "$candidate"
+    [[ -z "$expected" ]] || rm -f -- "$expected"
+    exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+[[ -f "$fstab" && ! -L "$fstab" ]] || { echo "fstab must be a regular, non-symlink file." >&2; exit 1; }
+exec 9>"${fstab}.poedeploy.lock"
+flock -w 10 9
+if findmnt --fstab --tab-file "$fstab" --nocanonicalize --noheadings --mountpoint "$target" >/dev/null; then
+    echo "An fstab entry already uses this mount point; leaving it unchanged." >&2
+    exit 1
+fi
+backup=$(mktemp "${fstab}.poedeploy-backup.XXXXXX")
+candidate=$(mktemp "${fstab}.poedeploy-new.XXXXXX")
+expected=$(mktemp "${fstab}.poedeploy-expected.XXXXXX")
+cp --preserve=all -- "$fstab" "$backup"
+cp --preserve=all -- "$fstab" "$candidate"
+printf '\n%s\n' "$line" >> "$candidate"
+findmnt --verify --tab-file "$candidate"
+cp --preserve=all -- "$candidate" "$expected"
+cmp -s -- "$fstab" "$backup" || { echo "fstab changed during setup; not overwriting it." >&2; exit 1; }
+# Mark intent first so an interrupt immediately after rename still rolls back.
+installed=true
+mv -fT -- "$candidate" "$fstab"
+systemctl daemon-reload
+cmp -s -- "$fstab" "$expected" || { echo "fstab changed after saving; inspect the new entry." >&2; exit 1; }
+printf '[ OK ] Tested share saved. fstab backup: %s\n' "$backup"
+POEDEPLOY_FSTAB
+}
 
-        warning "Password cannot be empty."
-
-        read -rp "Try again? [Y/n]: " retry
-
-        if [[ -n "$retry" && ! "$retry" =~ ^[Yy]$ ]]; then
-            info "SMB setup cancelled."
-            SMB_ACTION="cancelled"
-            return 0
+# One isolated attempt. Nothing is persisted until the actual mount and a
+# read-only directory listing succeed. Passwords go only to shell builtins/stdin,
+# never external command arguments or fstab.
+try_network_share() (
+    local kind="$1" source="$2" mountpoint="$3" username="${4:-}" password="${5:-}" domain="${6:-}"
+    local credentials_file="" trial="" attempted=false committed=false record="" expected_type options line status
+    cleanup_share_attempt() {
+        local exit_status=$? cleanup_failed=false current=""
+        trap - EXIT INT TERM
+        if [[ "$committed" != true && "$attempted" == true ]]; then
+            if fstab_has_mountpoint "$mountpoint"; then
+                warning "An entry now references $mountpoint; retaining its mount/credentials for inspection."
+                cleanup_failed=true
+            elif current=$(share_mount_record "$mountpoint") && [[ -n "$current" ]]; then
+                if [[ "$current" == "$source $expected_type" ||
+                      ( "$kind" == NFS && "$current" == "$source nfs4" ) ]]; then
+                    if ! sudo timeout --kill-after=5s 30s umount -- "$mountpoint"; then
+                        warning "Could not unmount the temporary share at $mountpoint."
+                        cleanup_failed=true
+                    fi
+                else
+                    warning "Mount ownership is uncertain at $mountpoint; it was not unmounted."
+                    cleanup_failed=true
+                fi
+            fi
         fi
-    done
-
-    read -rp "SMB domain/workgroup (optional): " domain
-
-    if ! require_input "Local mount point (for example /mnt/SMB): "; then
-        info "SMB setup cancelled."
-        SMB_ACTION="cancelled"
-        return 0
-    fi
-    mountpoint="$REPLY"
-
-    if ! validate_mountpoint "$mountpoint"; then
-        warning "SMB setup failed because the mount point is invalid."
-        SMB_ACTION="failed"
-        return 0
-    fi
-
-    if ! sudo mkdir -p "$mountpoint" /etc/samba/credentials; then
-        warning "Failed to create the SMB mount point or credentials directory."
-        SMB_ACTION="failed"
-        return 0
-    fi
-
-    local safe_name
-    safe_name=$(printf '%s_%s' "$server" "$share" |
-        tr '/: ' '___' |
-        tr -cd '[:alnum:]_.-')
-
-    credentials_file="/etc/samba/credentials/$safe_name"
-
-    if ! {
-        printf 'username=%s\n' "$username"
-        printf 'password=%s\n' "$password"
-        if [[ -n "$domain" ]]; then
-            printf 'domain=%s\n' "$domain"
+        if [[ "$committed" != true && -n "$credentials_file" && "$cleanup_failed" != true ]]; then
+            sudo rm -f -- "$credentials_file" || cleanup_failed=true
         fi
-    } | sudo tee "$credentials_file" >/dev/null; then
-        warning "Failed to create the SMB credentials file."
-        SMB_ACTION="failed"
-        return 0
-    fi
-
-    sudo chmod 600 "$credentials_file" || {
-        warning "Failed to secure the SMB credentials file."
-        SMB_ACTION="failed"
-        return 0
+        [[ -z "$trial" ]] || rm -f -- "$trial" || cleanup_failed=true
+        if [[ "$cleanup_failed" == true ]]; then
+            warning "Cleanup needs attention. Stop here and inspect the share before retrying or rebooting."
+            exit 2
+        fi
+        if ((exit_status != 0)); then
+            info "No new persistent share was kept. Temporary configuration was removed; empty mount directories may remain."
+        fi
+        exit "$exit_status"
     }
+    trap cleanup_share_attempt EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
 
-    fstab_line="//${server}/${share} ${mountpoint} cifs credentials=${credentials_file},vers=3.1.1,_netdev,x-systemd.automount,nofail,uid=$(id -u),gid=$(id -g),file_mode=0664,dir_mode=0775 0 0"
-
-    if fstab_has_mountpoint "$mountpoint"; then
-        warning "An /etc/fstab entry already references $mountpoint."
-        warning "Skipping duplicate SMB entry."
+    [[ -r /etc/fstab && -r /proc/self/mountinfo ]] || {
+        warning "PoeDeploy cannot read your existing mount configuration. No share will be added."
+        exit 1
+    }
+    if fstab_has_mountpoint "$mountpoint" || share_mount_record "$mountpoint" >/dev/null; then
+        warning "$mountpoint already has an fstab entry or active mount. Existing setup was not changed."
+        exit 1
+    fi
+    if [[ -e "$mountpoint" ]]; then
+        [[ -d "$mountpoint" ]] || { warning "Mount point is not a directory."; exit 1; }
+        local contents
+        contents=$(sudo find "$mountpoint" -mindepth 1 -maxdepth 1 -printf x -quit) || exit 1
+        [[ -z "$contents" ]] || { warning "Mount directory is not empty; refusing to hide existing files."; exit 1; }
+    fi
+    sudo mkdir -p -- "$mountpoint" || exit 1
+    options="_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=30s,nosuid,nodev"
+    if [[ "$kind" == SMB ]]; then
+        expected_type=cifs
+        sudo mkdir -p -- /etc/samba/credentials || exit 1
+        credentials_file=$(sudo mktemp /etc/samba/credentials/poedeploy-XXXXXX) || exit 1
+        if ! {
+            printf 'username=%s\npassword=%s\n' "$username" "$password"
+            [[ -z "$domain" ]] || printf 'domain=%s\n' "$domain"
+        } | sudo tee "$credentials_file" >/dev/null; then
+            exit 1
+        fi
+        password=""
+        options+=",credentials=${credentials_file},vers=3.1.1,uid=$(id -u),gid=$(id -g),file_mode=0664,dir_mode=0775"
     else
-        if echo "$fstab_line" | sudo tee -a /etc/fstab >/dev/null; then
-            success "SMB entry added to /etc/fstab."
+        expected_type=nfs
+        # Bound initial connection attempts; retain NFS hard I/O semantics.
+        options+=",fg,retry=0"
+    fi
+    line="$source $mountpoint $expected_type $options 0 0"
+    trial=$(mktemp -t poedeploy-share-XXXXXX) || exit 1
+    printf '%s\n' "$line" > "$trial" || exit 1
+    info "Checking the $kind connection. This may take up to 30 seconds."
+    info "Your saved mount configuration (/etc/fstab) has not been changed."
+    attempted=true
+    sudo timeout --kill-after=5s 30s mount --fstab "$trial" --target "$mountpoint" || exit 1
+    record=$(share_mount_record "$mountpoint") || exit 1
+    if [[ "$record" != "$source $expected_type" &&
+          !( "$kind" == NFS && "$record" == "$source nfs4" ) ]]; then
+        warning "The expected remote filesystem was not mounted."
+        exit 1
+    fi
+    # Use the invoking user so root-only access is not mistaken for usable access.
+    timeout --kill-after=5s 15s ls -A -- "$mountpoint" >/dev/null || {
+        warning "The share mounted, but your user could not list it."
+        exit 1
+    }
+    info "The share connected successfully, and your user account can list its files."
+    info "Saving the share so it can reconnect automatically when you open its folder."
+    if persist_verified_share "$line" "$mountpoint"; then
+        committed=true
+    else
+        status=$?
+        warning "The tested share could not be saved safely."
+        exit "$status"
+    fi
+)
+
+setup_network_share() {
+    local kind="$1" server share mountpoint username password domain source status answer
+    local -n action="${kind}_ACTION"
+    while true; do
+        action="cancelled"
+        echo
+        info "$kind share setup"
+        info "PoeDeploy will save this share for future use only after confirming that it connects and you can list its files."
+        require_input "$kind server IP/hostname: " || return 0
+        server="$REPLY"
+        if [[ "$kind" == SMB ]]; then
+            require_input "SMB share name: " || return 0
         else
-            warning "Failed to add SMB entry to /etc/fstab."
-            SMB_ACTION="failed"
+            require_input "NFS export path (for example /exports/data): " || return 0
+        fi
+        share="$REPLY"
+        require_input "Local mount point (for example /mnt/NAS): " || return 0
+        mountpoint="$REPLY"
+        username="" password="" domain=""
+        status=1
+        if validate_share_source "$kind" "$server" "$share" && validate_mountpoint "$mountpoint"; then
+            if [[ "$kind" == SMB ]]; then
+                require_input "SMB username: " || return 0
+                username="$REPLY"
+                read -rsp "SMB password: " password || { echo; return 0; }
+                echo
+                read -rp "SMB domain/workgroup (optional): " domain || return 0
+                source="//$server/$share"
+            else
+                source="$server:$share"
+            fi
+            if [[ "$kind" == SMB && ( -z "$password" ||
+                  "$username$password$domain" =~ [[:cntrl:]] ) ]]; then
+                warning "SMB credentials require a non-empty password and cannot contain control characters."
+            elif try_network_share "$kind" "$source" "$mountpoint" "$username" "$password" "$domain"; then
+                password=""
+                action="configured and mount verified"
+                success "$kind share mounted and saved at $mountpoint."
+                return 0
+            else
+                status=$?
+            fi
+        fi
+        password=""
+        action="failed; not saved"
+        if ((status == 2)); then
+            action="cleanup needs attention"
+            die "$kind cleanup could not be verified. Resolve the warning before retrying or rebooting."
+        elif ((status == 130 || status == 143)); then
+            action="cancelled"
             return 0
         fi
-    fi
-
-    sudo systemctl daemon-reload
-
-    info "Testing SMB mount..."
-
-    if sudo mount "$mountpoint"; then
-        success "SMB share mounted successfully at $mountpoint."
-        SMB_ACTION="configured successfully"
-    else
-        warning "SMB share could not be mounted right now."
-        warning "The credentials and fstab entry were still created."
-        warning "Check the server, share name, credentials and network."
-        SMB_ACTION="configured, mount test failed"
-    fi
-
+        warning "$kind setup failed. Check the address, share/export, access permissions and network."
+        while true; do
+            if ! read -rp "[r] Retry with corrected details, [s] Skip this share [s]: " answer; then
+                action="skipped after failed attempt"
+                return 0
+            fi
+            case "${answer,,}" in
+                r|retry) break ;;
+                s|skip|"") action="skipped after failed attempt"; return 0 ;;
+                *) warning "Choose retry or skip." ;;
+            esac
+        done
+    done
 }
 
-setup_nfs_share() {
-
-    echo
-
-    echo "========================================"
-
-    echo "           NFS SHARE SETUP"
-
-    echo "========================================"
-
-    echo
-
-    NFS_ACTION="selected"
-
-    local server export_path mountpoint fstab_line
-
-    if ! require_input "NFS server IP/hostname: "; then
-        info "NFS setup cancelled."
-        NFS_ACTION="cancelled"
-        return 0
-    fi
-    server="$REPLY"
-
-    if ! require_input "NFS export path: "; then
-        info "NFS setup cancelled."
-        NFS_ACTION="cancelled"
-        return 0
-    fi
-    export_path="$REPLY"
-
-    if ! validate_fstab_value "NFS server" "$server" ||
-       ! validate_fstab_value "NFS export path" "$export_path"; then
-        NFS_ACTION="failed"
-        return 0
-    fi
-
-    if ! require_input "Local mount point (for example /mnt/NFS): "; then
-        info "NFS setup cancelled."
-        NFS_ACTION="cancelled"
-        return 0
-
-    fi
-    mountpoint="$REPLY"
-
-    if ! validate_mountpoint "$mountpoint"; then
-        warning "NFS setup failed because the mount point is invalid."
-        NFS_ACTION="failed"
-        return 0
-    fi
-
-    if ! sudo mkdir -p "$mountpoint"; then
-        warning "Failed to create the NFS mount point."
-        NFS_ACTION="failed"
-        return 0
-    fi
-
-    fstab_line="${server}:${export_path} ${mountpoint} nfs defaults,_netdev,x-systemd.automount,nofail 0 0"
-
-    if fstab_has_mountpoint "$mountpoint"; then
-        warning "An /etc/fstab entry already references $mountpoint."
-        warning "Skipping duplicate NFS entry."
-    else
-        if echo "$fstab_line" | sudo tee -a /etc/fstab >/dev/null; then
-            success "NFS entry added to /etc/fstab."
-        else
-            warning "Failed to add NFS entry to /etc/fstab."
-            NFS_ACTION="failed"
-            return 0
-        fi
-    fi
-
-    sudo systemctl daemon-reload
-
-    info "Testing NFS mount..."
-
-    if sudo mount "$mountpoint"; then
-        success "NFS share mounted successfully at $mountpoint."
-        NFS_ACTION="configured successfully"
-    else
-        warning "NFS share could not be mounted right now."
-        warning "The fstab entry was still created."
-        warning "Check the server, export path, NFS version and network."
-        NFS_ACTION="configured, mount test failed"
-    fi
-
-}
+setup_smb_share() { setup_network_share SMB; }
+setup_nfs_share() { setup_network_share NFS; }
 
 configure_network_shares() {
     echo
@@ -3621,19 +3638,19 @@ configure_network_shares() {
                 return 0
                 ;;
             1)
-                ensure_command_dependencies mount.cifs:cifs-utils
+                ensure_command_dependencies mount.cifs:cifs-utils findmnt:util-linux timeout:coreutils
                 setup_smb_share
                 NETWORK_SHARES_ACTION="completed"
                 return 0
                 ;;
             2)
-                ensure_command_dependencies mount.nfs:nfs-utils
+                ensure_command_dependencies mount.nfs:nfs-utils findmnt:util-linux timeout:coreutils
                 setup_nfs_share
                 NETWORK_SHARES_ACTION="completed"
                 return 0
                 ;;
             3)
-                ensure_command_dependencies mount.cifs:cifs-utils mount.nfs:nfs-utils
+                ensure_command_dependencies mount.cifs:cifs-utils mount.nfs:nfs-utils findmnt:util-linux timeout:coreutils
                 setup_smb_share
                 setup_nfs_share
                 NETWORK_SHARES_ACTION="completed"

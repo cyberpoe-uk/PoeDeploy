@@ -4,354 +4,114 @@
   <img src="assets/poedeploy-logo.png" alt="PoeDeploy logo" width="500">
 </p>
 
-PoeDeploy is a modular automated post-installation setup script for Arch Linux.
+**Set up Arch Linux. Or just the part you need.**
 
-The goal of this project is to make a fresh Arch Linux installation reproducible without creating a complete custom Arch ISO.
+PoeDeploy is a guided Bash toolkit for fresh installations and everyday configuration.
+Build out a desktop, connect an SMB/NFS share, change your boot theme, or work
+through UKI and Secure Boot setup without running the whole installer.
 
-PoeDeploy detects the existing system and installs and configures only what is required.
+## Get started
 
-## Current Features
-
-- Arch Linux detection
-- First-run setup and selectable sections for repeat runs
-- Internet connectivity check
-- Active Pacman operation waiting and stale database-lock recovery
-- Full system update
-- `yay` installation
-- Base system and network tools
-- GPU detection
-- NVIDIA open DKMS driver detection/installation
-- Bootloader detection
-- Optional UKI creation for systemd-boot installations
-- Existing boot images and loader entries retained as recovery options
-- UKI boot verification before Secure Boot configuration
-- Persistent plain-black UKI splash across kernel upgrades
-- NetworkManager detection and configuration
-- Filesystem detection
-- Plymouth installation and configuration
-- Interactive Plymouth theme selection
-- Plymouth theme discovery from the PoeDeploy repository
-- Initramfs and UKI rebuilding after a theme change
-- Generated UKI inspection for Plymouth hook order, theme, command line and firmware splash
-- Official PoeDeploy Plymouth theme
-- Timeshift installation
-- Optional ML4W installation
-- Optional SDDM installation and configuration
-- Interactive application selection
-- Cancel, skip or retry individual optional application installations with Ctrl+C
-- Interactive default-browser selection
-- Official Arch repositories preferred
-- AUR fallback when required
-- VLC plugin installation
-- Tailscale installation
-- Tailscale service configuration
-- Optional Secure Boot setup with `sbctl`
-- Explicit Secure Boot key creation, enrollment and signing confirmations
-- Microsoft certificate preservation during key enrollment
-- systemd-boot and UKI signing and verification
-- Optional SMB share configuration
-- Optional NFS share configuration
-- Persistent `/etc/fstab` entries for network shares
-- Idempotent installation
-
-## Requirements
-
-- Arch Linux
-- Internet connection
-- `sudo` access
-- UEFI with systemd-boot for automated UKI setup
-- UEFI Setup Mode when enrolling new Secure Boot keys
-
-## Applications
-
-The optional application menu currently includes:
-
-- 7-Zip
-- Discord
-- Firefox
-- GIMP
-- LibreOffice
-- LocalSend
-- OBS Studio
-- PowerTOP
-- Spotify
-- Tailscale
-- Thunderbird
-- Visual Studio Code
-- VLC
-
-Applications are selected interactively before installation.
-
-When VLC is selected, the VLC plugin package is also installed.
-
-Timeshift is available as its own setup section.
-
-During an optional application's installation, press **Ctrl+C** once. After the
-package manager or AUR build exits, PoeDeploy offers **Skip**, **Retry**, or
-**Quit**. Skip continues with the next package; Retry attempts the same package;
-Quit stops PoeDeploy. Skipped packages appear separately from failures in the
-summary and can be selected again on a later run.
-
-Cancellation does not roll back changes or uninstall dependencies that have
-already been installed. The package manager may need time to finish its current
-transaction and exit. This skip prompt applies to optional app installations;
-Ctrl+C elsewhere retains its normal stop behaviour. Skipping VLC also skips its
-plugins, and skipping Tailscale prevents its service section from reinstalling it.
-
-## Package Sources
-
-The script follows this priority:
-
-1. Official Arch Linux repositories
-2. AUR when the package is not available in the official repositories
-
-`yay` is used as the AUR helper.
-
-## Plymouth Themes
-
-PoeDeploy-managed themes use the following repository layout:
-
-```text
-themes/<theme-name>/plymouth/<theme-name>.zip
-```
-
-Themes matching this structure are detected automatically. PoeDeploy does not download third-party theme collections at runtime. Any curated theme must first be added to this repository using the structure above.
-
-## UKI and Secure Boot
-
-On UEFI systems using systemd-boot, PoeDeploy can create a normal UKI for each installed kernel under the boot partition's `EFI/Linux` directory. It discovers the boot partition with `bootctl`, preserves the existing kernel arguments, adds the options required by Plymouth, backs up an existing `/etc/kernel/cmdline`, and keeps the existing traditional initramfs and loader entries intact. The proposed persistent command line is displayed with an explanation before the privileged write.
-
-After generating the UKIs, PoeDeploy verifies that they are PE executables and asks for a reboot through the new UKI entry. Secure Boot configuration remains blocked until a later run confirms that the current system was successfully booted from a UKI. Mkinitcpio preset backups are stored beside the originals with the `.poedeploy.bak` suffix.
-
-Secure Boot configuration is optional and uses `sbctl`. PoeDeploy requires separate typed confirmation before creating keys, enrolling keys, or signing EFI files. New key enrollment is only attempted when the firmware reports Setup Mode, and Microsoft certificates are included with `sbctl enroll-keys --microsoft`.
-
-PoeDeploy builds configured UKIs before signing systemd-boot and the final UKIs, then runs `sbctl verify`. Firmware configuration and recovery knowledge are still the administrator's responsibility.
-
-The UKI contains two distinct splash stages. Its PE `.splash` section is a static
-firmware image shown by `systemd-stub`; PoeDeploy replaces the default Arch image
-with plain black. Plymouth is stored inside the UKI's embedded initramfs and then
-shows the selected animated theme. Building or signing a UKI does not replace the
-Plymouth theme.
-
-PoeDeploy updates an existing native `<preset>_splash` setting (including an
-override of `ALL_splash`), or uses `<preset>_options="--splash ..."` when native
-splash settings are absent. It removes duplicate splash options while keeping
-unrelated options and other presets intact. It places `plymouth` after `systemd` or
-`udev` in the hook list, and refreshes an already-installed PoeDeploy theme from
-the current release. After building, it inspects each UKI and refuses Secure Boot
-signing when the selected theme, `splash` kernel option or hook order is wrong, or
-when the default Arch firmware splash remains embedded.
-
-A Plymouth run selects the theme before rebuilding boot images once. Keeping the
-current theme still rebuilds to apply refreshed assets and boot parameters. Build
-or verification failures stop the run with an error instead of reporting success
-or recommending a reboot. UKI extraction failures are reported separately from a
-missing `splash` kernel argument.
-
-Rebuilding a UKI changes its signed contents. When firmware Secure Boot is already
-enabled, the mkinitcpio `sbctl` post-hook signs the rebuilt image and PoeDeploy runs
-`sbctl verify` afterward. The full key creation and enrollment section runs only
-when the user explicitly selects Secure Boot.
-
-Signature verification calls `sbctl --json verify FILE` separately for each
-target, never an unqualified scan of the entire ESP or signing database. A
-successful command exit alone does not mean the file is signed. A Plymouth rebuild requires
-every configured active UKI to have a signed result. With systemd-boot, it also
-checks the current loader and identified fallback copies on the ESP. Discovery
-uses targeted `bootctl` path queries and the embedded systemd-boot `LoaderInfo`
-marker in the EFI binaries, not the full `bootctl status` report. The marker only
-identifies the product; signatures are still checked separately with `sbctl`.
-The Secure Boot setup section registers and signs these identified copies,
-including `EFI/BOOT/BOOTX64.EFI`. PoeDeploy does not register or separately sign
-standalone `/boot/vmlinuz-*` kernels; its signing commands target bootloaders and UKIs.
-After an already-enabled Secure Boot system rebuilds its UKIs, PoeDeploy can also
-automatically sign and register an unsigned identified systemd-boot fallback. It
-first verifies the active loader and current UKI against the existing signing key
-and confirms the current UKI's Plymouth configuration. It never signs an unknown
-fallback merely because its filename matches, and does not reopen key enrollment.
-It verifies the fallback again after signing; a failure remains a separate warning
-without claiming that fallback protection passed.
-Present standard fallback paths are checked individually when identified as
-systemd-boot; unknown fallback loaders are reported but never automatically signed.
-A failed or timed-out fallback check is not treated as permission to sign it.
-Unrelated EFI files and standalone `/boot/vmlinuz-*` kernels are not scanned.
-The summary explicitly states this scope rather than claiming their signatures
-were checked. A standalone kernel still requires a signature if explicitly passed
-to the required-file verifier.
-The report identifies the active loader and current UKI by path, verifies the
-persistent kernel arguments embedded in the UKI, and reports fallback and standalone
-kernel verification scope separately.
-The summary separates Secure Boot setup, signature verification, boot image rebuilds,
-and automatic fallback signing. Signing a standalone kernel does not authenticate
-an external initramfs or command line; the signed UKI remains the intended boot path.
-
-Read-only bootloader discovery queries, UKI identification, and each signature
-check print progress and use a 30-second timeout followed by a five-second kill
-grace period. Required-file failures stop verification without reporting success;
-fallback failures remain separate warnings. Timeouts do not repair kernel faults
-or guarantee recovery from uninterruptible kernel operations. Signing and image
-rebuilds are not interrupted by these verification timeouts.
-
-If the summary reports **keys created but not enrolled**, use the firmware's
-documented procedure to enter Secure Boot Setup Mode. Custom mode by itself may
-not enable Setup Mode; check using `sudo sbctl status` after returning to Arch.
-Rerun PoeDeploy, answer **yes** to the previous-run question, and select only
-**Secure Boot** to complete enrollment and signing. Existing key files are not
-treated as proof of enrollment: when Setup Mode is disabled, PoeDeploy asks
-whether those exact keys have already been enrolled before proceeding to sign.
-
-If the UKI reboot test is still pending, first boot through the UKI entry and then
-rerun the Secure Boot section. After enrollment and signing, check
-`sudo sbctl status` and review PoeDeploy's per-file signature results before
-enabling Secure Boot enforcement in firmware. To recheck manually, use
-`sudo timeout --kill-after=5s 30s sbctl verify /absolute/path/to/boot-file.efi`
-with each actual boot file path, not a full ESP scan. See the
-[sbctl workflow](https://github.com/Foxboron/sbctl/blob/master/docs/sbctl.8.txt).
-
-## Network Shares
-
-The installer can optionally configure:
-
-- SMB/CIFS shares
-- NFS shares
-
-Local mount points are created automatically and persistent entries can be added to /etc/fstab.
-
-## Usage
-
-Run the latest stable release with the public bootstrapper:
+Run as your regular user on Arch Linux, with internet access and sudo available:
 
 ```bash
 bash <(curl -fsSL https://cyberpoe.uk/latest-release)
 ```
 
-The bootstrapper verifies that it is running on Arch Linux, installs Git when
-needed, finds the highest stable version tag in the GitHub repository, displays
-the selected version, and downloads it into a temporary directory. Temporary
-files are removed automatically when PoeDeploy exits.
+The launcher downloads the latest stable tagged release and shows its version.
+If Git is missing, it explains the prerequisite and asks permission before
+installing it. PoeDeploy then offers:
 
-Alternatively, clone the [PoeDeploy repository](https://github.com/cyberpoe-uk/PoeDeploy), make the script executable, and run it:
+- **Choose sections:** select specific tasks; this is the default.
+- **Full setup:** visit every section, with optional choices along the way.
+- **Exit:** leave before setup begins.
 
-```bash
-git clone https://github.com/cyberpoe-uk/PoeDeploy.git
-cd PoeDeploy
-chmod +x poedeploy.sh
-./poedeploy.sh
-```
+Either mode works on a first or later run. Review your selected sections before
+confirming changes. Missing dependencies for those sections may also be installed.
 
-## First and subsequent runs
+Prefer to inspect the code first? Clone the
+[PoeDeploy repository](https://github.com/cyberpoe-uk/PoeDeploy), review
+`poedeploy.sh`, then run it with Bash.
 
-At startup PoeDeploy asks:
+## What can I use it for?
 
-```text
-Have you run PoeDeploy before on this Arch installation? [y/N]:
-```
+- **A fresh desktop:** system updates, base tools, GPU drivers, NetworkManager,
+  optional ML4W/Hyprland, and SDDM.
+- **One useful task:** connect an SMB/NFS share, choose a Plymouth theme, install
+  apps, change your default browser, or configure Tailscale.
+- **Boot configuration:** guided UKI creation and Secure Boot key enrollment,
+  signing and verification on supported UEFI/systemd-boot systems.
+- **Recovery preparation:** install Timeshift as its own section.
 
-Answer **no** for the complete setup, including the existing optional prompts.
-Answer **yes** to choose specific sections. This also works after an interrupted
-first run; there is no requirement for a previous run to have completed.
+For example, choose **Choose sections → SMB / NFS shares** to configure a NAS.
+You do not need to install a desktop, change your theme, or run a full update.
 
-The repeat-run menu starts with no sections selected. When `gum` is already
-installed and you are using an interactive terminal, it uses the same blue
-checklist as the application selector: **↑/↓** to navigate, **x** to toggle,
-**Enter** to continue, and **Esc/Ctrl+C** to cancel. Choosing nothing does not
-start an installation. PoeDeploy does not install anything just to display this
-startup menu, before you have confirmed the run.
+With `gum`, use **↑/↓** to navigate, **x** to toggle checklist items, and **Enter**
+to continue. **Esc/Ctrl+C** cancels the menu. Without it, startup uses numbered
+menus; no package is installed just to show those menus.
 
-Without `gum` or an interactive terminal, the numbered menu remains available.
-Enter numbers separated by
-spaces or commas to toggle them, `all` or `none` to change the whole selection,
-`run` to proceed, or `quit` to leave before making system changes. For example:
+## Optional apps, not a bundle
 
-```text
-Selection: 15
-Selection: run
-```
+All apps start unchecked, even during full setup:
 
-This selects only **Secure Boot**. Option **11** selects optional applications;
-on repeat runs its application checklist also starts with nothing selected.
-Cancelling the application checklist skips optional applications; other selected
-setup sections can still continue. First-run application selection still starts
-with all applications selected.
+7-Zip, Discord, Firefox, GIMP, HyprMod, LibreOffice, LocalSend, OBS Studio,
+PowerTOP, Spotify, Tailscale, Thunderbird, Visual Studio Code, and VLC.
 
-The sections are system update, yay, base tools, GPU drivers, NetworkManager,
-Plymouth, UKI, Timeshift, ML4W, SDDM, applications, default browser, SMB/NFS shares,
-Tailscale service, and Secure Boot. Selected sections run in dependency order.
-System detection is read-only. Unselected sections do not run; in particular a
-Secure Boot-only run does not perform a full update, install desktop applications,
-or change Plymouth. Missing packages required by a selected section may still be
-installed, and the Secure Boot section still rebuilds and signs the configured UKIs.
+Official Arch packages are preferred, with `yay` used for AUR packages.
+HyprMod follows the Arch package route used by ML4W; it is not launched
+automatically. Selecting VLC also installs its plugins.
 
-## Development checks
+During an optional app install, press **Ctrl+C** once. After the package command
+exits, choose **Skip**, **Retry**, or **Quit**. Installed dependencies are kept;
+cancellation is not an uninstall or rollback.
+
+## Network shares: test before saving
+
+SMB and NFS setup tests the mount and checks that your user can list the share
+**before adding it to `/etc/fstab`**. If a test fails, its temporary configuration
+is cleaned up and you can retry with corrected details or skip.
+
+Successful entries use on-demand mounting, `nofail`, and a mount timeout.
+Existing entries, mounts and credentials are not overwritten. Use a dedicated,
+empty directory under `/mnt` or `/media`; system directories and symlink paths
+are rejected. The script backs up `fstab` before saving.
+
+This checks connectivity and read access now, not future server availability or
+write permissions. Cleanup failures stop the run for inspection rather than
+claiming everything is safe. [Share setup and safety details](docs/network-shares.md).
+
+## Before changing boot settings
+
+PoeDeploy changes real system configuration; keep backups and recovery media.
+Automated UKI/Secure Boot setup requires UEFI and systemd-boot. A newly configured
+UKI must be booted successfully before enrollment/signing proceeds.
+
+Creating keys, enrolling keys and signing files have separate confirmations.
+Firmware Setup Mode is required for new enrollment; custom mode alone may not
+be sufficient. A Plymouth-only rerun does not repeat key enrollment, but rebuilt
+UKIs still need valid signatures when Secure Boot is enabled.
+
+Read the [UKI, Plymouth and Secure Boot guide](docs/boot-and-secure-boot.md) before
+using those sections. Boot verification failures must be resolved before rebooting.
+
+## Guides and development
+
+- [SMB/NFS validation, persistence and cleanup](docs/network-shares.md)
+- [UKI, Plymouth and Secure Boot](docs/boot-and-secure-boot.md)
+- [Testing a real kernel upgrade](docs/kernel-update-check.md)
+- [PoeDeploy theme assets](themes/README.md)
+
+ML4W installation is optional. Its installer is downloaded completely and checked
+for empty content/Bash syntax errors before execution; download and installer
+failures are reported separately. This is not a security audit of upstream code.
+
+Run the local checks:
 
 ```bash
 bash -n poedeploy.sh
 python3 -m unittest discover -s tests -v
 ```
 
-The tests use mocked privileged operations and a harmless package-process fixture
-in a pseudo-terminal to exercise real Ctrl+C handling. They do not install
-packages, change firmware, or rebuild this machine's boot images.
-
-## Testing a kernel update
-
-Use a normal package update to test the persistent configuration. Do not rerun
-PoeDeploy, select Plymouth again, manually run `mkinitcpio -P`, or manually sign
-files between the update and verification: that could hide a failed update hook.
-The menu/summary cleanup does not require reinstalling the existing boot setup.
-
-Before updating, save your work, have backups and recovery media available, and
-confirm `/boot` is mounted read-write without unresolved filesystem errors.
-Record the baseline:
-
-```bash
-uname -r
-pacman -Q linux
-findmnt /boot
-plymouth-set-default-theme
-```
-
-Then run `sudo pacman -Syu` directly and retain its output. Confirm that the
-transaction actually upgrades the kernel; otherwise this is not a kernel-upgrade
-test. Watch for successful initramfs generation and, on a UKI system, UKI creation
-and automatic signing. If the update or boot-image hooks fail, stop before
-rebooting and investigate. Do not use a standalone `pacman -Sy`.
-
-Before rebooting, check the generated image for the selected theme. For the
-traditional `linux` initramfs and PoeDeploy theme:
-
-```bash
-sudo lsinitcpio /boot/initramfs-linux.img |
-    grep -F 'usr/share/plymouth/themes/poedeploy/poedeploy.plymouth'
-```
-
-On a UKI machine, use its configured UKI path instead of the initramfs path and
-verify the active loader, rebuilt UKI and fallback with explicit paths:
-
-```bash
-sudo timeout --kill-after=5s 30s sbctl verify \
-    /boot/EFI/systemd/systemd-bootx64.efi \
-    /boot/EFI/Linux/arch-linux.efi \
-    /boot/EFI/BOOT/BOOTX64.EFI
-```
-
-These are example paths for the previously tested x64 laptop; use the machine's
-actual configured paths. Read each file's result, not just the command exit code.
-An ordinary initramfs system does not exercise UKI generation or Secure Boot
-signing, and does not need converting to UKI just for this test.
-
-After a successful update and pre-reboot checks, reboot normally. Confirm
-`uname -r` reports the new kernel, `/proc/cmdline` still contains `splash`, and the
-full PoeDeploy theme appears with its blue progress bar. On the UKI laptop also
-check the expected black early splash, Secure Boot status, and signatures again.
-Review `sudo journalctl -k -b -p warning --no-pager` for new kernel faults. A clean
-update/reboot does not by itself resolve the earlier kernel fault or establish
-whether suspend/resume was involved; that is a separate test.
-
-## ML4W
-
-ML4W is optional and is installed using the official ML4W installer:
-
-```bash
-bash <(curl -fsSL https://ml4w.com/os/stable)
-```
+Tests mock privileged operations and network mounts; they do not change your
+host's shares, packages, boot images or firmware. Real server and reboot testing
+is still needed for your machine.

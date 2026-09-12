@@ -51,12 +51,149 @@ class SetupSelectionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result.stdout
 
-    def test_first_run_selects_every_section(self):
+    def test_default_mode_opens_empty_section_selection(self):
+        self.check_run(r'''
+choose_setup_modules
+[[ "$RUN_MODE" == selected && ${#SELECTED_SETUP_MODULES[@]} == 1 ]]
+[[ "${SELECTED_SETUP_MODULES[plymouth]}" == true ]]
+''', "\n6\nrun\n")
+
+    def test_welcome_exit_and_eof_clear_selection(self):
+        for answer in ("3\n", "", "quit\n"):
+            with self.subTest(answer=answer):
+                self.check_run(r'''
+SELECTED_SETUP_MODULES=([update]=true)
+if choose_setup_modules; then exit 90; fi
+[[ ${#SELECTED_SETUP_MODULES[@]} == 0 ]]
+''', answer)
+
+    def test_invalid_welcome_input_reprompts(self):
+        output = self.check_run(r'''
+choose_run_mode
+[[ "$RUN_MODE" == selected ]]
+''', "yes\n99\n1\n")
+        self.assertEqual(output.count("Choose 1, 2 or 3."), 2)
+
+    def test_welcome_gum_has_three_inline_choices_and_safe_default(self):
+        self.check_run(r'''
+can_use_checklist() { return 0; }
+gum() {
+    [[ "$*" != *'--no-limit'* ]] || return 91
+    [[ "$*" == *'--selected=Choose sections (Select specific setup tasks)'* ]] || return 92
+    [[ "$*" == *'--cursor.foreground=#004FFE'* ]] || return 93
+    local -a options=()
+    mapfile -t options
+    [[ ${#options[@]} == 3 && "${options[2]}" == Exit ]] || return 94
+    printf '%s\n' "${options[1]}"
+}
+choose_setup_modules
+[[ "$RUN_MODE" == full && ${#SELECTED_SETUP_MODULES[@]} == ${#SETUP_MODULE_IDS[@]} ]]
+''')
+
+    def test_welcome_gum_failure_ignores_partial_selection(self):
+        self.check_run(r'''
+can_use_checklist() { return 0; }
+gum() { cat >/dev/null; echo 'Full setup (Go through all setup, with optional choices.)'; return 130; }
+if choose_setup_modules; then exit 90; fi
+[[ ${#SELECTED_SETUP_MODULES[@]} == 0 ]]
+''')
+
+    def test_header_contains_embedded_logo_and_version_without_external_tools(self):
+        output = self.check_run(r'''
+figlet() { exit 91; }
+clear() { exit 92; }
+SCRIPT_VERSION=vtest
+show_header
+''')
+        self.assertIn("/ __ \\____", output)
+        self.assertIn("Version: vtest", output)
+        self.assertNotIn("\x1b", output)
+
+    def test_hyprmod_uses_optional_aur_install_flow(self):
+        output = self.check_run(r'''
+gum() { :; }
+choose_checklist() {
+    [[ -z "$2" ]] || return 91
+    local options
+    options=$(cat)
+    [[ "$options" == *'HyprMod (Hyprland settings)'* ]] || return 92
+    echo 'HyprMod (Hyprland settings)'
+}
+select_applications
+[[ "${SELECTED_PACKAGES[*]}" == hyprmod ]]
+pacman() { return 1; }
+yay() { [[ "$*" == '-Si hyprmod' ]]; }
+install_optional_package() {
+    [[ "$*" == 'hyprmod yay -S --needed --noconfirm hyprmod' ]] || exit 93
+    echo HYPRMOD_INSTALL
+}
+hyprmod() { exit 94; }
+install_selected_applications
+''')
+        self.assertIn("HYPRMOD_INSTALL", output)
+
+    def test_hyprmod_already_installed_is_not_reinstalled_or_launched(self):
+        self.check_run(r'''
+SELECTED_PACKAGES=(hyprmod)
+pacman() { [[ "$*" == '-Q hyprmod' ]]; }
+install_optional_package() { exit 91; }
+hyprmod() { exit 92; }
+install_selected_applications
+[[ "${INSTALLED_PACKAGES[*]}" == hyprmod ]]
+''')
+
+    def test_ml4w_download_validation_execution_and_cleanup(self):
+        cases = (
+            ("partial", "download failed", False),
+            ("empty", "invalid download", False),
+            ("invalid", "invalid download", False),
+            ("success", "installed successfully", True),
+            ("failure", "installation failed", True),
+        )
+        for fixture, expected, ran in cases:
+            with self.subTest(fixture=fixture):
+                output = self.check_run(f'fixture={fixture}\n' + r'''
+download_path=''
+curl() {
+    [[ "$*" == *'--connect-timeout 15 --max-time 180 --retry 2'* ]] || return 91
+    while (($#)); do
+        if [[ "$1" == --output ]]; then download_path="$2"; break; fi
+        shift
+    done
+    [[ -f "$download_path" ]] || return 92
+    case "$fixture" in
+        partial) printf 'echo INSTALLER_RAN\n' > "$download_path"; return 22 ;;
+        empty) : ;;
+        invalid) printf 'echo INSTALLER_RAN\nif then\n' > "$download_path" ;;
+        success) printf 'echo INSTALLER_RAN\n' > "$download_path" ;;
+        failure) printf 'echo INSTALLER_RAN\nexit 42\n' > "$download_path" ;;
+    esac
+}
+install_ml4w
+[[ -n "$download_path" && ! -e "$download_path" ]]
+printf 'ACTION:%s\n' "$ML4W_ACTION"
+''' , "y\n")
+                self.assertIn("ACTION:" + expected, output)
+                self.assertEqual("INSTALLER_RAN" in output, ran)
+
+    def test_ml4w_skip_and_tempfile_failure_do_not_download(self):
+        for answer, expected in (("n\n", "skipped"), ("y\n", "download failed")):
+            with self.subTest(answer=answer):
+                output = self.check_run(r'''
+curl() { exit 91; }
+mktemp() { return 1; }
+install_ml4w
+[[ "$ML4W_ENABLED" == false ]]
+printf 'ACTION:%s\n' "$ML4W_ACTION"
+''', answer)
+                self.assertIn("ACTION:" + expected, output)
+
+    def test_full_setup_selects_every_section(self):
         self.check_run(r'''
 choose_setup_modules
 [[ "$RUN_MODE" == full ]]
 [[ ${#SELECTED_SETUP_MODULES[@]} == ${#SETUP_MODULE_IDS[@]} ]]
-''', "no\n")
+''', "2\n")
 
     def test_uki_cmdline_update_has_no_redundant_confirmation(self):
         script_text = Path(SCRIPT).read_text()
@@ -67,17 +204,18 @@ choose_setup_modules
         self.assertIn("sudo may request your password", function_text)
         self.assertIn("kernel command line was derived", function_text)
 
-    def test_repeat_run_selects_only_secure_boot(self):
+    def test_selected_mode_selects_only_secure_boot(self):
         self.check_run(r'''
 choose_setup_modules
 [[ "$RUN_MODE" == selected ]]
 [[ ${#SELECTED_SETUP_MODULES[@]} == 1 ]]
 [[ "${SELECTED_SETUP_MODULES[secure_boot]}" == true ]]
-''', "yes\n15\nrun\n")
+''', "1\n15\nrun\n")
 
     def test_checklist_selects_sections_in_dependency_order(self):
         output = self.check_run(r'''
 can_use_checklist() { return 0; }
+choose_run_mode() { RUN_MODE=selected; }
 choose_checklist() {
     [[ "$1" == 'Setup sections' && -z "${2:-}" ]] || return 91
     local options
@@ -89,7 +227,7 @@ choose_setup_modules
 [[ "$RUN_MODE" == selected && ${#SELECTED_SETUP_MODULES[@]} == 2 ]]
 run_setup_module() { printf 'VISIT:%s\n' "$1"; }
 run_selected_setup_modules
-''', "yes\n")
+''')
         self.assertEqual(
             [line for line in output.splitlines() if line.startswith("VISIT:")],
             ["VISIT:plymouth", "VISIT:secure_boot"],
@@ -98,14 +236,16 @@ run_selected_setup_modules
     def test_checklist_cancellation_does_not_keep_partial_output(self):
         self.check_run(r'''
 can_use_checklist() { return 0; }
+choose_run_mode() { RUN_MODE=selected; }
 choose_checklist() { cat >/dev/null; echo 'Plymouth boot theme'; return 130; }
 if choose_setup_modules; then exit 90; fi
 [[ ${#SELECTED_SETUP_MODULES[@]} == 0 ]]
-''', "yes\n")
+''')
 
     def test_empty_checklist_reprompts_without_selecting_everything(self):
         output = self.check_run(r'''
 can_use_checklist() { return 0; }
+choose_run_mode() { RUN_MODE=selected; }
 choose_checklist() { cat >/dev/null; return 0; }
 warning() {
     printf '%s\n' "$1"
@@ -114,16 +254,17 @@ warning() {
 choose_setup_modules
 [[ ${#SELECTED_SETUP_MODULES[@]} == 1 ]]
 [[ "${SELECTED_SETUP_MODULES[plymouth]}" == true ]]
-''', "yes\n")
+''')
         self.assertIn("Select at least one section", output)
 
     def test_unknown_checklist_label_cancels_selection(self):
         self.check_run(r'''
 can_use_checklist() { return 0; }
+choose_run_mode() { RUN_MODE=selected; }
 choose_checklist() { cat >/dev/null; printf '%s\n' 'Plymouth boot theme' 'Unknown'; }
 if choose_setup_modules; then exit 90; fi
 [[ ${#SELECTED_SETUP_MODULES[@]} == 0 ]]
-''', "yes\n")
+''')
 
     def test_noninteractive_input_uses_numbered_menu(self):
         self.check_run(r'''
@@ -131,7 +272,7 @@ gum() { echo UNEXPECTED_CHECKLIST >&2; return 91; }
 if can_use_checklist; then exit 90; fi
 choose_setup_modules
 [[ ${#SELECTED_SETUP_MODULES[@]} == 1 ]]
-''', "yes\n6\nrun\n")
+''', "1\n6\nrun\n")
 
     def test_shared_checklist_style_and_explicit_defaults(self):
         self.check_run(r'''
@@ -148,8 +289,8 @@ expected='*'
 [[ $(printf 'Item\n' | choose_checklist 'Test menu' '*') == Item ]]
 ''')
 
-    def test_application_checklist_preserves_run_defaults_and_vlc_plugins(self):
-        for mode, default in (("full", "*"), ("selected", "")):
+    def test_application_checklist_starts_empty_and_preserves_vlc_plugins(self):
+        for mode, default in (("full", ""), ("selected", "")):
             with self.subTest(mode=mode):
                 self.check_run(f'RUN_MODE={mode}\nexpected="{default}"\n' + r'''
 gum() { :; }
@@ -187,17 +328,17 @@ choose_setup_modules
 [[ ${#SELECTED_SETUP_MODULES[@]} == 2 ]]
 [[ "${SELECTED_SETUP_MODULES[applications]}" == true ]]
 [[ "${SELECTED_SETUP_MODULES[sddm]}" == true ]]
-''', "y\nrun\nall\nnone\n99\n1;echo injected\n11,10\n010\n10\n10\n08\n08\nrun\n")
+''', "1\nrun\nall\nnone\n99\n1;echo injected\n11,10\n010\n10\n10\n08\n08\nrun\n")
 
     def test_empty_run_and_eof_make_no_changes(self):
         output = self.check_run(r'''
 if choose_setup_modules; then exit 90; fi
 printf 'CANCELLED\n'
-''', "yes\nrun\n")
+''', "1\nrun\n")
         self.assertIn("CANCELLED", output)
 
     def test_menu_quit(self):
-        self.check_run("if choose_setup_modules; then exit 90; fi", "yes\nq\n")
+        self.check_run("if choose_setup_modules; then exit 90; fi", "1\nq\n")
 
     def test_dispatch_uses_dependency_order(self):
         output = self.check_run(r'''
@@ -260,7 +401,7 @@ setup_secure_boot() {
 }
 main
 [[ "${PROCESSED_SETUP_MODULES[*]}" == secure_boot ]]
-''', "yes\n15\nrun\ny\n")
+''', "1\n15\nrun\ny\n")
         self.assertIn("SECURE_BOOT_ONLY", output)
         self.assertNotIn("UNEXPECTED", output)
 
@@ -1028,16 +1169,28 @@ detect_gpu
 @unittest.skipUnless(shutil.which("gum"), "gum is needed for real checklist tests")
 class ChecklistTerminalTests(unittest.TestCase):
     def test_real_keyboard_selection_and_cancellation(self):
-        for keys, expected in ((b"\x1b[Bx\r", b"CHOSEN:yay"),
-                               (b"\x1b", b"CANCELLED"),
-                               (b"\x03", b"CANCELLED")):
-            with self.subTest(keys=keys):
+        cases = (
+            ((b"\r",), b"\x1b[Bx\r", b"CHOSEN:yay", 100),
+            ((b"\r",), b"\x1b[Bx\r", b"CHOSEN:yay", 40),
+            ((b"\r",), b"\x1b", b"CANCELLED", 100),
+            ((b"\r",), b"\x03", b"CANCELLED", 100),
+            ((b"\x1b[B", b"\r"), None, b"MODE:full", 100),
+            ((b"\x1b[B", b"\x1b[B", b"\r"), None, b"CANCELLED", 100),
+            ((b"\x1b",), None, b"CANCELLED", 100),
+            ((b"\x03",), None, b"CANCELLED", 100),
+        )
+        for welcome_keys, keys, expected, width in cases:
+            with self.subTest(welcome_keys=welcome_keys, keys=keys, width=width):
                 pid, fd = pty.fork()
                 if pid == 0:
                     os.environ["TERM"] = "xterm-256color"
-                    termios.tcsetwinsize(0, (30, 100))
+                    os.environ.pop("NO_COLOR", None)
+                    termios.tcsetwinsize(0, (30, width))
                     body = PRELUDE + r'''
+SCRIPT_VERSION=vtest
+show_header
 if choose_setup_modules; then
+    printf 'MODE:%s\n' "$RUN_MODE"
     printf 'CHOSEN:%s\n' "${!SELECTED_SETUP_MODULES[@]}"
 else
     [[ ${#SELECTED_SETUP_MODULES[@]} == 0 ]] || exit 91
@@ -1059,10 +1212,12 @@ fi
                             except OSError as error:
                                 if error.errno != errno.EIO:
                                     raise
-                        if b"[y/N]:" in output and not answered:
-                            os.write(fd, b"yes\n")
+                        if b"What would you like to do?" in output and not answered:
+                            for key in welcome_keys:
+                                os.write(fd, key)
+                                time.sleep(0.1)
                             answered = True
-                        if b"Setup sections" in output and not pressed:
+                        if keys is not None and b"Setup sections" in output and not pressed:
                             if keys == b"\x1b[Bx\r":
                                 # Separate keypresses, rather than one pasted chunk.
                                 for key in (b"\x1b[B", b"x", b"\r"):
@@ -1094,8 +1249,16 @@ fi
                         os.waitpid(pid, 0)
                     os.close(fd)
                 self.assertEqual(os.waitstatus_to_exitcode(status), 0, output)
-                self.assertTrue(pressed, output)
+                self.assertTrue(answered, output)
+                if keys is not None:
+                    self.assertTrue(pressed, output)
                 self.assertIn(expected, output)
+                self.assertIn(b'\x1b[38;2;0;79;254m', output)
+                if width == 40:
+                    self.assertIn(b'PoeDeploy', output)
+                    self.assertNotIn(b'/ __ \\____', output)
+                else:
+                    self.assertIn(b'/ __ \\____', output)
 
 
 class InterruptTests(unittest.TestCase):
