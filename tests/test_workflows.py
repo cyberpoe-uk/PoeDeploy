@@ -51,6 +51,17 @@ class SetupSelectionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result.stdout
 
+    def test_preview_does_not_start_setup_or_download_anything(self):
+        output = self.check_run(r'''
+curl() { exit 91; }
+wget() { exit 92; }
+load_version() { exit 93; }
+choose_setup_modules() { exit 94; }
+run_selected_setup_modules() { exit 95; }
+main --preview
+''')
+        self.assertIn("Preview finished. Your system has not been changed.", output)
+
     def test_default_mode_opens_empty_section_selection(self):
         self.check_run(r'''
 choose_setup_modules
