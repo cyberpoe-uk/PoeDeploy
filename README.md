@@ -48,6 +48,17 @@ You can also clone the
 [PoeDeploy repository](https://github.com/cyberpoe-uk/PoeDeploy) and read the
 script before running it.
 
+To see the layout without running any setup tasks, open a terminal in your local
+PoeDeploy folder and run:
+
+```bash
+bash poedeploy.sh --preview
+```
+
+During setup, numbered steps show which task is running. Command output stays
+visible and you can scroll back to read it. The menus and headings use PoeDeploy
+blue, with plain text when colours are disabled.
+
 ## A few examples
 
 If you only want to connect your NAS, choose **Choose sections**, select

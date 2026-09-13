@@ -38,6 +38,10 @@ CYAN='\033[0;36m'
 
 NC='\033[0m'
 
+UI_WIDTH=80
+UI_BOLD=''
+UI_DIM=''
+
 # ------------------------------------------------------------
 
 # Installation tracking
@@ -129,6 +133,47 @@ load_version() {
 
 # ------------------------------------------------------------
 
+initialise_ui() {
+    UI_WIDTH=80
+    UI_BOLD=''
+    UI_DIM=''
+    GREEN='' YELLOW='' RED='' BLUE='' CYAN='' NC=''
+    if [[ -t 1 && "${TERM:-dumb}" != dumb ]]; then
+        UI_WIDTH=$(tput cols 2>/dev/null) || UI_WIDTH=80
+        [[ "$UI_WIDTH" =~ ^[0-9]+$ ]] || UI_WIDTH=80
+        if [[ -z "${NO_COLOR:-}" ]]; then
+            BLUE=$'\033[38;2;0;79;254m'
+            CYAN=$'\033[0;36m'
+            GREEN=$'\033[0;32m'
+            YELLOW=$'\033[1;33m'
+            RED=$'\033[0;31m'
+            NC=$'\033[0m'
+            UI_BOLD=$'\033[1m'
+            UI_DIM=$'\033[2m'
+        fi
+    fi
+}
+
+ui_rule() {
+    local width="$UI_WIDTH" rule
+    ((width <= 72)) || width=72
+    ((width > 1)) || width=2
+    printf -v rule '%*s' "$((width - 1))" ''
+    printf '%b%s%b\n' "$UI_DIM" "${rule// /─}" "$NC"
+}
+
+ui_heading() {
+    printf '\n%b%s%b\n' "${BLUE}${UI_BOLD}" "$1" "$NC"
+    ui_rule
+    [[ -z "${2:-}" ]] || printf '%s\n' "$2"
+    printf '\n'
+}
+
+show_task_progress() {
+    # Count sections, not time. Package builds can take very different amounts of time.
+    ui_heading "Step $1 of $2  |  $3"
+}
+
 info() {
 
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -179,17 +224,9 @@ trap 'unexpected_error "$?" "$LINENO"' ERR
 # ============================================================
 
 show_header() {
-    local width=80 colour='' reset=''
-    if [[ -t 1 && "${TERM:-dumb}" != dumb ]]; then
-        clear || true
-        width=$(tput cols 2>/dev/null) || width=80
-        if [[ -z "${NO_COLOR:-}" ]]; then
-            colour=$'\033[38;2;0;79;254m'
-            reset=$'\033[0m'
-        fi
-    fi
-    printf '\n%s' "$colour"
-    if [[ "$width" =~ ^[0-9]+$ ]] && ((width >= 54)); then
+    initialise_ui
+    printf '\n%s' "$BLUE"
+    if ((UI_WIDTH >= 54)); then
         printf '%s\n' \
             '    ____             ____             __' \
             '   / __ \____  ___  / __ \___  ____  / /___  __  __' \
@@ -200,7 +237,10 @@ show_header() {
     else
         printf 'PoeDeploy\n'
     fi
-    printf '%s\nVersion: %s\n\n' "$reset" "$SCRIPT_VERSION"
+    printf '%s\nVersion: %s\n' "$NC" "$SCRIPT_VERSION"
+    printf '%bArch Linux setup and configuration%b\n' "$UI_DIM" "$NC"
+    ui_rule
+    printf '\n'
 }
 
 confirm_start() {
@@ -248,7 +288,7 @@ choose_checklist() {
     local header="$1" defaults="${2:-}"
     gum choose --no-limit --selected="$defaults" \
         --cursor='> ' --cursor-prefix '[ ] ' --selected-prefix '[✓] ' \
-        --unselected-prefix '[ ] ' --height=15 \
+        --unselected-prefix '[ ] ' --height=15 --no-show-help \
         --cursor.foreground='#004FFE' \
         --selected.foreground='#004FFE' \
         --header.foreground='#004FFE' \
@@ -413,14 +453,20 @@ choose_setup_modules() {
 }
 
 show_selected_setup_modules() {
-    local module
-    info "Setup sections selected for this run:"
+    local module number=0 mode_label='Choose sections'
+    [[ "$RUN_MODE" != full ]] || mode_label='Full setup'
+    ui_heading "Review your setup" "Nothing has started yet."
+    printf '  Mode: %s\n\n' "$mode_label"
     for module in "${SETUP_MODULE_IDS[@]}"; do
         if [[ "${SELECTED_SETUP_MODULES[$module]:-false}" == true ]]; then
-            printf '  - %s\n' "${SETUP_MODULE_LABELS[$module]}"
+            number=$((number + 1))
+            printf '  %2d. %s\n' "$number" "${SETUP_MODULE_LABELS[$module]}"
         fi
     done
-    info "Only selected sections and their missing package dependencies will run."
+    printf '\n'
+    info "Only these sections and the tools they need will run."
+    info "You will see the command output as setup runs."
+    printf '\n'
 }
 
 firmware_secure_boot_enabled() {
@@ -1162,11 +1208,7 @@ remove_failed_uki_files() {
 }
 
 setup_uki() {
-    echo
-    echo "========================================"
-    echo "          OPTIONAL UKI SETUP"
-    echo "========================================"
-    echo
+    ui_heading "Unified kernel images (UKI)"
 
     if [[ "$UKI_ENABLED" == true ]]; then
         if [[ "$UKI_BOOTED" == true ]]; then
@@ -2488,10 +2530,7 @@ select_plymouth_theme() {
 
     current_theme=$(plymouth-set-default-theme 2>/dev/null || true)
 
-    echo "========================================"
-    echo "        PLYMOUTH THEME"
-    echo "========================================"
-    echo
+    ui_heading "Choose a boot theme"
     echo "Current theme: ${current_theme:-unknown}"
     echo
     echo "Available themes:"
@@ -2714,80 +2753,40 @@ format_status_change() {
 }
 
 show_summary() {
-
+    ui_heading "Your system"
+    summary_row "OS" "Arch Linux"
+    summary_row "Version" "$SCRIPT_VERSION"
+    summary_row "GPU" "$GPU_VENDOR"
+    summary_row "GPU model" "$GPU_MODEL"
+    summary_row "Bootloader" "$BOOTLOADER"
+    summary_row "UKI" "$UKI_STATUS"
+    summary_row "Root filesystem" "$ROOT_FILESYSTEM"
     echo
-
-    echo "========================================"
-
-    echo "          SYSTEM ASSESSMENT"
-
-    echo "========================================"
-
-    echo
-
-    echo "OS:              Arch Linux"
-
-    echo "Version:         $SCRIPT_VERSION"
-
-    echo "GPU:             $GPU_VENDOR"
-
-    echo "GPU model:       $GPU_MODEL"
-
-    echo "Bootloader:      $BOOTLOADER"
-
-    echo "UKI:             $UKI_STATUS"
-
-    echo "Root filesystem: $ROOT_FILESYSTEM"
-
-    echo
-
     if command -v yay &>/dev/null; then
-
-        echo "yay:             installed"
-
+        summary_row "yay" "installed"
     else
-
-        echo "yay:             missing"
-
+        summary_row "yay" "missing"
     fi
-
     if pacman -Q plymouth &>/dev/null; then
-
-        echo "Plymouth:        installed"
-
+        summary_row "Plymouth" "installed"
     else
-
-        echo "Plymouth:        missing"
-
+        summary_row "Plymouth" "missing"
     fi
-
     if pacman -Q timeshift &>/dev/null; then
-
-        echo "Timeshift:       installed"
-
+        summary_row "Timeshift" "installed"
     else
-
-        echo "Timeshift:       not installed"
-
+        summary_row "Timeshift" "not installed"
     fi
-
     if systemctl is-active NetworkManager &>/dev/null; then
-
-        echo "NetworkManager:  active"
-
+        summary_row "NetworkManager" "active"
     else
-
-        echo "NetworkManager:  inactive"
-
+        summary_row "NetworkManager" "inactive"
     fi
-
-    printf "%-16s %s\n" "Hyprland:" "$HYPRLAND_STATUS"
-    printf "%-16s %s\n" "SDDM:" "$SDDM_STATUS"
-    printf "%-16s %s\n" "SDDM now:" "$SDDM_ACTIVE_STATUS"
-    printf "%-16s %s\n" "ML4W SDDM theme:" "$SDDM_THEME_STATUS"
-
+    summary_row "Hyprland" "$HYPRLAND_STATUS"
+    summary_row "SDDM" "$SDDM_STATUS"
+    summary_row "SDDM now" "$SDDM_ACTIVE_STATUS"
+    summary_row "ML4W SDDM theme" "$SDDM_THEME_STATUS"
     echo
-
 }
 
 # ============================================================
@@ -2798,11 +2797,7 @@ show_summary() {
 
 install_ml4w() {
     local answer installer_file
-    echo
-    echo "========================================"
-    echo "          ML4W INSTALLATION"
-    echo "========================================"
-    echo
+    ui_heading "ML4W desktop"
 
     read -rp "Install ML4W Hyprland? [Y/n]: " answer
 
@@ -2877,11 +2872,7 @@ setup_sddm() {
         return 0
     fi
 
-    echo
-    echo "========================================"
-    echo "       GRAPHICAL LOGIN (SDDM)"
-    echo "========================================"
-    echo
+    ui_heading "Login screen (SDDM)"
 
     if pacman -Q sddm &>/dev/null; then
         success "SDDM is already installed."
@@ -3031,21 +3022,9 @@ select_applications() {
 
     fi
 
-    echo
+    ui_heading "Choose your applications"
 
-    echo "========================================"
-
-    echo "       APPLICATION SELECTION"
-
-    echo "========================================"
-
-    echo
-
-    echo "Use arrow keys to navigate."
-
-    echo "Press x to select or deselect an application."
-
-    echo "Press Enter when finished, or Esc/Ctrl+C to skip application selection."
+    echo "↑/↓ navigate · x toggle · Enter continue · Esc/Ctrl+C skip"
 
     echo "No applications start selected. Choose only the ones you want to install."
 
@@ -3226,11 +3205,7 @@ install_selected_applications() {
 
 select_default_browser() {
 
-    echo
-    echo "========================================"
-    echo "       DEFAULT WEB BROWSER"
-    echo "========================================"
-    echo
+    ui_heading "Default web browser"
 
     local browser_entries=(
         "Firefox|firefox.desktop|firefox"
@@ -3608,11 +3583,7 @@ setup_smb_share() { setup_network_share SMB; }
 setup_nfs_share() { setup_network_share NFS; }
 
 configure_network_shares() {
-    echo
-    echo "========================================"
-    echo "         NETWORK SHARE SETUP"
-    echo "========================================"
-    echo
+    ui_heading "Network shares"
 
     echo "Choose which network shares to configure:"
     echo
@@ -3781,11 +3752,7 @@ configure_tailscale() {
 
 setup_secure_boot() {
 
-    echo
-    echo "========================================"
-    echo "       OPTIONAL SECURE BOOT"
-    echo "========================================"
-    echo
+    ui_heading "Secure Boot"
 
     read -rp "Configure Secure Boot with sbctl? [y/N]: " answer
 
@@ -4030,11 +3997,7 @@ summary_row() {
 show_final_summary() {
     check_graphical_environment
 
-    echo
-    echo "========================================"
-    echo "       INSTALLATION SUMMARY"
-    echo "========================================"
-    echo
+    ui_heading "Setup results"
 
     if [[ "${SELECTED_SETUP_MODULES[applications]:-false}" != true ]]; then
         info "Optional application installation was not selected."
@@ -4053,11 +4016,11 @@ show_final_summary() {
     if ((${#SKIPPED_PACKAGES[@]} > 0)); then
         warning "Packages skipped at your request:"
         printf '  - %s\n' "${SKIPPED_PACKAGES[@]}"
-        info "Run PoeDeploy again, answer yes to the previous-run question, and select Applications to retry them."
+        info "Run PoeDeploy again, choose Choose sections, and select Optional applications to retry them."
     fi
 
     echo
-    echo "SYSTEM STATE"
+    printf '%bYour system%b\n' "$UI_BOLD" "$NC"
     summary_row "Version" "$SCRIPT_VERSION"
     summary_row "GPU" "$GPU_VENDOR"
     summary_row "Bootloader" "$BOOTLOADER"
@@ -4089,7 +4052,7 @@ show_final_summary() {
     summary_row "ML4W SDDM theme" "$(format_status_change "$SDDM_THEME_STATUS" "$SDDM_THEME_INITIAL_STATUS")"
 
     echo
-    echo "THIS RUN"
+    printf '%bThis run%b\n' "$UI_BOLD" "$NC"
     summary_row "Mode" "$RUN_MODE"
     local module
     for module in "${PROCESSED_SETUP_MODULES[@]}"; do
@@ -4115,7 +4078,7 @@ show_secure_boot_next_steps() {
             warning "Secure Boot is not ready: the new keys have not been enrolled."
             info "Use your firmware's documented procedure to enter Secure Boot Setup Mode."
             info "Custom mode alone may not enable Setup Mode. Check with: sudo sbctl status"
-            info "Boot Arch again, rerun PoeDeploy, answer yes to having run it before, and select only Secure Boot."
+            info "Boot Arch again, rerun PoeDeploy, choose Choose sections, and select only Secure Boot."
             info "Complete ENROLL and SIGN before enabling Secure Boot enforcement."
             ;;
         "waiting for verified UKI boot")
@@ -4173,18 +4136,55 @@ run_setup_module() {
 }
 
 run_selected_setup_modules() {
-    local module
+    local module current=0 total=0
+    for module in "${SETUP_MODULE_IDS[@]}"; do
+        if [[ "${SELECTED_SETUP_MODULES[$module]:-false}" == true ]]; then
+            total=$((total + 1))
+        fi
+    done
     # Always use dependency order, even when the user selects in another order.
     for module in "${SETUP_MODULE_IDS[@]}"; do
         if [[ "${SELECTED_SETUP_MODULES[$module]:-false}" == true ]]; then
-            info "Running section: ${SETUP_MODULE_LABELS[$module]}"
+            current=$((current + 1))
+            show_task_progress "$current" "$total" "${SETUP_MODULE_LABELS[$module]}"
             run_setup_module "$module"
             PROCESSED_SETUP_MODULES+=("$module")
         fi
     done
 }
 
+preview_interface() {
+    local SCRIPT_VERSION="$SCRIPT_VERSION" RUN_MODE=selected
+    local -A SELECTED_SETUP_MODULES=([plymouth]=true [applications]=true [shares]=true)
+    if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
+        SCRIPT_VERSION=$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION")
+    fi
+    show_header
+    ui_heading "Interface preview" "These are example screens. No setup tasks will run."
+    printf '%s\n' \
+        'What would you like to do?' \
+        '' \
+        '  1. Choose sections (Select specific setup tasks)' \
+        '  2. Full setup (Go through all setup, with optional choices.)' \
+        '  3. Exit'
+    show_selected_setup_modules
+    show_task_progress 1 3 'Plymouth boot theme'
+    info "Example: checking the installed boot theme."
+    printf '  Command output stays visible here as each task runs.\n'
+    show_task_progress 2 3 'Optional applications'
+    info "Example: installing an application you selected."
+    show_task_progress 3 3 'SMB / NFS shares'
+    info "Example: testing a share before saving it."
+    ui_heading "Setup results"
+    printf '  After a real run, this screen shows what finished, failed, or was skipped.\n'
+    printf '  Preview finished. Your system has not been changed.\n\n'
+}
+
 main() {
+    if [[ "${1:-}" == --preview ]]; then
+        preview_interface
+        return 0
+    fi
     load_version
     show_header
     check_not_root
@@ -4198,6 +4198,7 @@ main() {
     confirm_start
 
     # Read-only assessment: no packages, services, splash files or presets change.
+    ui_heading "Checking your system" "These checks help PoeDeploy understand your current setup."
     detect_gpu
     detect_bootloader
     detect_uki
@@ -4216,15 +4217,7 @@ main() {
     show_final_summary
     show_secure_boot_next_steps
 
-    echo
-
-    echo "========================================"
-
-    echo "       INSTALLATION COMPLETE"
-
-    echo "========================================"
-
-    echo
+    ui_heading "Finished"
 
     if [[ "$SECURE_BOOT_OTHER_FILES_WARNING" == true ]]; then
 
