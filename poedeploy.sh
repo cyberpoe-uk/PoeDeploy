@@ -3203,48 +3203,97 @@ install_selected_applications() {
     APPLICATIONS_ACTION="${#INSTALLED_PACKAGES[@]} installed or already present, ${#SKIPPED_PACKAGES[@]} skipped, ${#FAILED_PACKAGES[@]} failed"
 }
 
+discover_installed_browsers() {
+    # Desktop IDs, not guessed binary names, are used by desktop link handlers.
+    local -a data_dirs=() records=()
+    local -A seen=()
+    local dir file id metadata name exec_line try_exec executable
+    IFS=: read -r -a data_dirs <<< "${XDG_DATA_HOME:-$HOME/.local/share}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+    data_dirs+=("${XDG_DATA_HOME:-$HOME/.local/share}/flatpak/exports/share" /var/lib/flatpak/exports/share /var/lib/snapd/desktop)
+    for dir in "${data_dirs[@]}"; do
+        [[ "$dir" == /* && -d "$dir/applications" ]] || continue
+        while IFS= read -r -d '' file; do
+            id="${file#"$dir/applications/"}"
+            id="${id//\//-}"
+            [[ ! ${seen[$id]+present} ]] || continue
+            seen[$id]=1
+            metadata=$(awk '
+                { sub(/\r$/, "") }
+                /^\[/ { active = ($0 == "[Desktop Entry]"); next }
+                active && /^[A-Za-z]+=/ {
+                    key = substr($0, 1, index($0, "=") - 1)
+                    value[key] = substr($0, index($0, "=") + 1)
+                }
+                END {
+                    if (value["Type"] != "Application" || value["Hidden"] == "true" ||
+                        value["NoDisplay"] == "true" || value["Name"] == "" || value["Exec"] == "") exit
+                    if (value["Categories"] !~ /(^|;)WebBrowser(;|$)/ &&
+                        !(value["MimeType"] ~ /(^|;)x-scheme-handler\/http(;|$)/ &&
+                          value["MimeType"] ~ /(^|;)x-scheme-handler\/https(;|$)/)) exit
+                    print value["Name"]
+                    print value["Exec"]
+                    print value["TryExec"]
+                }
+            ' "$file")
+            [[ -n "$metadata" ]] || continue
+            mapfile -t records <<< "$metadata"
+            name="${records[0]}"
+            exec_line="${records[1]}"
+            try_exec="${records[2]:-}"
+            # Inspect the launcher without executing or evaluating desktop-file text.
+            if [[ "$exec_line" == \"* ]]; then
+                executable="${exec_line#\"}"
+                executable="${executable%%\"*}"
+            else
+                executable="${exec_line%%[[:space:]]*}"
+            fi
+            command -v "$executable" >/dev/null 2>&1 || continue
+            if [[ -n "$try_exec" ]]; then
+                command -v "$try_exec" >/dev/null 2>&1 || continue
+            fi
+            [[ "$name$id" != *[$'\t\r\n\033']* ]] || continue
+            printf '%s\t%s\n' "$name" "$id"
+        done < <(find "$dir/applications" -name '*.desktop' \( -type f -o -type l \) -print0 2>/dev/null | sort -z)
+    done
+}
+
 select_default_browser() {
 
     ui_heading "Default web browser"
 
-    local browser_entries=(
-        "Firefox|firefox.desktop|firefox"
-        "Chromium|chromium.desktop|chromium"
-        "Google Chrome|google-chrome.desktop|google-chrome-stable"
-        "Brave|brave-browser.desktop|brave-browser"
-        "LibreWolf|librewolf.desktop|librewolf"
-        "Vivaldi|vivaldi-stable.desktop|vivaldi"
-        "Zen Browser|zen.desktop|zen-browser"
-    )
     local browser_names=()
     local browser_desktops=()
-    local entry name desktop command_name
+    local name desktop current_browser current_http current_https
+    current_browser=$(xdg-settings get default-web-browser 2>/dev/null) || current_browser=''
+    current_http=$(xdg-mime query default x-scheme-handler/http 2>/dev/null) || current_http=''
+    current_https=$(xdg-mime query default x-scheme-handler/https 2>/dev/null) || current_https=''
+    info "Current default browser: ${current_browser:-not reported by your desktop}"
+    info "Web links (HTTP): ${current_http:-not configured}"
+    info "Web links (HTTPS): ${current_https:-not configured}"
 
-    for entry in "${browser_entries[@]}"; do
-        IFS='|' read -r name desktop command_name <<< "$entry"
-
-        if command -v "$command_name" >/dev/null 2>&1; then
-            browser_names+=("$name")
-            browser_desktops+=("$desktop")
-        fi
-    done
+    while IFS=$'\t' read -r name desktop; do
+        [[ -n "$desktop" ]] || continue
+        browser_names+=("$name")
+        browser_desktops+=("$desktop")
+    done < <(discover_installed_browsers | LC_ALL=C sort -f)
 
     if [[ ${#browser_names[@]} -eq 0 ]]; then
-        info "No supported web browser is currently installed."
-        DEFAULT_BROWSER_ACTION="no supported browser installed"
+        info "No installed browser desktop entries were found. Keeping your current settings."
+        DEFAULT_BROWSER_ACTION="kept current default, no browser launchers found"
         return 0
     fi
 
+    info "Choose a browser for web links, including links opened from email applications."
     echo "  [0] Keep the current default"
 
     local i
     for i in "${!browser_names[@]}"; do
-        echo "  [$((i + 1))] ${browser_names[$i]}"
+        printf '  [%s] %s (%s)\n' "$((i + 1))" "${browser_names[$i]}" "${browser_desktops[$i]}"
     done
 
     local choice
     while true; do
-        read -rp "Select the default browser [0-${#browser_names[@]}]: " choice
+        read -rp "Select the default browser [0-${#browser_names[@]}]: " choice || choice=0
 
         if [[ "$choice" == "0" || -z "$choice" ]]; then
             info "Keeping the current default browser."
@@ -3253,26 +3302,40 @@ select_default_browser() {
         fi
 
         if [[ "$choice" =~ ^[0-9]+$ ]] &&
-           (( choice >= 1 && choice <= ${#browser_names[@]} )); then
+           [[ ${#choice} -le 4 ]] &&
+           (( 10#$choice >= 1 && 10#$choice <= ${#browser_names[@]} )); then
             break
         fi
 
         warning "Invalid selection."
     done
 
-    local selected_index=$((choice - 1))
+    local selected_index=$((10#$choice - 1))
     local selected_name="${browser_names[$selected_index]}"
     local selected_desktop="${browser_desktops[$selected_index]}"
 
-    if xdg-settings set default-web-browser "$selected_desktop" &&
-       xdg-mime default "$selected_desktop" x-scheme-handler/http &&
-       xdg-mime default "$selected_desktop" x-scheme-handler/https &&
-       xdg-mime default "$selected_desktop" text/html; then
+    local configured=true mime actual
+    # BROWSER can override xdg-settings. Do not rewrite the user's shell settings.
+    (unset BROWSER; xdg-settings set default-web-browser "$selected_desktop") || configured=false
+    for mime in x-scheme-handler/http x-scheme-handler/https text/html application/xhtml+xml; do
+        xdg-mime default "$selected_desktop" "$mime" || configured=false
+        actual=$(xdg-mime query default "$mime" 2>/dev/null) || actual=''
+        [[ "$actual" == "$selected_desktop" ]] || configured=false
+    done
+    actual=$(unset BROWSER; xdg-settings check default-web-browser "$selected_desktop" 2>/dev/null) || actual=''
+    [[ "$actual" == true ]] || configured=false
+    if [[ "$configured" == true ]]; then
         success "Default browser set to $selected_name."
+        success "HTTP, HTTPS and HTML associations verified."
+        info "Applications using the system default will use this browser for web links."
         DEFAULT_BROWSER_ACTION="$selected_name"
     else
         warning "The default browser could not be fully configured."
         DEFAULT_BROWSER_ACTION="configuration failed"
+    fi
+    info "An application with its own browser preference may need that preference changed too."
+    if [[ -n "${BROWSER:-}" ]]; then
+        warning "Your BROWSER environment variable is set. Some applications may use it instead of the desktop default."
     fi
 }
 
@@ -4127,7 +4190,7 @@ run_setup_module() {
             select_applications
             install_selected_applications
             ;;
-        browser) ensure_command_dependencies xdg-settings:xdg-utils; select_default_browser ;;
+        browser) ensure_command_dependencies xdg-settings:xdg-utils xdg-mime:xdg-utils; select_default_browser ;;
         shares) configure_network_shares ;;
         tailscale) wait_for_pacman_lock; configure_tailscale ;;
         secure_boot) ensure_command_dependencies objcopy:binutils jq:jq; wait_for_pacman_lock; setup_secure_boot ;;
