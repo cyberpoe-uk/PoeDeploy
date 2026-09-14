@@ -86,6 +86,18 @@ If an optional application is taking too long, press **Ctrl+C** once. You can
 then skip that application, retry it, or stop PoeDeploy. Skipping an application
 does not remove anything that was already installed.
 
+## Default browser
+
+Choose **Default browser** to see the browsers registered on your desktop,
+including exported Flatpak and Snap launchers. PoeDeploy shows your current
+settings first. Press Enter or choose **Keep the current default** to leave them
+alone.
+
+Choosing a browser also sets and checks the defaults for HTTP and HTTPS links and
+HTML files. Email applications that use the system default will open web links in
+that browser. Apps with their own browser setting may need that changed separately.
+This does not change your default email application.
+
 ## Safer network share setup
 
 PoeDeploy checks an SMB or NFS share before saving it for future use. It first
