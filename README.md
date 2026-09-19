@@ -29,7 +29,7 @@ PoeDeploy is made for Arch Linux. Run it as your normal user. It will ask for
 your sudo password only when a task needs administrator access.
 
 ```bash
-bash <(curl -fsSL https://cyberpoe.uk/latest-release)
+bash <(curl -fsSL https://cyberpoe.uk/poedeploy-latest)
 ```
 
 This command downloads the latest stable release and shows you its version. If

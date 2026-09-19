@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+
+# PoeDeploy latest stable-release bootstrapper
+
+set -Eeuo pipefail
+
+BLUE='\033[0;34m'
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+REPOSITORY_URL="https://github.com/cyberpoe-uk/PoeDeploy.git"
+
+info() { printf '%b\n' "${BLUE}[BOOTSTRAP]${NC} $*"; }
+success() { printf '%b\n' "${GREEN}[SUCCESS]${NC} $*"; }
+die() { printf '%b\n' "${RED}[ERROR]${NC} $*" >&2; exit 1; }
+
+TEMP_DIR=""
+
+cleanup() {
+    if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
+        rm -rf -- "$TEMP_DIR"
+    fi
+}
+
+ensure_git_dependency() {
+    local answer
+    if command -v git >/dev/null 2>&1; then
+        success "Required dependencies are available."
+        return 0
+    fi
+    info "Git is needed to download the latest tagged PoeDeploy release."
+    info "This prerequisite installs Git with pacman before the setup menu opens."
+    info "sudo may request your password. Setup sections will be confirmed separately."
+    if ! read -rp "Install Git and continue? [y/N]: " answer ||
+        [[ ! "$answer" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
+        info "Bootstrap cancelled; Git was not installed."
+        return 1
+    fi
+    sudo pacman -S --needed --noconfirm git || die "Git installation failed."
+}
+
+main() {
+trap cleanup EXIT
+
+info "Starting PoeDeploy setup..."
+info "This launcher downloads the latest stable release, then opens its setup menu."
+
+if [[ ! -f /etc/arch-release ]] || ! command -v pacman >/dev/null 2>&1; then
+    die "PoeDeploy supports Arch Linux only."
+fi
+
+if [[ $EUID -eq 0 ]]; then
+    die "Run this bootstrapper as a regular user; PoeDeploy will request sudo when needed."
+fi
+
+if ! command -v sudo >/dev/null 2>&1; then
+    die "sudo is required to install PoeDeploy dependencies."
+fi
+
+ensure_git_dependency || return 0
+
+info "Finding the latest stable PoeDeploy release..."
+
+if ! REMOTE_TAGS=$(git ls-remote --tags --refs "$REPOSITORY_URL"); then
+    die "Could not read release tags from the PoeDeploy repository."
+fi
+
+TAG=$(
+    awk '{sub("refs/tags/", "", $2); print $2}' <<< "$REMOTE_TAGS" |
+        grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' |
+        sort -V |
+        tail -n 1
+) || true
+
+[[ -n "$TAG" ]] || die "No stable version tag was found in the PoeDeploy repository."
+
+info "Latest stable release: ${TAG}"
+
+TEMP_DIR=$(mktemp -d -t poedeploy-installer-XXXXXX)
+info "Downloading PoeDeploy ${TAG} into ${TEMP_DIR}..."
+
+git clone \
+    --depth=1 \
+    --branch "$TAG" \
+    -c advice.detachedHead=false \
+    "$REPOSITORY_URL" \
+    "$TEMP_DIR"
+
+RELEASE_VERSION=$(tr -d '[:space:]' < "$TEMP_DIR/VERSION")
+[[ -n "$RELEASE_VERSION" ]] || die "The downloaded release has no version number."
+
+info "Launching PoeDeploy v${RELEASE_VERSION#v}..."
+bash "$TEMP_DIR/poedeploy.sh" "$@"
+
+success "PoeDeploy v${RELEASE_VERSION#v} setup finished."
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
