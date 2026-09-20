@@ -144,3 +144,10 @@ To run those checks while developing PoeDeploy:
 bash -n poedeploy.sh
 python3 -m unittest discover -s tests -v
 ```
+
+## Development note
+
+I developed PoeDeploy with the help of AI tools under my direct supervision.
+AI helps me build and test the installer faster and more efficiently while I
+work a full-time job and continue learning coding and scripting. I review the
+changes, test the workflows, and make the final decisions for the project.
