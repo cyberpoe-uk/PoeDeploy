@@ -26,7 +26,7 @@ source "$1"
 trap - ERR
 sudo() { printf 'UNEXPECTED PRIVILEGED OPERATION: %s\n' "$*" >&2; exit 97; }
 wait_for_pacman_lock() { :; }
-# Workflow tests mock commands; dedicated timeout tests restore this helper
+# Workflow tests mock commands. Dedicated timeout tests restore this helper
 # and execute GNU timeout against harmless fixture processes.
 original_boot_check=$(declare -f run_boot_verification_check)
 run_boot_verification_check() {
@@ -727,7 +727,7 @@ eval "$original_boot_check"
 sudo() {
     [[ "$1 $2 $3" == 'timeout --kill-after=5s 30s' ]] || exit 97
     shift 3
-    # Keep the actual timeout implementation; shorten only the test duration.
+    # Keep the actual timeout implementation. Shorten only the test duration.
     command timeout --kill-after=0.1s 0.1s "$@"
 }
 status=0
@@ -1309,7 +1309,7 @@ printf 'NEXT_APP\n'
                     if chunk:
                         output += chunk
                 if b"PACKAGE_READY" in output and not sent_interrupt:
-                    # Allow the fixture to enter its foreground build command;
+                    # Allow the fixture to enter its foreground build command.
                     # the test models cancelling an ongoing build, not fork startup.
                     time.sleep(0.1)
                     os.write(fd, b"\x03")

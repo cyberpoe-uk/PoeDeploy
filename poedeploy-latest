@@ -34,7 +34,7 @@ ensure_git_dependency() {
     info "sudo may request your password. Setup sections will be confirmed separately."
     if ! read -rp "Install Git and continue? [y/N]: " answer ||
         [[ ! "$answer" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
-        info "Bootstrap cancelled; Git was not installed."
+        info "Bootstrap cancelled. Git was not installed."
         return 1
     fi
     sudo pacman -S --needed --noconfirm git || die "Git installation failed."
@@ -51,7 +51,7 @@ if [[ ! -f /etc/arch-release ]] || ! command -v pacman >/dev/null 2>&1; then
 fi
 
 if [[ $EUID -eq 0 ]]; then
-    die "Run this bootstrapper as a regular user; PoeDeploy will request sudo when needed."
+    die "Run this bootstrapper as a regular user. PoeDeploy will request sudo when needed."
 fi
 
 if ! command -v sudo >/dev/null 2>&1; then

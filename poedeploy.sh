@@ -282,7 +282,7 @@ can_use_checklist() {
         (: </dev/tty) 2>/dev/null
 }
 
-# Options arrive on stdin; only selected labels are written to stdout.
+# Options arrive on stdin. Only selected labels are written to stdout.
 # Keep both menus consistent and preserve gum's cancellation exit status.
 choose_checklist() {
     local header="$1" defaults="${2:-}"
@@ -1986,7 +1986,7 @@ is_systemd_boot_binary() {
     sudo test -f "$path" || return 1
     [[ "$(sudo head -c 2 -- "$path")" == MZ ]] || return 1
     # systemd embeds this LoaderInfo marker to identify its own EFI binaries.
-    # This identifies the product, NOT its signature; sbctl verifies that later.
+    # This identifies the product, NOT its signature. sbctl verifies that later.
     LC_ALL=C sudo grep -aE -- \
         '#### LoaderInfo: systemd-boot [^#[:cntrl:]]{1,256} ####' "$path" >/dev/null
 }
@@ -2076,7 +2076,7 @@ read_sbctl_signature_report() {
         report=$(run_boot_verification_check "Checking signature: $file" \
             sbctl --json verify "$file") || return 1
         # A zero command exit is not proof of a signature. Require an explicit,
-        # well-formed result for this file; never accept a partial/other report.
+        # well-formed result for this file. Never accept a partial or other report.
         if ! entry=$(jq -ce --arg path "$file" '
             if type != "array" then error("expected array") else . end |
             map(.file_name |= gsub("/+"; "/")) |
@@ -3122,7 +3122,7 @@ install_optional_package() {
         interrupted=false
         # Keep the package manager in the foreground so it and its build children
         # receive the terminal's Ctrl+C. Bash waits for it to exit before this trap
-        # is handled; never kill -9 a package transaction or unlink its lock here.
+        # is handled. Never kill -9 a package transaction or unlink its lock here.
         trap 'interrupted=true' INT
         if "$@"; then
             status=0
@@ -3371,7 +3371,7 @@ validate_share_source() {
     local kind="$1" server="$2" share="$3"
     validate_fstab_value "Server" "$server" &&
         validate_fstab_value "Share/export" "$share" || return 1
-    # Hostnames/IPv4 and bracketed IPv6; never accept a URL, mount option or UNC path here.
+    # Hostnames/IPv4 and bracketed IPv6. Never accept a URL, mount option or UNC path here.
     if [[ ! "$server" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ &&
           ! "$server" =~ ^\[[a-fA-F0-9:]+\]$ ]]; then
         warning "Enter a hostname/IP, not a URL or share path. Enclose IPv6 addresses in brackets."
@@ -3414,7 +3414,7 @@ require_input() {
 }
 
 # Save only an already-tested entry. The optional third argument is for isolated
-# fixture tests; production callers always use /etc/fstab.
+# Fixture tests use this override. Production callers always use /etc/fstab.
 persist_verified_share() {
     sudo bash -s -- "$1" "$2" "${3:-/etc/fstab}" <<'POEDEPLOY_FSTAB'
 set -Eeuo pipefail
@@ -3543,7 +3543,7 @@ try_network_share() (
         options+=",credentials=${credentials_file},vers=3.1.1,uid=$(id -u),gid=$(id -g),file_mode=0664,dir_mode=0775"
     else
         expected_type=nfs
-        # Bound initial connection attempts; retain NFS hard I/O semantics.
+        # Bound initial connection attempts. Retain NFS hard I/O semantics.
         options+=",fg,retry=0"
     fi
     line="$source $mountpoint $expected_type $options 0 0"
