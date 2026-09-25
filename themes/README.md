@@ -23,17 +23,19 @@ PoeDeploy discovers archives matching that layout automatically. A theme archive
 | [BlackArch Red Animated](blackarch-red-animated/) | Scarlet, `#FF2020` | [Layout preview](blackarch-red-animated/preview.png) |
 
 Each colour is available in two forms. Static retains the original logo layout.
-Animated uses the supplied 24-frame transparent animation, rendered at a calmer
-10 fps on a black background. It uses Plymouth's script plugin, so animation
+Animated uses the supplied 96-frame transparent animation at its authored
+24 fps on a black background. Its seamless four-second loop rotates the ring by
+only 30 degrees. It uses Plymouth's script plugin, so animation
 timing is independent of real boot progress. Both forms keep the 460×6 px
 progress bar with matching colour, two soft outer glows, and a fine highlight.
 
-The animated artwork is reduced to 360×360 so its smoke and embers remain inside
-the same approximate visual box as the static theme. With its 18 px gap and
-padded bar, it forms one centred 500×410 layout. The artwork is never enlarged.
-The complete composition scales down proportionally on smaller displays.
+The animated artwork is reduced from 960×540 to 640×360 without cropping its
+smoke or embers. Its visible emblem remains close to the static theme's scale.
+With its 18 px gap and padded bar, it forms one centred 640×410 layout. The
+artwork is never enlarged. The complete composition scales down proportionally
+on smaller displays.
 
-Animated archives contain 24 animation frames, 51 progress states, the theme
+Animated archives contain 96 animation frames, 51 progress states, the theme
 definition, script, and password-entry resources. Static archives retain the
 original two-step renderer and 51 combined logo/progress states.
 
@@ -46,16 +48,16 @@ the supplied frame-pack ZIP:
 
 ```bash
 # Requires ImageMagick 7, unzip and Python 3.
-bash themes/build-blackarch.sh /path/to/blackarch-plymouth-frame-packs.zip
+bash themes/build-blackarch.sh /path/to/blackarch-plymouth-frame-packs-v3.zip
 ```
 
-The builder verifies that all 24 animation frames exist at 720×720, reduces them
-to the selected 360×360 presentation size, and rebuilds the static themes from
+The builder verifies that all 96 animation frames exist at 960×540, reduces them
+to the selected 640×360 presentation size, and rebuilds the static themes from
 their original `logo.png` artwork. It uses the existing PoeDeploy archive for
 the two-step template and password resources. ZIP entries have stable ordering,
 permissions and timestamps.
 
-`preview.png` files are deterministic 1920×1080 layouts using animation frame 12
+`preview.png` files are deterministic 1920×1080 layouts using animation frame 48
 and exactly 50% progress. The shared definition, script, installer, and detailed
 usage notes live in [`blackarch/`](blackarch/).
 

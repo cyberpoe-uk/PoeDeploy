@@ -1,15 +1,15 @@
 # BlackArch Plymouth package
 
 This is the shared source for four static and four animated BlackArch Plymouth
-themes. Animated variants use 24 supplied frames reduced to 360×360 and play at
-10 fps on black. The slower 2.4-second loop makes the ring movement calmer. The
-script centres the artwork and bar as a 500×410 composition. The smaller square
-frame matches the static logo's visual scale while leaving room for smoke and
-embers.
+themes. Animated variants use 96 supplied frames reduced from 960×540 to
+640×360 and play at their authored 24 fps on black. Each seamless four-second
+loop turns the ring by only 30 degrees. The script centres the artwork and bar
+as a 640×410 composition. The complete 16:9 alpha canvas preserves the smoke
+and embers while keeping the visible emblem close to the static logo's scale.
 
 The progress indicator retains PoeDeploy's static-screen design: a 460×6 px bar,
 matching colour, a fine top highlight, and two layers of soft outer glow. Its 51
-states are driven by Plymouth's real boot progress and do not affect the 24-frame
+states are driven by Plymouth's real boot progress and do not affect the 96-frame
 animation timing.
 
 Install or switch colour from the repository checkout:
@@ -33,5 +33,5 @@ The builder adjusts their installed paths and display names for each colour.
 To rebuild the packages from the supplied frame pack:
 
 ```bash
-bash themes/build-blackarch.sh /path/to/blackarch-plymouth-frame-packs.zip
+bash themes/build-blackarch.sh /path/to/blackarch-plymouth-frame-packs-v3.zip
 ```

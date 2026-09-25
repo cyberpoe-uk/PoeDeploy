@@ -1,7 +1,7 @@
 # BlackArch Red Animated Plymouth theme
 
-Uses the supplied 24-frame red BlackArch animation at 10 fps with a matching
-glowing loading bar and a reduced 360×360 artwork area.
+Uses the supplied 96-frame red BlackArch animation at 24 fps with a matching
+glowing loading bar and an uncropped 640×360 artwork area.
 Select `blackarch-red-animated` in PoeDeploy's Plymouth theme menu.
 
 Installable archive: [`plymouth/blackarch-red-animated.zip`](plymouth/blackarch-red-animated.zip).

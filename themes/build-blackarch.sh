@@ -119,22 +119,22 @@ for colour in green orange purple red; do
     dialog="$animated_theme/dialog"
     mkdir -p "$frames" "$progress" "$dialog" "$animated_destination/plymouth"
 
-    for ((frame = 0; frame < 24; frame++)); do
-        printf -v source_frame '%s/source/%s/frame-%02d.png' "$BUILD" "$colour" "$frame"
-        printf -v output_frame '%s/frame-%02d.png' "$frames" "$frame"
+    for ((frame = 0; frame < 96; frame++)); do
+        printf -v source_frame '%s/source/%s/frame-%03d.png' "$BUILD" "$colour" "$frame"
+        printf -v output_frame '%s/frame-%03d.png' "$frames" "$frame"
         [[ -f "$source_frame" ]] || {
             printf 'Missing source frame: %s\n' "$source_frame" >&2
             exit 1
         }
         dimensions=$(magick identify -format '%wx%h' "$source_frame")
-        [[ "$dimensions" == 720x720 ]] || {
-            printf 'Unexpected dimensions for %s: %s (expected 720x720)\n' \
+        [[ "$dimensions" == 960x540 ]] || {
+            printf 'Unexpected dimensions for %s: %s (expected 960x540)\n' \
                 "$source_frame" "$dimensions" >&2
             exit 1
         }
-        # A 360 px frame makes the animated ring match the static artwork while
-        # leaving the surrounding smoke and embers visible.
-        magick "$source_frame" -filter Lanczos -resize 360x360 \
+        # Keep the complete 16:9 alpha canvas. At 640x360 the visible emblem is
+        # close to the static artwork's scale, with room for smoke and embers.
+        magick "$source_frame" -filter Lanczos -resize 640x360 \
             "PNG32:$output_frame"
     done
 
@@ -171,11 +171,11 @@ for colour in green orange purple red; do
     done
 
     magick -size 1920x1080 xc:black \
-        "$frames/frame-12.png" -gravity center -geometry +0-25 -composite \
+        "$frames/frame-048.png" -gravity center -geometry +0-25 -composite \
         "$progress/progress-25.png" -gravity center -geometry +0+189 -composite \
         "$animated_destination/preview.png"
     write_archive "$animated_theme" \
         "$animated_destination/plymouth/$animated_name.zip"
-    printf 'Built %s: 24 frames at 10 fps and 51 progress states (%s).\n' \
+    printf 'Built %s: 96 frames at 24 fps and 51 progress states (%s).\n' \
         "$animated_name" "$accent"
 done
