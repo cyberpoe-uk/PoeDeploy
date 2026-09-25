@@ -21,9 +21,12 @@ PoeDeploy discovers archives matching that layout automatically. A theme archive
 | [BlackArch Purple Animated](blackarch-purple-animated/) | Violet, `#AE24FF` | [Layout preview](blackarch-purple-animated/preview.png) |
 | [BlackArch Red Static](blackarch-red-static/) | Scarlet, `#FF2020` | [Layout preview](blackarch-red-static/preview.png) |
 | [BlackArch Red Animated](blackarch-red-animated/) | Scarlet, `#FF2020` | [Layout preview](blackarch-red-animated/preview.png) |
+| [BlackArch Blue Animated](blackarch-blue-animated/) | Electric blue, `#0289FB` | [Layout preview](blackarch-blue-animated/preview.png) |
+| [BlackArch White Animated](blackarch-white-animated/) | Ice white, `#F2F2F2` | [Layout preview](blackarch-white-animated/preview.png) |
 
-Each colour is available in two forms. Static retains the original logo layout.
-Animated uses the supplied 96-frame transparent animation at its authored
+Green, orange, purple, and red are available in both forms. Static retains the
+original logo layout. Blue and white are animation-only. Animated themes use
+the supplied 96-frame transparent animation at its authored
 24 fps on a black background. Its seamless four-second loop rotates the ring by
 only 30 degrees. It uses Plymouth's script plugin, so animation
 timing is independent of real boot progress. Both forms keep the 460×6 px
@@ -43,19 +46,22 @@ Run PoeDeploy from this checkout, select the Plymouth setup module, and choose
 the `-static` or `-animated` form of each BlackArch colour.
 Local archives are discovered without needing to publish them to GitHub.
 
-To rebuild all eight archives and their deterministic 50% layout previews from
-the supplied frame-pack ZIP:
+To rebuild all ten archives and their deterministic 50% layout previews from
+the supplied frame-pack ZIPs:
 
 ```bash
 # Requires ImageMagick 7, unzip and Python 3.
-bash themes/build-blackarch.sh /path/to/blackarch-plymouth-frame-packs-v3.zip
+bash themes/build-blackarch.sh \
+  /path/to/blackarch-plymouth-frame-packs-v3.zip \
+  /path/to/blackarch-plymouth-blue-white-v3.zip
 ```
 
-The builder verifies that all 96 animation frames exist at 960×540, reduces them
-to the selected 640×360 presentation size, and rebuilds the static themes from
-their original `logo.png` artwork. It uses the existing PoeDeploy archive for
-the two-step template and password resources. ZIP entries have stable ordering,
-permissions and timestamps.
+The builder discovers the colours present in the supplied packs, verifies that
+all 96 animation frames exist at 960×540, and reduces them to the selected
+640×360 presentation size. It rebuilds a static theme only where matching
+`logo.png` artwork exists. The existing PoeDeploy archive supplies the two-step
+template and password resources. ZIP entries have stable ordering, permissions,
+and timestamps.
 
 `preview.png` files are deterministic 1920×1080 layouts using animation frame 48
 and exactly 50% progress. The shared definition, script, installer, and detailed

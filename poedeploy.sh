@@ -28,6 +28,8 @@ declare -A POEDEPLOY_PLYMOUTH_THEME_LABELS=(
     [blackarch-purple-animated]="BlackArch Purple (Animated)"
     [blackarch-red-static]="BlackArch Red (Static)"
     [blackarch-red-animated]="BlackArch Red (Animated)"
+    [blackarch-blue-animated]="BlackArch Blue (Animated)"
+    [blackarch-white-animated]="BlackArch White (Animated)"
 )
 
 UKI_BLACK_SPLASH_URL="${GITHUB_RAW_BASE}/assets/uki/poedeploy-black.bmp"

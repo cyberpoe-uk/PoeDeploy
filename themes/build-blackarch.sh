@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
-# Build four static and four animated BlackArch Plymouth themes.
+# Build the BlackArch Plymouth themes represented by one or more frame packs.
 set -euo pipefail
 
 THEMES=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 SOURCE_DIR="${THEMES}/blackarch"
-FRAME_PACK="${1:-${BLACKARCH_FRAME_PACK:-}}"
+FRAME_PACKS=("$@")
 
-if [[ -z "$FRAME_PACK" ]]; then
-    printf 'Usage: %s /path/to/blackarch-plymouth-frame-packs.zip\n' "$0" >&2
+if ((${#FRAME_PACKS[@]} == 0)) && [[ -n "${BLACKARCH_FRAME_PACK:-}" ]]; then
+    FRAME_PACKS=("$BLACKARCH_FRAME_PACK")
+fi
+if ((${#FRAME_PACKS[@]} == 0)); then
+    printf 'Usage: %s FRAME_PACK.zip [FRAME_PACK.zip ...]\n' "$0" >&2
     printf 'You can also set BLACKARCH_FRAME_PACK.\n' >&2
     exit 2
 fi
-if [[ ! -f "$FRAME_PACK" ]]; then
-    printf 'Frame pack not found: %s\n' "$FRAME_PACK" >&2
-    exit 1
-fi
+for frame_pack in "${FRAME_PACKS[@]}"; do
+    if [[ ! -f "$frame_pack" ]]; then
+        printf 'Frame pack not found: %s\n' "$frame_pack" >&2
+        exit 1
+    fi
+done
 
 for dependency in magick unzip python3; do
     command -v "$dependency" >/dev/null 2>&1 || {
@@ -25,7 +30,9 @@ done
 
 BUILD=$(mktemp -d -t blackarch-themes-XXXXXX)
 trap 'rm -rf -- "$BUILD"' EXIT
-unzip -q "$FRAME_PACK" -d "$BUILD/source"
+for frame_pack in "${FRAME_PACKS[@]}"; do
+    unzip -qo "$frame_pack" -d "$BUILD/source"
+done
 unzip -q "$THEMES/poedeploy/plymouth/poedeploy.zip" -d "$BUILD/template"
 
 write_archive() {
@@ -46,15 +53,19 @@ PY
     unzip -tq "$2"
 }
 
-for colour in green orange purple red; do
+for colour in green orange purple red blue white; do
     case "$colour" in
         green)  accent='#55EF00'; highlight='#CAFFB0' ;;
         orange) accent='#FF7000'; highlight='#FFE0A3' ;;
         purple) accent='#AE24FF'; highlight='#EAC2FF' ;;
         red)    accent='#FF2020'; highlight='#FFC0B8' ;;
+        blue)   accent='#0289FB'; highlight='#B8E2FF' ;;
+        white)  accent='#F2F2F2'; highlight='#FFFFFF' ;;
     esac
 
-    # Build the original static theme under an explicit -static identifier.
+    # Only the original four colours have corresponding static source artwork.
+    if [[ -d "$BUILD/source/$colour" && \
+          -f "$THEMES/blackarch-$colour-static/logo.png" ]]; then
     static_name="blackarch-$colour-static"
     static_destination="$THEMES/$static_name"
     static_theme="$BUILD/$static_name"
@@ -109,8 +120,12 @@ for colour in green orange purple red; do
         "$static_destination/plymouth/$static_name.zip"
     printf 'Built %s: static artwork and 51 progress states (%s).\n' \
         "$static_name" "$accent"
+    fi
 
-    # Build the animation separately so both visual styles remain selectable.
+    # A pack may contain only a subset, such as the blue and white addition.
+    [[ -d "$BUILD/source/$colour" ]] || continue
+
+    # Build each available animation as an independently selectable theme.
     animated_name="blackarch-$colour-animated"
     animated_destination="$THEMES/$animated_name"
     animated_theme="$BUILD/$animated_name"

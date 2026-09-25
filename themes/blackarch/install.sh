@@ -8,6 +8,7 @@ THEMES=(
     orange-static orange-animated
     purple-static purple-animated
     red-static red-animated
+    blue-animated white-animated
 )
 
 usage() {
@@ -38,11 +39,12 @@ choose_theme() {
     printf '\n'
     while true; do
         read -rp "Choose a theme [1-${#THEMES[@]}]: " index
-        if [[ "$index" =~ ^[1-8]$ ]]; then
+        if [[ "$index" =~ ^[0-9]+$ ]] &&
+           ((index >= 1 && index <= ${#THEMES[@]})); then
             SELECTED_THEME="${THEMES[$((index - 1))]}"
             return
         fi
-        printf 'Please enter a number from 1 to 8.\n' >&2
+        printf 'Please enter a number from 1 to %d.\n' "${#THEMES[@]}" >&2
     done
 }
 
@@ -97,10 +99,15 @@ trap 'rm -rf -- "$WORK_DIR"' EXIT
 unzip -q "$ARCHIVE" -d "$WORK_DIR"
 SOURCE_DIR="${WORK_DIR}/${THEME_NAME}"
 DEFINITION="${SOURCE_DIR}/${THEME_NAME}.plymouth"
-[[ -f "$DEFINITION" && -f "${SOURCE_DIR}/${THEME_NAME}.script" ]] || {
-    printf 'The %s archive is missing its Plymouth definition or script.\n' "$THEME_NAME" >&2
+[[ -f "$DEFINITION" ]] || {
+    printf 'The %s archive is missing its Plymouth definition.\n' "$THEME_NAME" >&2
     exit 1
 }
+if [[ "$SELECTED_THEME" == *-animated && \
+      ! -f "${SOURCE_DIR}/${THEME_NAME}.script" ]]; then
+    printf 'The %s archive is missing its Plymouth script.\n' "$THEME_NAME" >&2
+    exit 1
+fi
 
 DESTINATION="/usr/share/plymouth/themes/${THEME_NAME}"
 "${PRIVILEGE[@]}" install -d -m 0755 "$DESTINATION"
