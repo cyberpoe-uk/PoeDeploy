@@ -8,7 +8,8 @@ THEMES=(
     orange-static orange-animated
     purple-static purple-animated
     red-static red-animated
-    blue-animated white-animated
+    blue-static blue-animated
+    white-static white-animated
 )
 
 usage() {

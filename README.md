@@ -67,8 +67,8 @@ change your boot setup.
 
 If you want to change the boot animation, select **Plymouth boot theme**. The
 included choices are PoeDeploy plus static and animated BlackArch Green, Orange,
-Purple, and Red themes, animated Blue and White themes, and any Plymouth themes
-already installed on the system.
+Purple, Red, Blue, and White themes, alongside any Plymouth themes already
+installed on the system.
 
 If you are setting up a fresh machine, **Full setup** takes you through every
 section. Optional applications still start unselected, so you choose what you

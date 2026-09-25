@@ -7,12 +7,12 @@ from zipfile import ZipFile
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 THEMES = REPOSITORY / "themes"
-STATIC_COLOURS = ("green", "orange", "purple", "red")
+COLOURS = ("green", "orange", "purple", "red", "blue", "white")
 THEME_VARIANTS = tuple(
     (colour, variant)
-    for colour in STATIC_COLOURS
+    for colour in COLOURS
     for variant in ("static", "animated")
-) + (("blue", "animated"), ("white", "animated"))
+)
 
 
 class BlackArchPlymouthPackageTests(unittest.TestCase):

@@ -1,6 +1,6 @@
 # BlackArch Plymouth package
 
-This is the shared source for four static and six animated BlackArch Plymouth
+This is the shared source for six static and six animated BlackArch Plymouth
 themes. Animated variants use 96 supplied frames reduced from 960×540 to
 640×360 and play at their authored 24 fps on black. Each seamless four-second
 loop turns the ring by only 30 degrees. The script centres the artwork and bar
@@ -21,12 +21,11 @@ bash themes/blackarch/install.sh orange-static
 bash themes/blackarch/install.sh orange-animated
 ```
 
-Purple and red use the same `colour-static` or `colour-animated` naming. With no
-argument, the installer shows all ten choices. Blue and white are available as
-`blue-animated` and `white-animated`. The installer installs the
-selected package, selects it with `plymouth-set-default-theme`, and runs
+Purple, red, blue, and white use the same `colour-static` or `colour-animated`
+naming. With no argument, the installer shows all twelve choices. It installs
+the selected package, selects it with `plymouth-set-default-theme`, and runs
 `mkinitcpio -P`. PoeDeploy's Plymouth theme selector can also install and switch
-all ten `blackarch-*` packages.
+all twelve `blackarch-*` packages.
 
 `blackarch.plymouth` and `blackarch.script` are the canonical package sources.
 The builder adjusts their installed paths and display names for each colour.

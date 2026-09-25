@@ -21,14 +21,15 @@ PoeDeploy discovers archives matching that layout automatically. A theme archive
 | [BlackArch Purple Animated](blackarch-purple-animated/) | Violet, `#AE24FF` | [Layout preview](blackarch-purple-animated/preview.png) |
 | [BlackArch Red Static](blackarch-red-static/) | Scarlet, `#FF2020` | [Layout preview](blackarch-red-static/preview.png) |
 | [BlackArch Red Animated](blackarch-red-animated/) | Scarlet, `#FF2020` | [Layout preview](blackarch-red-animated/preview.png) |
+| [BlackArch Blue Static](blackarch-blue-static/) | Electric blue, `#0289FB` | [Layout preview](blackarch-blue-static/preview.png) |
 | [BlackArch Blue Animated](blackarch-blue-animated/) | Electric blue, `#0289FB` | [Layout preview](blackarch-blue-animated/preview.png) |
+| [BlackArch White Static](blackarch-white-static/) | Ice white, `#F2F2F2` | [Layout preview](blackarch-white-static/preview.png) |
 | [BlackArch White Animated](blackarch-white-animated/) | Ice white, `#F2F2F2` | [Layout preview](blackarch-white-animated/preview.png) |
 
-Green, orange, purple, and red are available in both forms. Static retains the
-original logo layout. Blue and white are animation-only. Animated themes use
-the supplied 96-frame transparent animation at its authored
-24 fps on a black background. Its seamless four-second loop rotates the ring by
-only 30 degrees. It uses Plymouth's script plugin, so animation
+All six colours are available in both forms. Static retains the original logo
+layout. Animated themes use the supplied 96-frame transparent animation at its
+authored 24 fps on a black background. Its seamless four-second loop rotates the
+ring by only 30 degrees. It uses Plymouth's script plugin, so animation
 timing is independent of real boot progress. Both forms keep the 460×6 px
 progress bar with matching colour, two soft outer glows, and a fine highlight.
 
@@ -46,7 +47,7 @@ Run PoeDeploy from this checkout, select the Plymouth setup module, and choose
 the `-static` or `-animated` form of each BlackArch colour.
 Local archives are discovered without needing to publish them to GitHub.
 
-To rebuild all ten archives and their deterministic 50% layout previews from
+To rebuild all twelve archives and their deterministic 50% layout previews from
 the supplied frame-pack ZIPs:
 
 ```bash
@@ -67,10 +68,11 @@ and timestamps.
 and exactly 50% progress. The shared definition, script, installer, and detailed
 usage notes live in [`blackarch/`](blackarch/).
 
-Artwork provenance: the BlackArch animation frames were supplied by the
-repository owner for this addition. The source artist, original source URL and
-artwork licence were not supplied. No additional licence is asserted for those
-frames. Existing PoeDeploy prompt resources are retained from this repository.
+Artwork provenance: the BlackArch static artwork and animation frames were
+supplied by the repository owner for these themes. The source artist, original
+source URL and artwork licence were not supplied. No additional licence is
+asserted for the artwork. Existing PoeDeploy prompt resources are retained from
+this repository.
 
 Themes created for PoeDeploy belong under `themes/`. PoeDeploy does not download third-party theme collections during installation. Curated third-party themes must be reviewed and added to this repository individually.
 
