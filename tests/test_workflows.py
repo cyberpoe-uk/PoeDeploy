@@ -1076,12 +1076,13 @@ curl() { return 1; }
 SCRIPT_DIR=$PWD
 mapfile -t repository_themes < <(get_remote_plymouth_themes)
 for colour in green orange purple red; do
-    printf '%s\n' "${repository_themes[@]}" | grep -Fxq "blackarch-$colour"
+    printf '%s\n' "${repository_themes[@]}" | grep -Fxq "blackarch-$colour-static"
+    printf '%s\n' "${repository_themes[@]}" | grep -Fxq "blackarch-$colour-animated"
 done
-[[ "$(plymouth_theme_display_name blackarch-green)" == 'BlackArch Green' ]]
-[[ "$(plymouth_theme_display_name blackarch-orange)" == 'BlackArch Orange' ]]
-[[ "$(plymouth_theme_display_name blackarch-purple)" == 'BlackArch Purple' ]]
-[[ "$(plymouth_theme_display_name blackarch-red)" == 'BlackArch Red' ]]
+[[ "$(plymouth_theme_display_name blackarch-green-static)" == 'BlackArch Green (Static)' ]]
+[[ "$(plymouth_theme_display_name blackarch-orange-animated)" == 'BlackArch Orange (Animated)' ]]
+[[ "$(plymouth_theme_display_name blackarch-purple-static)" == 'BlackArch Purple (Static)' ]]
+[[ "$(plymouth_theme_display_name blackarch-red-animated)" == 'BlackArch Red (Animated)' ]]
 ''')
 
     def test_plymouth_menu_marks_bundled_theme_as_poedeploy_theme(self):
@@ -1093,14 +1094,14 @@ plymouth-set-default-theme() {
         printf 'poedeploy\n'
     fi
 }
-get_remote_plymouth_themes() { printf 'blackarch-green\n'; }
-sudo() { [[ "$*" == 'plymouth-set-default-theme blackarch-green' ]]; }
+get_remote_plymouth_themes() { printf 'blackarch-green-animated\n'; }
+sudo() { [[ "$*" == 'plymouth-set-default-theme blackarch-green-animated' ]]; }
 plymouth_theme_is_available() { return 0; }
 select_plymouth_theme
 ''', "2\n")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("BlackArch Green (PoeDeploy theme)", result.stdout)
-        self.assertIn("Applying Plymouth theme: BlackArch Green", result.stdout)
+        self.assertIn("BlackArch Green (Animated) (PoeDeploy theme)", result.stdout)
+        self.assertIn("Applying Plymouth theme: BlackArch Green (Animated)", result.stdout)
 
     def test_plymouth_selects_then_rebuilds_once(self):
         result = self.run_plymouth_case(r'''
