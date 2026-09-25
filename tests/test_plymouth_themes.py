@@ -42,17 +42,25 @@ class BlackArchPlymouthPackageTests(unittest.TestCase):
                                 for entry in entries
                                 if f"{name}/progress/progress-" in entry
                             )
-                            self.assertEqual(24, len(frame_entries))
+                            self.assertEqual(96, len(frame_entries))
+                            self.assertTrue(
+                                frame_entries[0].endswith("frame-000.png")
+                            )
+                            self.assertTrue(
+                                frame_entries[-1].endswith("frame-095.png")
+                            )
                             self.assertEqual(51, len(progress_entries))
                             self.assertIn("ModuleName=script", definition)
                             script = archive.read(script_path).decode()
                             self.assertIn(f"{name}.script", definition)
-                            self.assertIn("animation.phase += 0.20", script)
+                            self.assertIn("animation.phase += 0.48", script)
+                            self.assertIn("animation.index >= 96", script)
+                            self.assertIn("layout.frame_width = 640", script)
                             self.assertIn("Plymouth.SetBootProgressFunction", script)
                             png = archive.read(frame_entries[0])
                             self.assertEqual(b"\x89PNG\r\n\x1a\n", png[:8])
                             self.assertEqual(
-                                (360, 360), struct.unpack(">II", png[16:24])
+                                (640, 360), struct.unpack(">II", png[16:24])
                             )
                         else:
                             progress_entries = sorted(

@@ -1,37 +1,109 @@
 # BlackArch Plymouth animation.
 #
-# The artwork is a 24-frame, 10 fps loop. The animation and progress bar are
+# The artwork is a 96-frame, 24 fps loop. The animation and progress bar are
 # laid out as one centred unit and are only scaled down when the display is too
-# small. The 360 px animation area leaves room for its smoke and embers while
-# matching the overall height and visual scale of the static themes.
+# small. Its 640x360 alpha canvas preserves all smoke and embers while keeping
+# the visible emblem close to the static themes' visual scale.
 
 Window.SetBackgroundTopColor(0, 0, 0);
 Window.SetBackgroundBottomColor(0, 0, 0);
 
-animation.images[0]  = Image("frames/frame-00.png");
-animation.images[1]  = Image("frames/frame-01.png");
-animation.images[2]  = Image("frames/frame-02.png");
-animation.images[3]  = Image("frames/frame-03.png");
-animation.images[4]  = Image("frames/frame-04.png");
-animation.images[5]  = Image("frames/frame-05.png");
-animation.images[6]  = Image("frames/frame-06.png");
-animation.images[7]  = Image("frames/frame-07.png");
-animation.images[8]  = Image("frames/frame-08.png");
-animation.images[9]  = Image("frames/frame-09.png");
-animation.images[10] = Image("frames/frame-10.png");
-animation.images[11] = Image("frames/frame-11.png");
-animation.images[12] = Image("frames/frame-12.png");
-animation.images[13] = Image("frames/frame-13.png");
-animation.images[14] = Image("frames/frame-14.png");
-animation.images[15] = Image("frames/frame-15.png");
-animation.images[16] = Image("frames/frame-16.png");
-animation.images[17] = Image("frames/frame-17.png");
-animation.images[18] = Image("frames/frame-18.png");
-animation.images[19] = Image("frames/frame-19.png");
-animation.images[20] = Image("frames/frame-20.png");
-animation.images[21] = Image("frames/frame-21.png");
-animation.images[22] = Image("frames/frame-22.png");
-animation.images[23] = Image("frames/frame-23.png");
+animation.images[0]  = Image("frames/frame-000.png");
+animation.images[1]  = Image("frames/frame-001.png");
+animation.images[2]  = Image("frames/frame-002.png");
+animation.images[3]  = Image("frames/frame-003.png");
+animation.images[4]  = Image("frames/frame-004.png");
+animation.images[5]  = Image("frames/frame-005.png");
+animation.images[6]  = Image("frames/frame-006.png");
+animation.images[7]  = Image("frames/frame-007.png");
+animation.images[8]  = Image("frames/frame-008.png");
+animation.images[9]  = Image("frames/frame-009.png");
+animation.images[10] = Image("frames/frame-010.png");
+animation.images[11] = Image("frames/frame-011.png");
+animation.images[12] = Image("frames/frame-012.png");
+animation.images[13] = Image("frames/frame-013.png");
+animation.images[14] = Image("frames/frame-014.png");
+animation.images[15] = Image("frames/frame-015.png");
+animation.images[16] = Image("frames/frame-016.png");
+animation.images[17] = Image("frames/frame-017.png");
+animation.images[18] = Image("frames/frame-018.png");
+animation.images[19] = Image("frames/frame-019.png");
+animation.images[20] = Image("frames/frame-020.png");
+animation.images[21] = Image("frames/frame-021.png");
+animation.images[22] = Image("frames/frame-022.png");
+animation.images[23] = Image("frames/frame-023.png");
+animation.images[24] = Image("frames/frame-024.png");
+animation.images[25] = Image("frames/frame-025.png");
+animation.images[26] = Image("frames/frame-026.png");
+animation.images[27] = Image("frames/frame-027.png");
+animation.images[28] = Image("frames/frame-028.png");
+animation.images[29] = Image("frames/frame-029.png");
+animation.images[30] = Image("frames/frame-030.png");
+animation.images[31] = Image("frames/frame-031.png");
+animation.images[32] = Image("frames/frame-032.png");
+animation.images[33] = Image("frames/frame-033.png");
+animation.images[34] = Image("frames/frame-034.png");
+animation.images[35] = Image("frames/frame-035.png");
+animation.images[36] = Image("frames/frame-036.png");
+animation.images[37] = Image("frames/frame-037.png");
+animation.images[38] = Image("frames/frame-038.png");
+animation.images[39] = Image("frames/frame-039.png");
+animation.images[40] = Image("frames/frame-040.png");
+animation.images[41] = Image("frames/frame-041.png");
+animation.images[42] = Image("frames/frame-042.png");
+animation.images[43] = Image("frames/frame-043.png");
+animation.images[44] = Image("frames/frame-044.png");
+animation.images[45] = Image("frames/frame-045.png");
+animation.images[46] = Image("frames/frame-046.png");
+animation.images[47] = Image("frames/frame-047.png");
+animation.images[48] = Image("frames/frame-048.png");
+animation.images[49] = Image("frames/frame-049.png");
+animation.images[50] = Image("frames/frame-050.png");
+animation.images[51] = Image("frames/frame-051.png");
+animation.images[52] = Image("frames/frame-052.png");
+animation.images[53] = Image("frames/frame-053.png");
+animation.images[54] = Image("frames/frame-054.png");
+animation.images[55] = Image("frames/frame-055.png");
+animation.images[56] = Image("frames/frame-056.png");
+animation.images[57] = Image("frames/frame-057.png");
+animation.images[58] = Image("frames/frame-058.png");
+animation.images[59] = Image("frames/frame-059.png");
+animation.images[60] = Image("frames/frame-060.png");
+animation.images[61] = Image("frames/frame-061.png");
+animation.images[62] = Image("frames/frame-062.png");
+animation.images[63] = Image("frames/frame-063.png");
+animation.images[64] = Image("frames/frame-064.png");
+animation.images[65] = Image("frames/frame-065.png");
+animation.images[66] = Image("frames/frame-066.png");
+animation.images[67] = Image("frames/frame-067.png");
+animation.images[68] = Image("frames/frame-068.png");
+animation.images[69] = Image("frames/frame-069.png");
+animation.images[70] = Image("frames/frame-070.png");
+animation.images[71] = Image("frames/frame-071.png");
+animation.images[72] = Image("frames/frame-072.png");
+animation.images[73] = Image("frames/frame-073.png");
+animation.images[74] = Image("frames/frame-074.png");
+animation.images[75] = Image("frames/frame-075.png");
+animation.images[76] = Image("frames/frame-076.png");
+animation.images[77] = Image("frames/frame-077.png");
+animation.images[78] = Image("frames/frame-078.png");
+animation.images[79] = Image("frames/frame-079.png");
+animation.images[80] = Image("frames/frame-080.png");
+animation.images[81] = Image("frames/frame-081.png");
+animation.images[82] = Image("frames/frame-082.png");
+animation.images[83] = Image("frames/frame-083.png");
+animation.images[84] = Image("frames/frame-084.png");
+animation.images[85] = Image("frames/frame-085.png");
+animation.images[86] = Image("frames/frame-086.png");
+animation.images[87] = Image("frames/frame-087.png");
+animation.images[88] = Image("frames/frame-088.png");
+animation.images[89] = Image("frames/frame-089.png");
+animation.images[90] = Image("frames/frame-090.png");
+animation.images[91] = Image("frames/frame-091.png");
+animation.images[92] = Image("frames/frame-092.png");
+animation.images[93] = Image("frames/frame-093.png");
+animation.images[94] = Image("frames/frame-094.png");
+animation.images[95] = Image("frames/frame-095.png");
 
 progress.images[0]  = Image("progress/progress-00.png");
 progress.images[1]  = Image("progress/progress-01.png");
@@ -85,30 +157,30 @@ progress.images[48] = Image("progress/progress-48.png");
 progress.images[49] = Image("progress/progress-49.png");
 progress.images[50] = Image("progress/progress-50.png");
 
-# The complete unscaled layout is 500x410: a 360 px animation, 18 px gap, and
-# the padded 32 px bar. Reserve 4% at every edge and never enlarge the artwork.
+# The complete unscaled layout is 640x410: a 640x360 animation, 18 px gap, and
+# the padded 500x32 bar. Reserve 4% at every edge and never enlarge the artwork.
 layout.scale = 1;
 layout.width_limit = Window.GetWidth() * 0.96;
 layout.height_limit = Window.GetHeight() * 0.96;
-if (500 * layout.scale > layout.width_limit)
-  layout.scale = layout.width_limit / 500;
+if (640 * layout.scale > layout.width_limit)
+  layout.scale = layout.width_limit / 640;
 if (410 * layout.scale > layout.height_limit)
   layout.scale = layout.height_limit / 410;
 
 if (layout.scale < 1)
   {
-    layout.frame_width = Math.Int(360 * layout.scale);
+    layout.frame_width = Math.Int(640 * layout.scale);
     layout.frame_height = Math.Int(360 * layout.scale);
     layout.bar_width = Math.Int(500 * layout.scale);
     layout.bar_height = Math.Int(32 * layout.scale);
-    for (index = 0; index < 24; index++)
+    for (index = 0; index < 96; index++)
       animation.images[index] = animation.images[index].Scale(layout.frame_width, layout.frame_height);
     for (index = 0; index < 51; index++)
       progress.images[index] = progress.images[index].Scale(layout.bar_width, layout.bar_height);
   }
 else
   {
-    layout.frame_width = 360;
+    layout.frame_width = 640;
     layout.frame_height = 360;
     layout.bar_width = 500;
     layout.bar_height = 32;
@@ -137,14 +209,14 @@ fun refresh_callback ()
   {
     if (status == "normal")
       {
-        # Plymouth refreshes at 50 Hz. Advancing by 10/50 produces a restrained
-        # 10 fps ring rotation and a complete loop of roughly 2.4 seconds.
-        animation.phase += 0.20;
+        # Plymouth refreshes at 50 Hz. Advancing by 24/50 preserves the source
+        # timing: 96 smooth frames over a seamless four-second slow rotation.
+        animation.phase += 0.48;
         if (animation.phase >= 1)
           {
             animation.phase = animation.phase - 1;
             animation.index++;
-            if (animation.index >= 24)
+            if (animation.index >= 96)
               animation.index = 0;
             animation.sprite.SetImage(animation.images[animation.index]);
           }
