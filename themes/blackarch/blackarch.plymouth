@@ -1,0 +1,9 @@
+[Plymouth Theme]
+Name=BlackArch
+Description=Animated BlackArch emblem with a luminous progress bar.
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/blackarch
+ScriptFile=/usr/share/plymouth/themes/blackarch/blackarch.script
+ConsoleLogBackgroundColor=0x000000

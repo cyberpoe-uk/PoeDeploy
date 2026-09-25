@@ -1,0 +1,257 @@
+# BlackArch Plymouth animation.
+#
+# The artwork is a 24-frame, 18 fps loop. The animation and progress bar are
+# laid out as one centred unit and are only scaled down when the display is too
+# small. This preserves the supplied 720 px artwork on normal displays while
+# keeping the complete composition visible at 640x480.
+
+Window.SetBackgroundTopColor(0, 0, 0);
+Window.SetBackgroundBottomColor(0, 0, 0);
+
+animation.images[0]  = Image("frames/frame-00.png");
+animation.images[1]  = Image("frames/frame-01.png");
+animation.images[2]  = Image("frames/frame-02.png");
+animation.images[3]  = Image("frames/frame-03.png");
+animation.images[4]  = Image("frames/frame-04.png");
+animation.images[5]  = Image("frames/frame-05.png");
+animation.images[6]  = Image("frames/frame-06.png");
+animation.images[7]  = Image("frames/frame-07.png");
+animation.images[8]  = Image("frames/frame-08.png");
+animation.images[9]  = Image("frames/frame-09.png");
+animation.images[10] = Image("frames/frame-10.png");
+animation.images[11] = Image("frames/frame-11.png");
+animation.images[12] = Image("frames/frame-12.png");
+animation.images[13] = Image("frames/frame-13.png");
+animation.images[14] = Image("frames/frame-14.png");
+animation.images[15] = Image("frames/frame-15.png");
+animation.images[16] = Image("frames/frame-16.png");
+animation.images[17] = Image("frames/frame-17.png");
+animation.images[18] = Image("frames/frame-18.png");
+animation.images[19] = Image("frames/frame-19.png");
+animation.images[20] = Image("frames/frame-20.png");
+animation.images[21] = Image("frames/frame-21.png");
+animation.images[22] = Image("frames/frame-22.png");
+animation.images[23] = Image("frames/frame-23.png");
+
+progress.images[0]  = Image("progress/progress-00.png");
+progress.images[1]  = Image("progress/progress-01.png");
+progress.images[2]  = Image("progress/progress-02.png");
+progress.images[3]  = Image("progress/progress-03.png");
+progress.images[4]  = Image("progress/progress-04.png");
+progress.images[5]  = Image("progress/progress-05.png");
+progress.images[6]  = Image("progress/progress-06.png");
+progress.images[7]  = Image("progress/progress-07.png");
+progress.images[8]  = Image("progress/progress-08.png");
+progress.images[9]  = Image("progress/progress-09.png");
+progress.images[10] = Image("progress/progress-10.png");
+progress.images[11] = Image("progress/progress-11.png");
+progress.images[12] = Image("progress/progress-12.png");
+progress.images[13] = Image("progress/progress-13.png");
+progress.images[14] = Image("progress/progress-14.png");
+progress.images[15] = Image("progress/progress-15.png");
+progress.images[16] = Image("progress/progress-16.png");
+progress.images[17] = Image("progress/progress-17.png");
+progress.images[18] = Image("progress/progress-18.png");
+progress.images[19] = Image("progress/progress-19.png");
+progress.images[20] = Image("progress/progress-20.png");
+progress.images[21] = Image("progress/progress-21.png");
+progress.images[22] = Image("progress/progress-22.png");
+progress.images[23] = Image("progress/progress-23.png");
+progress.images[24] = Image("progress/progress-24.png");
+progress.images[25] = Image("progress/progress-25.png");
+progress.images[26] = Image("progress/progress-26.png");
+progress.images[27] = Image("progress/progress-27.png");
+progress.images[28] = Image("progress/progress-28.png");
+progress.images[29] = Image("progress/progress-29.png");
+progress.images[30] = Image("progress/progress-30.png");
+progress.images[31] = Image("progress/progress-31.png");
+progress.images[32] = Image("progress/progress-32.png");
+progress.images[33] = Image("progress/progress-33.png");
+progress.images[34] = Image("progress/progress-34.png");
+progress.images[35] = Image("progress/progress-35.png");
+progress.images[36] = Image("progress/progress-36.png");
+progress.images[37] = Image("progress/progress-37.png");
+progress.images[38] = Image("progress/progress-38.png");
+progress.images[39] = Image("progress/progress-39.png");
+progress.images[40] = Image("progress/progress-40.png");
+progress.images[41] = Image("progress/progress-41.png");
+progress.images[42] = Image("progress/progress-42.png");
+progress.images[43] = Image("progress/progress-43.png");
+progress.images[44] = Image("progress/progress-44.png");
+progress.images[45] = Image("progress/progress-45.png");
+progress.images[46] = Image("progress/progress-46.png");
+progress.images[47] = Image("progress/progress-47.png");
+progress.images[48] = Image("progress/progress-48.png");
+progress.images[49] = Image("progress/progress-49.png");
+progress.images[50] = Image("progress/progress-50.png");
+
+# The complete unscaled layout is 720x770: artwork, 18 px gap, 32 px bar.
+# Reserve 8% of the screen on every edge and never enlarge source artwork.
+layout.scale = 1;
+layout.width_limit = Window.GetWidth() * 0.92;
+layout.height_limit = Window.GetHeight() * 0.92;
+if (720 * layout.scale > layout.width_limit)
+  layout.scale = layout.width_limit / 720;
+if (770 * layout.scale > layout.height_limit)
+  layout.scale = layout.height_limit / 770;
+
+if (layout.scale < 1)
+  {
+    layout.frame_width = Math.Int(720 * layout.scale);
+    layout.frame_height = Math.Int(720 * layout.scale);
+    layout.bar_width = Math.Int(500 * layout.scale);
+    layout.bar_height = Math.Int(32 * layout.scale);
+    for (index = 0; index < 24; index++)
+      animation.images[index] = animation.images[index].Scale(layout.frame_width, layout.frame_height);
+    for (index = 0; index < 51; index++)
+      progress.images[index] = progress.images[index].Scale(layout.bar_width, layout.bar_height);
+  }
+else
+  {
+    layout.frame_width = 720;
+    layout.frame_height = 720;
+    layout.bar_width = 500;
+    layout.bar_height = 32;
+  }
+
+layout.gap = Math.Int(18 * layout.scale);
+layout.height = layout.frame_height + layout.gap + layout.bar_height;
+layout.top = Window.GetY() + Window.GetHeight() / 2 - layout.height / 2;
+
+animation.sprite = Sprite(animation.images[0]);
+animation.x = Window.GetX() + Window.GetWidth() / 2 - layout.frame_width / 2;
+animation.y = layout.top;
+animation.sprite.SetPosition(animation.x, animation.y, 10);
+animation.index = 0;
+animation.phase = 0;
+
+progress.sprite = Sprite(progress.images[0]);
+progress.x = Window.GetX() + Window.GetWidth() / 2 - layout.bar_width / 2;
+progress.y = layout.top + layout.frame_height + layout.gap;
+progress.sprite.SetPosition(progress.x, progress.y, 20);
+progress.index = 0;
+
+status = "normal";
+
+fun refresh_callback ()
+  {
+    if (status == "normal")
+      {
+        # Plymouth refreshes at 50 Hz. Advancing by 18/50 gives the source
+        # animation its intended 18 fps and a loop of roughly 1.33 seconds.
+        animation.phase += 0.36;
+        if (animation.phase >= 1)
+          {
+            animation.phase = animation.phase - 1;
+            animation.index++;
+            if (animation.index >= 24)
+              animation.index = 0;
+            animation.sprite.SetImage(animation.images[animation.index]);
+          }
+      }
+  }
+
+fun progress_callback (duration, fraction)
+  {
+    local.index = Math.Int(fraction * 50);
+    if (local.index < 0)
+      local.index = 0;
+    if (local.index > 50)
+      local.index = 50;
+    if (local.index != progress.index)
+      {
+        progress.index = local.index;
+        progress.sprite.SetImage(progress.images[progress.index]);
+      }
+  }
+
+fun dialog_setup ()
+  {
+    dialog.entry_image = Image("dialog/entry.png");
+    dialog.lock_image = Image("dialog/lock.png");
+    dialog.bullet_image = Image("dialog/bullet.png");
+    dialog.entry_sprite = Sprite(dialog.entry_image);
+    dialog.lock_sprite = Sprite(dialog.lock_image);
+    dialog.x = Window.GetX() + Window.GetWidth() / 2 -
+               (dialog.entry_image.GetWidth() + dialog.lock_image.GetWidth()) / 2;
+    dialog.y = Window.GetY() + Window.GetHeight() / 2 - dialog.entry_image.GetHeight() / 2;
+    dialog.lock_sprite.SetPosition(dialog.x, dialog.y, 100);
+    dialog.entry_sprite.SetPosition(dialog.x + dialog.lock_image.GetWidth(), dialog.y, 100);
+  }
+
+fun dialog_opacity (opacity)
+  {
+    dialog.entry_sprite.SetOpacity(opacity);
+    dialog.lock_sprite.SetOpacity(opacity);
+    for (index = 0; dialog.bullets[index]; index++)
+      dialog.bullets[index].sprite.SetOpacity(opacity);
+  }
+
+fun display_normal_callback ()
+  {
+    global.status = "normal";
+    animation.sprite.SetOpacity(1);
+    progress.sprite.SetOpacity(1);
+    if (global.dialog)
+      dialog_opacity(0);
+  }
+
+fun display_password_callback (prompt, bullets)
+  {
+    global.status = "password";
+    animation.sprite.SetOpacity(0.20);
+    progress.sprite.SetOpacity(0.20);
+    if (!global.dialog)
+      dialog_setup();
+    else
+      dialog_opacity(1);
+
+    for (index = 0; dialog.bullets[index] || index < bullets; index++)
+      {
+        if (!dialog.bullets[index])
+          {
+            dialog.bullets[index].sprite = Sprite(dialog.bullet_image);
+            dialog.bullets[index].x = dialog.x + dialog.lock_image.GetWidth() +
+                                      18 + index * dialog.bullet_image.GetWidth();
+            dialog.bullets[index].y = dialog.y + dialog.entry_image.GetHeight() / 2 -
+                                      dialog.bullet_image.GetHeight() / 2;
+            dialog.bullets[index].sprite.SetPosition(dialog.bullets[index].x,
+                                                     dialog.bullets[index].y, 101);
+          }
+        if (index < bullets)
+          dialog.bullets[index].sprite.SetOpacity(1);
+        else
+          dialog.bullets[index].sprite.SetOpacity(0);
+      }
+  }
+
+message.sprite = Sprite();
+message.sprite.SetPosition(0, 0, 200);
+
+fun display_message_callback (text)
+  {
+    message.image = Image.Text(text, 0.82, 0.82, 0.82);
+    message.sprite.SetImage(message.image);
+    message.sprite.SetOpacity(1);
+    message.sprite.SetX(Window.GetX() + Window.GetWidth() / 2 - message.image.GetWidth() / 2);
+    message.sprite.SetY(Window.GetY() + Window.GetHeight() * 0.94 - message.image.GetHeight());
+  }
+
+fun hide_message_callback (text)
+  {
+    message.sprite.SetOpacity(0);
+  }
+
+fun quit_callback ()
+  {
+    progress.index = 50;
+    progress.sprite.SetImage(progress.images[50]);
+  }
+
+Plymouth.SetRefreshFunction(refresh_callback);
+Plymouth.SetBootProgressFunction(progress_callback);
+Plymouth.SetDisplayNormalFunction(display_normal_callback);
+Plymouth.SetDisplayPasswordFunction(display_password_callback);
+Plymouth.SetDisplayMessageFunction(display_message_callback);
+Plymouth.SetHideMessageFunction(hide_message_callback);
+Plymouth.SetQuitFunction(quit_callback);
