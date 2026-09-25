@@ -1075,11 +1075,8 @@ verify_secure_boot_after_uki_rebuild() { events+=(signature_check); }
 curl() { return 1; }
 SCRIPT_DIR=$PWD
 mapfile -t repository_themes < <(get_remote_plymouth_themes)
-for colour in green orange purple red; do
+for colour in green orange purple red blue white; do
     printf '%s\n' "${repository_themes[@]}" | grep -Fxq "blackarch-$colour-static"
-    printf '%s\n' "${repository_themes[@]}" | grep -Fxq "blackarch-$colour-animated"
-done
-for colour in blue white; do
     printf '%s\n' "${repository_themes[@]}" | grep -Fxq "blackarch-$colour-animated"
 done
 [[ "$(plymouth_theme_display_name blackarch-green-static)" == 'BlackArch Green (Static)' ]]
@@ -1087,7 +1084,9 @@ done
 [[ "$(plymouth_theme_display_name blackarch-purple-static)" == 'BlackArch Purple (Static)' ]]
 [[ "$(plymouth_theme_display_name blackarch-red-animated)" == 'BlackArch Red (Animated)' ]]
 [[ "$(plymouth_theme_display_name blackarch-blue-animated)" == 'BlackArch Blue (Animated)' ]]
+[[ "$(plymouth_theme_display_name blackarch-blue-static)" == 'BlackArch Blue (Static)' ]]
 [[ "$(plymouth_theme_display_name blackarch-white-animated)" == 'BlackArch White (Animated)' ]]
+[[ "$(plymouth_theme_display_name blackarch-white-static)" == 'BlackArch White (Static)' ]]
 ''')
 
     def test_plymouth_menu_marks_bundled_theme_as_poedeploy_theme(self):

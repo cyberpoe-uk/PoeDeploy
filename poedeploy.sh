@@ -28,7 +28,9 @@ declare -A POEDEPLOY_PLYMOUTH_THEME_LABELS=(
     [blackarch-purple-animated]="BlackArch Purple (Animated)"
     [blackarch-red-static]="BlackArch Red (Static)"
     [blackarch-red-animated]="BlackArch Red (Animated)"
+    [blackarch-blue-static]="BlackArch Blue (Static)"
     [blackarch-blue-animated]="BlackArch Blue (Animated)"
+    [blackarch-white-static]="BlackArch White (Static)"
     [blackarch-white-animated]="BlackArch White (Animated)"
 )
 

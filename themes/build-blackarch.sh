@@ -63,7 +63,7 @@ for colour in green orange purple red blue white; do
         white)  accent='#F2F2F2'; highlight='#FFFFFF' ;;
     esac
 
-    # Only the original four colours have corresponding static source artwork.
+    # Build a static counterpart whenever matching source artwork is present.
     if [[ -d "$BUILD/source/$colour" && \
           -f "$THEMES/blackarch-$colour-static/logo.png" ]]; then
     static_name="blackarch-$colour-static"
