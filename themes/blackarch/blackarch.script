@@ -1,9 +1,9 @@
 # BlackArch Plymouth animation.
 #
-# The artwork is a 24-frame, 18 fps loop. The animation and progress bar are
+# The artwork is a 24-frame, 10 fps loop. The animation and progress bar are
 # laid out as one centred unit and are only scaled down when the display is too
-# small. This preserves the supplied 720 px artwork on normal displays while
-# keeping the complete composition visible at 640x480.
+# small. The 360 px animation area leaves room for its smoke and embers while
+# matching the overall height and visual scale of the static themes.
 
 Window.SetBackgroundTopColor(0, 0, 0);
 Window.SetBackgroundBottomColor(0, 0, 0);
@@ -85,20 +85,20 @@ progress.images[48] = Image("progress/progress-48.png");
 progress.images[49] = Image("progress/progress-49.png");
 progress.images[50] = Image("progress/progress-50.png");
 
-# The complete unscaled layout is 720x770: artwork, 18 px gap, 32 px bar.
-# Reserve 8% of the screen on every edge and never enlarge source artwork.
+# The complete unscaled layout is 500x410: a 360 px animation, 18 px gap, and
+# the padded 32 px bar. Reserve 4% at every edge and never enlarge the artwork.
 layout.scale = 1;
-layout.width_limit = Window.GetWidth() * 0.92;
-layout.height_limit = Window.GetHeight() * 0.92;
-if (720 * layout.scale > layout.width_limit)
-  layout.scale = layout.width_limit / 720;
-if (770 * layout.scale > layout.height_limit)
-  layout.scale = layout.height_limit / 770;
+layout.width_limit = Window.GetWidth() * 0.96;
+layout.height_limit = Window.GetHeight() * 0.96;
+if (500 * layout.scale > layout.width_limit)
+  layout.scale = layout.width_limit / 500;
+if (410 * layout.scale > layout.height_limit)
+  layout.scale = layout.height_limit / 410;
 
 if (layout.scale < 1)
   {
-    layout.frame_width = Math.Int(720 * layout.scale);
-    layout.frame_height = Math.Int(720 * layout.scale);
+    layout.frame_width = Math.Int(360 * layout.scale);
+    layout.frame_height = Math.Int(360 * layout.scale);
     layout.bar_width = Math.Int(500 * layout.scale);
     layout.bar_height = Math.Int(32 * layout.scale);
     for (index = 0; index < 24; index++)
@@ -108,8 +108,8 @@ if (layout.scale < 1)
   }
 else
   {
-    layout.frame_width = 720;
-    layout.frame_height = 720;
+    layout.frame_width = 360;
+    layout.frame_height = 360;
     layout.bar_width = 500;
     layout.bar_height = 32;
   }
@@ -137,9 +137,9 @@ fun refresh_callback ()
   {
     if (status == "normal")
       {
-        # Plymouth refreshes at 50 Hz. Advancing by 18/50 gives the source
-        # animation its intended 18 fps and a loop of roughly 1.33 seconds.
-        animation.phase += 0.36;
+        # Plymouth refreshes at 50 Hz. Advancing by 10/50 produces a restrained
+        # 10 fps ring rotation and a complete loop of roughly 2.4 seconds.
+        animation.phase += 0.20;
         if (animation.phase >= 1)
           {
             animation.phase = animation.phase - 1;

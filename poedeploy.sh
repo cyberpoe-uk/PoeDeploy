@@ -20,10 +20,14 @@ GITHUB_THEMES_API="https://api.github.com/repos/cyberpoe-uk/PoeDeploy/git/trees/
 
 declare -A POEDEPLOY_PLYMOUTH_THEME_LABELS=(
     [poedeploy]="PoeDeploy"
-    [blackarch-green]="BlackArch Green"
-    [blackarch-orange]="BlackArch Orange"
-    [blackarch-purple]="BlackArch Purple"
-    [blackarch-red]="BlackArch Red"
+    [blackarch-green-static]="BlackArch Green (Static)"
+    [blackarch-green-animated]="BlackArch Green (Animated)"
+    [blackarch-orange-static]="BlackArch Orange (Static)"
+    [blackarch-orange-animated]="BlackArch Orange (Animated)"
+    [blackarch-purple-static]="BlackArch Purple (Static)"
+    [blackarch-purple-animated]="BlackArch Purple (Animated)"
+    [blackarch-red-static]="BlackArch Red (Static)"
+    [blackarch-red-animated]="BlackArch Red (Animated)"
 )
 
 UKI_BLACK_SPLASH_URL="${GITHUB_RAW_BASE}/assets/uki/poedeploy-black.bmp"

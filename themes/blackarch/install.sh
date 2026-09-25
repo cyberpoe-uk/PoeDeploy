@@ -1,43 +1,48 @@
 #!/usr/bin/env bash
-# Install or switch to one of the packaged BlackArch Plymouth colour themes.
+# Install or switch to a packaged static or animated BlackArch Plymouth theme.
 set -euo pipefail
 
 PACKAGE_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-COLOURS=(green orange purple red)
+THEMES=(
+    green-static green-animated
+    orange-static orange-animated
+    purple-static purple-animated
+    red-static red-animated
+)
 
 usage() {
     cat <<'EOF'
-Usage: ./install.sh [green|orange|purple|red]
+Usage: ./install.sh [COLOUR]-[static|animated]
        ./install.sh --list
 
-Installs the selected BlackArch Plymouth colour, makes it the default, and
-rebuilds the initramfs. With no colour argument, an interactive menu is shown.
+Installs the selected BlackArch Plymouth theme, makes it the default, and
+rebuilds the initramfs. With no theme argument, an interactive menu is shown.
 Run as your normal user; sudo is requested only for the system changes.
 EOF
 }
 
-is_colour() {
-    local candidate="$1" colour
-    for colour in "${COLOURS[@]}"; do
-        [[ "$candidate" == "$colour" ]] && return 0
+is_theme() {
+    local candidate="$1" theme
+    for theme in "${THEMES[@]}"; do
+        [[ "$candidate" == "$theme" ]] && return 0
     done
     return 1
 }
 
-choose_colour() {
+choose_theme() {
     local index
-    printf 'BlackArch Plymouth colours:\n\n'
-    for index in "${!COLOURS[@]}"; do
-        printf '  [%d] %s\n' "$((index + 1))" "${COLOURS[$index]}"
+    printf 'BlackArch Plymouth themes:\n\n'
+    for index in "${!THEMES[@]}"; do
+        printf '  [%d] %s\n' "$((index + 1))" "${THEMES[$index]}"
     done
     printf '\n'
     while true; do
-        read -rp "Choose a colour [1-${#COLOURS[@]}]: " index
-        if [[ "$index" =~ ^[1-4]$ ]]; then
-            SELECTED_COLOUR="${COLOURS[$((index - 1))]}"
+        read -rp "Choose a theme [1-${#THEMES[@]}]: " index
+        if [[ "$index" =~ ^[1-8]$ ]]; then
+            SELECTED_THEME="${THEMES[$((index - 1))]}"
             return
         fi
-        printf 'Please enter a number from 1 to 4.\n' >&2
+        printf 'Please enter a number from 1 to 8.\n' >&2
     done
 }
 
@@ -47,16 +52,16 @@ case "${1:-}" in
         exit 0
         ;;
     --list)
-        printf '%s\n' "${COLOURS[@]}"
+        printf '%s\n' "${THEMES[@]}"
         exit 0
         ;;
     '')
-        choose_colour
+        choose_theme
         ;;
     *)
-        SELECTED_COLOUR="${1,,}"
-        if ! is_colour "$SELECTED_COLOUR"; then
-            printf 'Unknown colour: %s\n\n' "$1" >&2
+        SELECTED_THEME="${1,,}"
+        if ! is_theme "$SELECTED_THEME"; then
+            printf 'Unknown theme: %s\n\n' "$1" >&2
             usage >&2
             exit 2
         fi
@@ -70,7 +75,7 @@ for command_name in unzip plymouth-set-default-theme mkinitcpio; do
     }
 done
 
-THEME_NAME="blackarch-${SELECTED_COLOUR}"
+THEME_NAME="blackarch-${SELECTED_THEME}"
 ARCHIVE="${PACKAGE_DIR}/../${THEME_NAME}/plymouth/${THEME_NAME}.zip"
 [[ -f "$ARCHIVE" ]] || {
     printf 'Theme archive not found: %s\n' "$ARCHIVE" >&2
@@ -109,4 +114,4 @@ fi
 
 printf 'Rebuilding initramfs images with %s...\n' "$THEME_NAME"
 "${PRIVILEGE[@]}" mkinitcpio -P
-printf 'BlackArch %s is now the default Plymouth theme.\n' "$SELECTED_COLOUR"
+printf 'BlackArch %s is now the default Plymouth theme.\n' "$SELECTED_THEME"
