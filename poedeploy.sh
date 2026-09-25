@@ -18,6 +18,14 @@ POEDEPLOY_PLYMOUTH_THEME_URL="${GITHUB_RAW_BASE}/themes/poedeploy/plymouth/poede
 
 GITHUB_THEMES_API="https://api.github.com/repos/cyberpoe-uk/PoeDeploy/git/trees/main?recursive=1"
 
+declare -A POEDEPLOY_PLYMOUTH_THEME_LABELS=(
+    [poedeploy]="PoeDeploy"
+    [blackarch-green]="BlackArch Green"
+    [blackarch-orange]="BlackArch Orange"
+    [blackarch-purple]="BlackArch Purple"
+    [blackarch-red]="BlackArch Red"
+)
+
 UKI_BLACK_SPLASH_URL="${GITHUB_RAW_BASE}/assets/uki/poedeploy-black.bmp"
 
 # ------------------------------------------------------------
@@ -1764,6 +1772,11 @@ get_remote_plymouth_themes() {
     } | sort -u
 }
 
+plymouth_theme_display_name() {
+    local theme_name="$1"
+    printf '%s\n' "${POEDEPLOY_PLYMOUTH_THEME_LABELS[$theme_name]:-$theme_name}"
+}
+
 install_remote_plymouth_theme() {
 
     local theme_name="$1"
@@ -1795,7 +1808,10 @@ install_remote_plymouth_theme() {
         return 1
     fi
 
-    plymouth_file=$(find "$extracted_dir" -type f -name '*.plymouth' -print -quit 2>/dev/null)
+    plymouth_file=$(
+        find "$extracted_dir" -type f -name "${theme_name}.plymouth" \
+            -print -quit 2>/dev/null
+    )
 
     if [[ -z "$plymouth_file" ]]; then
         rm -rf "$temp_dir"
@@ -1806,7 +1822,13 @@ install_remote_plymouth_theme() {
     sudo cp -rf "$(dirname "$plymouth_file")/." "$theme_dir/"
     rm -rf "$temp_dir"
 
-    success "Repository Plymouth theme '$theme_name' installed."
+    if [[ ! -f "${theme_dir}/${theme_name}.plymouth" ]] ||
+       ! plymouth_theme_is_available "$theme_name"; then
+        warning "Plymouth did not recognise the installed PoeDeploy theme '$theme_name'."
+        return 1
+    fi
+
+    success "PoeDeploy Plymouth theme '$(plymouth_theme_display_name "$theme_name")' installed."
 }
 
 configure_uki_splash() {
@@ -2503,6 +2525,7 @@ select_plymouth_theme() {
     local remote_themes=()
     local current_theme
     local remote_theme_output=""
+    local current_theme_label
 
     mapfile -t themes < <(
         plymouth-set-default-theme -l 2>/dev/null || true
@@ -2529,9 +2552,10 @@ select_plymouth_theme() {
     fi
 
     current_theme=$(plymouth-set-default-theme 2>/dev/null || true)
+    current_theme_label=$(plymouth_theme_display_name "${current_theme:-unknown}")
 
     ui_heading "Choose a boot theme"
-    echo "Current theme: ${current_theme:-unknown}"
+    echo "Current theme: $current_theme_label"
     echo
     echo "Available themes:"
     echo
@@ -2539,11 +2563,13 @@ select_plymouth_theme() {
 
     local i=1
 
+    local theme_label
     for theme in "${themes[@]}"; do
+        theme_label=$(plymouth_theme_display_name "$theme")
         if printf '%s\n' "${remote_themes[@]}" | grep -Fxq "$theme"; then
-            echo "  [$i] $theme (repository)"
+            echo "  [$i] $theme_label (PoeDeploy theme)"
         else
-            echo "  [$i] $theme"
+            echo "  [$i] $theme_label"
         fi
 
         ((i += 1))
@@ -2567,7 +2593,7 @@ select_plymouth_theme() {
 
             local selected_theme="${themes[$((choice - 1))]}"
 
-            info "Applying Plymouth theme: $selected_theme"
+            info "Applying Plymouth theme: $(plymouth_theme_display_name "$selected_theme")"
 
             if printf '%s\n' "${remote_themes[@]}" | grep -Fxq "$selected_theme" &&
                ! plymouth_theme_is_available "$selected_theme"; then

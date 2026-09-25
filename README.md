@@ -65,7 +65,9 @@ If you only want to connect your NAS, choose **Choose sections**, select
 **SMB / NFS shares**, and continue. PoeDeploy will not install the desktop or
 change your boot setup.
 
-If you want to change the boot animation, select **Plymouth boot theme**.
+If you want to change the boot animation, select **Plymouth boot theme**. The
+included choices are PoeDeploy and the animated BlackArch Green, Orange, Purple,
+and Red themes, alongside any Plymouth themes already installed on the system.
 
 If you are setting up a fresh machine, **Full setup** takes you through every
 section. Optional applications still start unselected, so you choose what you

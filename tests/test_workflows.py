@@ -1070,6 +1070,38 @@ verify_uki_plymouth_setup() { events+=(theme_check); }
 verify_secure_boot_after_uki_rebuild() { events+=(signature_check); }
 ''' + body, stdin)
 
+    def test_bundled_blackarch_themes_are_discovered_and_named(self):
+        self.check_run(r'''
+curl() { return 1; }
+SCRIPT_DIR=$PWD
+mapfile -t repository_themes < <(get_remote_plymouth_themes)
+for colour in green orange purple red; do
+    printf '%s\n' "${repository_themes[@]}" | grep -Fxq "blackarch-$colour"
+done
+[[ "$(plymouth_theme_display_name blackarch-green)" == 'BlackArch Green' ]]
+[[ "$(plymouth_theme_display_name blackarch-orange)" == 'BlackArch Orange' ]]
+[[ "$(plymouth_theme_display_name blackarch-purple)" == 'BlackArch Purple' ]]
+[[ "$(plymouth_theme_display_name blackarch-red)" == 'BlackArch Red' ]]
+''')
+
+    def test_plymouth_menu_marks_bundled_theme_as_poedeploy_theme(self):
+        result = run_bash(r'''
+plymouth-set-default-theme() {
+    if [[ "${1:-}" == -l ]]; then
+        printf 'poedeploy\n'
+    else
+        printf 'poedeploy\n'
+    fi
+}
+get_remote_plymouth_themes() { printf 'blackarch-green\n'; }
+sudo() { [[ "$*" == 'plymouth-set-default-theme blackarch-green' ]]; }
+plymouth_theme_is_available() { return 0; }
+select_plymouth_theme
+''', "2\n")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("BlackArch Green (PoeDeploy theme)", result.stdout)
+        self.assertIn("Applying Plymouth theme: BlackArch Green", result.stdout)
+
     def test_plymouth_selects_then_rebuilds_once(self):
         result = self.run_plymouth_case(r'''
 setup_plymouth
