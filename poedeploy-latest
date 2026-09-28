@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# PoeDeploy latest stable-release bootstrapper
+# PoeDeploy latest-version bootstrapper
 
 set -Eeuo pipefail
 
@@ -29,7 +29,7 @@ ensure_git_dependency() {
         success "Required dependencies are available."
         return 0
     fi
-    info "Git is needed to download the latest tagged PoeDeploy release."
+    info "Git is needed to download the latest PoeDeploy version."
     info "This prerequisite installs Git with pacman before the setup menu opens."
     info "sudo may request your password. Setup sections will be confirmed separately."
     if ! read -rp "Install Git and continue? [y/N]: " answer ||
@@ -44,7 +44,7 @@ main() {
 trap cleanup EXIT
 
 info "Starting PoeDeploy setup..."
-info "This launcher downloads the latest stable release, then opens its setup menu."
+    info "This launcher downloads the latest PoeDeploy version, then opens its setup menu."
 
 if [[ ! -f /etc/arch-release ]] || ! command -v pacman >/dev/null 2>&1; then
     die "PoeDeploy supports Arch Linux only."
@@ -60,32 +60,14 @@ fi
 
 ensure_git_dependency || return 0
 
-info "Finding the latest stable PoeDeploy release..."
+    TEMP_DIR=$(mktemp -d -t poedeploy-installer-XXXXXX)
+    info "Downloading the latest PoeDeploy version into ${TEMP_DIR}..."
 
-if ! REMOTE_TAGS=$(git ls-remote --tags --refs "$REPOSITORY_URL"); then
-    die "Could not read release tags from the PoeDeploy repository."
-fi
-
-TAG=$(
-    awk '{sub("refs/tags/", "", $2); print $2}' <<< "$REMOTE_TAGS" |
-        grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' |
-        sort -V |
-        tail -n 1
-) || true
-
-[[ -n "$TAG" ]] || die "No stable version tag was found in the PoeDeploy repository."
-
-info "Latest stable release: ${TAG}"
-
-TEMP_DIR=$(mktemp -d -t poedeploy-installer-XXXXXX)
-info "Downloading PoeDeploy ${TAG} into ${TEMP_DIR}..."
-
-git clone \
-    --depth=1 \
-    --branch "$TAG" \
-    -c advice.detachedHead=false \
-    "$REPOSITORY_URL" \
-    "$TEMP_DIR"
+    git clone \
+        --depth=1 \
+        --branch main \
+        "$REPOSITORY_URL" \
+        "$TEMP_DIR"
 
 RELEASE_VERSION=$(tr -d '[:space:]' < "$TEMP_DIR/VERSION")
 [[ -n "$RELEASE_VERSION" ]] || die "The downloaded release has no version number."
