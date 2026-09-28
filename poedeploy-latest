@@ -10,6 +10,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 REPOSITORY_URL="https://github.com/cyberpoe-uk/PoeDeploy.git"
+POEDEPLOY_REVISION="c4853a0c454ee2f9238e62579fc5bbe7ff3ee21a"
 
 info() { printf '%b\n' "${BLUE}[BOOTSTRAP]${NC} $*"; }
 success() { printf '%b\n' "${GREEN}[SUCCESS]${NC} $*"; }
@@ -63,11 +64,10 @@ ensure_git_dependency || return 0
     TEMP_DIR=$(mktemp -d -t poedeploy-installer-XXXXXX)
     info "Downloading the latest PoeDeploy version into ${TEMP_DIR}..."
 
-    git clone \
-        --depth=1 \
-        --branch main \
-        "$REPOSITORY_URL" \
-        "$TEMP_DIR"
+    git init --quiet "$TEMP_DIR"
+    git -C "$TEMP_DIR" remote add origin "$REPOSITORY_URL"
+    git -C "$TEMP_DIR" fetch --quiet --depth=1 origin "$POEDEPLOY_REVISION"
+    git -C "$TEMP_DIR" checkout --quiet --detach FETCH_HEAD
 
 RELEASE_VERSION=$(tr -d '[:space:]' < "$TEMP_DIR/VERSION")
 [[ -n "$RELEASE_VERSION" ]] || die "The downloaded release has no version number."
