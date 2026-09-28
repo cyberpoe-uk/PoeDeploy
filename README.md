@@ -74,16 +74,26 @@ If you are setting up a fresh machine, **Full setup** takes you through every
 section. Optional applications still start unselected, so you choose what you
 actually want.
 
+Plymouth themes use an interactive picker: arrows or `j/k` move, `h/l` change
+pages, `g/G` jump to the first/last entry, and Enter applies the theme.
+Esc cancels. **Keep current theme** leaves the selection unchanged.
+
 ## Optional applications
 
 The application list includes:
 
 7-Zip, Discord, Firefox, GIMP, HyprMod, LibreOffice, LocalSend, OBS Studio,
-PowerTOP, Spotify, Tailscale, Thunderbird, Visual Studio Code, and VLC.
+PowerTOP, Proton VPN, Spotify, Tailscale, Thunderbird, Visual Studio Code, and VLC.
 
 PoeDeploy prefers packages from the official Arch repositories. It uses `yay`
 when an application is only available from the Arch User Repository, usually
 called the AUR.
+
+[Proton VPN's Arch installation](https://protonvpn.com/support/linux-vpn-arch)
+uses `proton-vpn-gtk-app`. Selecting it also installs NetworkManager and
+GNOME Keyring. Start NetworkManager (the **NetworkManager** setup section can
+handle this), then open Proton VPN and sign in. Split tunneling additionally
+requires `systemd-resolved`. PoeDeploy does not change your DNS configuration.
 
 If an optional application is taking too long, press **Ctrl+C** once. You can
 then skip that application, retry it, or stop PoeDeploy. Skipping an application

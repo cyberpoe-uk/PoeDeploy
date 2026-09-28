@@ -2533,7 +2533,6 @@ select_plymouth_theme() {
     local remote_themes=()
     local current_theme
     local remote_theme_output=""
-    local current_theme_label
 
     mapfile -t themes < <(
         plymouth-set-default-theme -l 2>/dev/null || true
@@ -2560,66 +2559,72 @@ select_plymouth_theme() {
     fi
 
     current_theme=$(plymouth-set-default-theme 2>/dev/null || true)
-    current_theme_label=$(plymouth_theme_display_name "${current_theme:-unknown}")
 
     ui_heading "Choose a boot theme"
-    echo "Current theme: $current_theme_label"
-    echo
-    echo "Available themes:"
-    echo
-    echo "  [0] None / Keep current theme"
-
-    local i=1
-
-    local theme_label
+    echo "Current theme: $(plymouth_theme_display_name "${current_theme:-unknown}")"
+    local theme label selection choice="" i
+    local -a labels=("Keep current theme")
     for theme in "${themes[@]}"; do
-        theme_label=$(plymouth_theme_display_name "$theme")
+        label=$(plymouth_theme_display_name "$theme")
         if printf '%s\n' "${remote_themes[@]}" | grep -Fxq "$theme"; then
-            echo "  [$i] $theme_label (PoeDeploy theme)"
-        else
-            echo "  [$i] $theme_label"
+            label+=" (PoeDeploy theme)"
         fi
-
-        ((i += 1))
+        labels+=("$label")
     done
 
-    echo
-
-    while true; do
-        if ! read -rp "Select a theme [0-${#themes[@]}]: " choice; then
+    if can_use_checklist; then
+        echo "↑/↓ or j/k move · ←/→ or h/l page · g/G first/last · Enter apply · Esc cancel"
+        if ! selection=$(gum choose --limit=1 --selected="" --height=12 \
+            --cursor='> ' --no-show-help --cursor.foreground='#004FFE' \
+            --header.foreground='#004FFE' --header='Select Plymouth theme' \
+            "${labels[@]}"); then
             warning "Theme selection cancelled before rebuilding boot images."
             return 1
         fi
-
-        if [[ "$choice" == "0" ]]; then
-            info "Keeping current Plymouth theme."
-            return
-        fi
-
-        if [[ "$choice" =~ ^[0-9]+$ ]] &&
-            (( choice >= 1 && choice <= ${#themes[@]} )); then
-
-            local selected_theme="${themes[$((choice - 1))]}"
-
-            info "Applying Plymouth theme: $(plymouth_theme_display_name "$selected_theme")"
-
-            if printf '%s\n' "${remote_themes[@]}" | grep -Fxq "$selected_theme" &&
-               ! plymouth_theme_is_available "$selected_theme"; then
-                if ! install_remote_plymouth_theme "$selected_theme"; then
-                    warning "Failed to install repository theme '$selected_theme'."
-                    return 1
-                fi
+        for i in "${!labels[@]}"; do
+            if [[ "$selection" == "${labels[$i]}" ]]; then
+                choice="$i"
+                break
             fi
-
-            if ! sudo plymouth-set-default-theme "$selected_theme"; then
-                warning "Failed to set Plymouth theme '$selected_theme'."
+        done
+        if [[ -z "$choice" ]]; then
+            warning "No valid Plymouth theme selected."
+            return 1
+        fi
+    else
+        # Keep a plain input path for non-interactive terminals and missing gum.
+        for i in "${!labels[@]}"; do
+            printf '  [%s] %s\n' "$i" "${labels[$i]}"
+        done
+        while true; do
+            if ! read -rp "Select a theme [0-${#themes[@]}]: " choice; then
+                warning "Theme selection cancelled before rebuilding boot images."
                 return 1
             fi
-            return 0
-        fi
+            if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 0 && choice <= ${#themes[@]} )); then
+                break
+            fi
+            warning "Invalid selection."
+        done
+    fi
 
-        warning "Invalid selection."
-    done
+    if [[ "$choice" == "0" ]]; then
+        info "Keeping current Plymouth theme."
+        return 0
+    fi
+    local selected_theme="${themes[$((choice - 1))]}"
+    info "Applying Plymouth theme: $(plymouth_theme_display_name "$selected_theme")"
+    if printf '%s\n' "${remote_themes[@]}" | grep -Fxq "$selected_theme" &&
+       ! plymouth_theme_is_available "$selected_theme"; then
+        if ! install_remote_plymouth_theme "$selected_theme"; then
+            warning "Failed to install repository theme '$selected_theme'."
+            return 1
+        fi
+    fi
+    if ! sudo plymouth-set-default-theme "$selected_theme"; then
+        warning "Failed to set Plymouth theme '$selected_theme'."
+        return 1
+    fi
 }
 
 setup_plymouth() {
@@ -3035,6 +3040,8 @@ declare -A APPLICATIONS=(
 
     ["PowerTOP"]="powertop"
 
+    ["Proton VPN"]="proton-vpn-gtk-app"
+
     ["Tailscale"]="tailscale"
 
     ["Thunderbird"]="thunderbird"
@@ -3107,6 +3114,11 @@ select_applications() {
         [[ -n "$app" ]] || continue
 
         SELECTED_PACKAGES+=("${APPLICATIONS[$app]}")
+
+        # Proton's Arch GUI uses NetworkManager and a Secret Service keyring.
+        if [[ "${APPLICATIONS[$app]}" == "proton-vpn-gtk-app" ]]; then
+            SELECTED_PACKAGES+=(networkmanager gnome-keyring)
+        fi
 
         if [[ "${APPLICATIONS[$app]}" == "vlc" ]]; then
 
@@ -4208,7 +4220,7 @@ run_setup_module() {
             ;;
         network) wait_for_pacman_lock; check_networkmanager ;;
         plymouth)
-            ensure_command_dependencies curl:curl jq:jq unzip:unzip file:file mkinitcpio:mkinitcpio objcopy:binutils
+            ensure_command_dependencies gum:gum curl:curl jq:jq unzip:unzip file:file mkinitcpio:mkinitcpio objcopy:binutils
             wait_for_pacman_lock
             setup_plymouth
             ;;
