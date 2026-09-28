@@ -32,7 +32,7 @@ your sudo password only when a task needs administrator access.
 bash <(curl -fsSL https://cyberpoe.uk/poedeploy-latest)
 ```
 
-This command downloads the latest tested version and shows its version number. If
+This command downloads the latest stable release and shows its version number. If
 Git is missing, PoeDeploy explains why it is needed and asks before installing it.
 
 You will then see three choices:
