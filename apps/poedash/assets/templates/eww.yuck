@@ -13,9 +13,10 @@
 (defpoll updates :interval "30m" :initial "--" `./scripts/arch-status.sh updates`)
 (defpoll calendar_text :interval "1m" :initial "" `./scripts/calendar.sh`)
 (defpoll system_info :interval "5m" :initial '{"host":"--","os":"--","kernel":"--","cpu":"--","gpu":"--","memory":"--","disk":"--","load":"--"}' `./scripts/system-info.py`)
-(defpoll power :interval "5s" :initial '{"watts":"--","battery":"--","status":"--"}' `./scripts/power.py`)
+(defpoll power :interval "5s" :initial '{"available":false,"watts":"--","battery":"--","status":"--"}' `./scripts/power.py`)
 (defpoll processes :interval "3s" :initial '["Collecting process data"]' `./scripts/processes.py`)
 (defpoll shares :interval "15s" :initial '["Checking mounted shares"]' `./scripts/shares.py`)
+(defpoll media :interval "2s" :initial '{"available":false,"player":"No media","title":"Nothing playing","artist":"","status":"Stopped","position":"0:00","length":"0:00","progress":0,"icon":"♪"}' `./scripts/media.py`)
 
 (defwidget section-title [text]
   (label :show-truncated false :class "card-title" :text text :halign "start"))
@@ -37,6 +38,10 @@
     (label :class "info-key" :text name :width 86 :halign "start")
     (label :class "info-value" :text value :halign "start" :limit-width 42)))
 
+(defwidget media-control [action icon tooltip]
+  (button :class "media-control" :onclick "./scripts/media-control.sh ${action}" :tooltip tooltip
+    (label :text icon)))
+
 (defwidget dashboard-content []
   (box :space-evenly false
     (box :class "dashboard-panel" :hexpand true :vexpand true :orientation "v" :space-evenly false :spacing 20 :visible home_visible
@@ -48,41 +53,11 @@
           (label :show-truncated false :class "clock" :text clock :halign "end")
           (label :show-truncated false :class "date" :text today :halign "end")))
 
-      (box :spacing 18 :space-evenly false :vexpand true
-        (box :class "card metrics-card" :orientation "v" :space-evenly false :spacing 18 :width 620
-          (button :onclick "./scripts/launch.sh system" :tooltip "Open btop" (section-title :text "PERFORMANCE"))
-          (meter :name "CPU" :value cpu :display "${cpu}%" :action "./scripts/launch.sh system")
-          (meter :name "GPU" :value {gpu.usage} :display {gpu.label} :action "./scripts/launch.sh gpu")
-          (meter :name "RAM" :value ram :display "${ram}%" :action "./scripts/launch.sh system")
-          (stat-row :name "GPU temperature" :value {gpu.temperature})
-          (stat-row :name "Load 1 / 5 / 15m" :value {system_info.load})
-          (box :class "power-strip" :orientation "v" :space-evenly false :spacing 10
-            (stat-row :name "Power draw" :value {power.watts})
-            (stat-row :name {power.status} :value {power.battery})))
-
-        (box :class "card processes-card" :orientation "v" :space-evenly false :spacing 16 :hexpand true
-          (button :onclick "./scripts/launch.sh system" :tooltip "Open btop" (section-title :text "TOP PROCESSES"))
-          (label :class "column-heading" :text "PROCESS                CPU       MEMORY      PID" :halign "start")
-          (for process in processes
-            (label :class "process-row" :text process :halign "start" :limit-width 58)))
-
-        (box :class "card connectivity-card" :orientation "v" :space-evenly false :spacing 16 :width 520
-          (section-title :text "CONNECTIVITY")
-          (stat-row :name "Network" :value {network.state})
-          (stat-row :name "Interface" :value {network.interface})
-          (stat-row :name "Address" :value {network.ip})
-          (stat-row :name "VPN" :value {vpn.summary})
-          (box :class "shares" :orientation "v" :space-evenly false :spacing 9 :vexpand true
-            (label :class "subheading" :text "SMB / NFS SHARES" :halign "start")
-            (for share in shares
-              (label :class "share-row" :text share :halign "start" :limit-width 48)))))
-
       (box :spacing 18 :space-evenly false :height 250
         (box :class "card details-card" :orientation "v" :space-evenly false :spacing 11 :hexpand true
-          (section-title :text "THIS PC")
-          (box :space-evenly false :spacing 32
+          (section-title :text "${system_info.host} SPECIFICATIONS")
+          (box :space-evenly false :spacing 32 :vexpand true
             (box :orientation "v" :space-evenly false :spacing 10 :hexpand true
-              (info-row :name "HOST" :value {system_info.host})
               (info-row :name "OS" :value {system_info.os})
               (info-row :name "KERNEL" :value {system_info.kernel})
               (info-row :name "UPTIME" :value {arch.uptime}))
@@ -96,11 +71,55 @@
               (box :class {updates == "0" ? "updates current" : updates == "--" ? "updates unknown" : updates > 50 ? "updates critical" : "updates pending"}
                 (stat-row :name "Updates" :value updates)))))
 
-        (box :class "card calendar-card" :orientation "v" :space-evenly false :spacing 10 :width 430
+        (box :class "card calendar-card" :orientation "v" :space-evenly false :spacing 10 :width 520
           (section-title :text "CALENDAR")
           (label :class "calendar-month" :text month :halign "start")
-          (label :class "calendar-text" :markup calendar_text :unindent false :halign "center" :valign "center" :vexpand true)))))
-  )
+          (label :class "calendar-text" :markup calendar_text :unindent false :halign "center" :valign "center" :vexpand true)))
+
+      (box :spacing 18 :space-evenly false :vexpand true
+        (box :class "card metrics-card" :orientation "v" :space-evenly false :spacing 18 :width 620
+          (button :onclick "./scripts/launch.sh system" :tooltip "Open btop" (section-title :text "PERFORMANCE"))
+          (meter :name "CPU" :value cpu :display "${cpu}%" :action "./scripts/launch.sh system")
+          (meter :name "GPU" :value {gpu.usage} :display {gpu.label} :action "./scripts/launch.sh gpu")
+          (meter :name "RAM" :value ram :display "${ram}%" :action "./scripts/launch.sh system")
+          (stat-row :name "GPU temperature" :value {gpu.temperature})
+          (stat-row :name "Load 1 / 5 / 15m" :value {system_info.load})
+          (box :class "power-strip" :visible {power.available} :orientation "v" :space-evenly false :spacing 10
+            (stat-row :name "Power draw" :value {power.watts})
+            (stat-row :name {power.status} :value {power.battery})))
+
+        (box :class "card processes-card" :orientation "v" :space-evenly false :spacing 12 :width 520
+          (button :onclick "./scripts/launch.sh system" :tooltip "Open btop" (section-title :text "TOP PROCESSES"))
+          (label :class "column-heading process-heading" :text "PROCESS              PID    CPU    RAM" :halign "start")
+          (for process in processes
+            (label :class "process-row" :text process :halign "start")))
+
+        (box :orientation "v" :space-evenly false :spacing 18 :width 520
+          (box :class "card connectivity-card" :orientation "v" :space-evenly false :spacing 13 :vexpand true
+            (section-title :text "CONNECTIVITY")
+            (stat-row :name "Network" :value {network.state})
+            (stat-row :name "Interface" :value {network.interface})
+            (stat-row :name "Address" :value {network.ip})
+            (stat-row :name "VPN" :value {vpn.summary})
+            (box :class "shares" :orientation "v" :space-evenly false :spacing 7 :vexpand true
+              (label :class "subheading" :text "SMB / NFS SHARES" :halign "start")
+              (for share in shares
+                (label :class "share-row" :text share :halign "start" :limit-width 48))))
+
+          (box :class "card media-card" :orientation "v" :space-evenly false :spacing 12
+            (box :space-evenly false :spacing 14
+              (button :class "player-logo" :onclick "./scripts/media-control.sh spotify" :tooltip "Open Spotify on the next available workspace"
+                (label :text {media.icon}))
+              (box :orientation "v" :space-evenly false :hexpand true
+                (label :class "media-title" :text {media.title} :halign "start" :limit-width 32)
+                (label :class "media-artist" :text {media.artist != "" ? media.artist : media.player} :halign "start" :limit-width 36)))
+            (progress :class "media-progress" :value {media.progress})
+            (box :space-evenly false :spacing 12
+              (label :class "media-time" :text "${media.position} / ${media.length}" :halign "start" :hexpand true)
+              (media-control :action "previous" :icon "" :tooltip "Previous")
+              (media-control :action "play-pause" :icon {media.status == "Playing" ? "" : ""} :tooltip "Play or pause")
+              (media-control :action "next" :icon "" :tooltip "Next")))))
+  )))
 
 (defwindow dashboard
   :monitor 0

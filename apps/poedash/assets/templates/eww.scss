@@ -32,11 +32,27 @@ progressbar trough { min-width: 65px; min-height: 6px; background-color: rgba($b
 progressbar progress { min-height: 6px; background-color: $accent; border-radius: 3px; }
 .power-strip, .shares { border-top: 1px solid rgba($border, 0.30); padding-top: 15px; }
 .process-row, .share-row { font-size: 14px; color: $secondary; }
-.process-row { padding: 7px 0; border-bottom: 1px solid rgba($border, 0.18); }
+.process-heading, .process-row { font-family: "JetBrains Mono", monospace; }
+.process-row { padding: 5px 0; border-bottom: 1px solid rgba($border, 0.18); }
 .info-key { color: $muted; font-size: 12px; letter-spacing: 0.8px; }
 .info-value { color: $secondary; font-size: 14px; }
 .calendar-month { color: $secondary; font-size: 15px; }
 .calendar-text { font-size: 18px; }
+.media-card { min-height: 190px; }
+.player-logo {
+  min-width: 54px;
+  min-height: 54px;
+  border-radius: 12px;
+  background-color: rgba($accent, 0.18);
+  color: $accent;
+  font-size: 28px;
+}
+.player-logo:hover { background-color: $accent; color: $background; }
+.media-title { font-size: 17px; font-weight: 700; }
+.media-artist, .media-time { color: $secondary; font-size: 13px; }
+.media-control { min-width: 34px; min-height: 30px; border-radius: 8px; color: $secondary; font-size: 17px; }
+.media-control:hover { color: $foreground; background-color: rgba($accent, 0.18); }
+.media-progress trough { min-height: 5px; }
 .current .stat-value { color: #8dd5a0; }
 .pending .stat-value { color: #e6a85c; }
 .critical .stat-value { color: #ff5c68; font-weight: 800; }

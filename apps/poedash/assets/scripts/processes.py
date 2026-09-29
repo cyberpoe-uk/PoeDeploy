@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Return the five busiest processes without exposing their arguments."""
+"""Return the ten busiest processes without exposing their arguments."""
 import json
 import subprocess
 
@@ -12,8 +12,8 @@ try:
         fields = line.split(None, 3)
         if len(fields) == 4 and fields[1] != 'ps':
             pid, command, cpu, memory = fields
-            rows.append(f'{command[:20]:20}  {cpu:>5}% CPU  {memory:>5}% MEM  #{pid}')
-        if len(rows) == 5:
+            rows.append(f'{command[:16]:16} {pid:>7} {cpu:>6}% {memory:>6}%')
+        if len(rows) == 10:
             break
 except (OSError, subprocess.SubprocessError):
     rows = []

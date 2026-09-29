@@ -150,13 +150,19 @@ class Installation(unittest.TestCase):
         self.install()
         self.assertEqual(poedash.settings(self.root)['name'], 'Studio PC')
         yuck = (self.root / 'eww.yuck').read_text()
-        for feature in ('TOP PROCESSES', 'Power draw', 'SMB / NFS SHARES', 'THIS PC'):
+        for feature in ('TOP PROCESSES', 'Power draw', 'SMB / NFS SHARES',
+                        '${system_info.host} SPECIFICATIONS', 'media-control.sh spotify'):
             self.assertIn(feature, yuck)
+        self.assertIn(':visible {power.available}', yuck)
+        self.assertIn(':width 520', yuck)
         self.assertIn('updates > 50 ? "updates critical"', yuck)
-        for script in ('system-info.py', 'processes.py', 'shares.py', 'power.py'):
+        for script in ('system-info.py', 'processes.py', 'shares.py', 'power.py', 'media.py'):
             result = subprocess.run([str(self.root / 'scripts' / script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             json.loads(result.stdout)
+        rows = json.loads(subprocess.run([str(self.root / 'scripts/processes.py')],
+                          capture_output=True, text=True, check=True).stdout)
+        self.assertLessEqual(len(rows), 10)
 
     def test_amd_gpu_and_unavailable(self):
         spec = importlib.util.spec_from_file_location('gpu', REPO / 'assets/scripts/gpu.py')

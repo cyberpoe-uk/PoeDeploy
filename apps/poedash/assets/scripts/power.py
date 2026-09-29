@@ -11,7 +11,7 @@ def number(path):
         return None
 
 
-data = {'watts': '--', 'battery': '--', 'status': 'Power sensor unavailable'}
+data = {'available': False, 'watts': '--', 'battery': '--', 'status': 'Power sensor unavailable'}
 for battery in sorted(Path('/sys/class/power_supply').glob('BAT*')):
     status_path = battery / 'status'
     try:
@@ -25,6 +25,7 @@ for battery in sorted(Path('/sys/class/power_supply').glob('BAT*')):
         watts = current * voltage / 1_000_000 if current is not None and voltage is not None else None
     capacity = number(battery / 'capacity')
     data = {
+        'available': watts is not None,
         'watts': f'{watts / 1_000_000:.1f} W' if watts is not None else '--',
         'battery': f'{capacity:.0f}%' if capacity is not None else '--',
         'status': status,

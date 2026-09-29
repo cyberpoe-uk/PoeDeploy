@@ -98,8 +98,9 @@ source archive from a website or GitHub repository. Choose only one dashboard.
 
 PoeDash is the general dashboard without PenDash's security-tool or
 laptop-specific setup. Its installer offers `PoeDash` as the default display
-name and lets the user enter another name. It shows performance, power and
-battery data, top processes, system details, active VPN interfaces, mounted
+name and lets the user enter another name. It shows performance, laptop power
+and battery data when available, the top ten processes, host specifications,
+MPRIS media controls, active VPN interfaces, mounted
 SMB/NFS shares, package updates, and a compact calendar. PenDash has two choices:
 
 PoeDeploy asks for the PoeDash name during the visible application-planning
