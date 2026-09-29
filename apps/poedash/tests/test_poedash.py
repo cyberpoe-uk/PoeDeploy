@@ -152,13 +152,14 @@ class Installation(unittest.TestCase):
         yuck = (self.root / 'eww.yuck').read_text()
         for feature in ('TOP PROCESSES', 'Power draw', 'SMB / NFS SHARES',
                         '${system_info.host} SPECIFICATIONS', 'media-control.sh spotify',
-                        'Tailscale IP', ':wrap true'):
+                        'Tailscale IP', ':wrap true', 'media.art'):
             self.assertIn(feature, yuck)
         self.assertIn(':visible {power.available}', yuck)
         self.assertNotIn(':visible home_visible', yuck)
         self.assertIn('dashboard-away', yuck)
         self.assertIn('deflisten home_visible', yuck)
         self.assertIn(':width 520', yuck)
+        self.assertIn('spotify-launcher', (self.root / 'scripts/media-control.sh').read_text())
         self.assertIn('updates > 50 ? "updates critical"', yuck)
         for script in ('system-info.py', 'processes.py', 'shares.py', 'power.py', 'media.py'):
             result = subprocess.run([str(self.root / 'scripts' / script)], capture_output=True, text=True)

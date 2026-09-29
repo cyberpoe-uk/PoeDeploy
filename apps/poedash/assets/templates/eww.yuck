@@ -16,7 +16,7 @@
 (defpoll power :interval "5s" :initial '{"available":false,"watts":"--","battery":"--","status":"--"}' `./scripts/power.py`)
 (defpoll processes :interval "3s" :initial '["Collecting process data"]' `./scripts/processes.py`)
 (defpoll shares :interval "15s" :initial '["Checking mounted shares"]' `./scripts/shares.py`)
-(defpoll media :interval "2s" :initial '{"available":false,"player":"No media","title":"Nothing playing","artist":"","status":"Stopped","position":"0:00","length":"0:00","progress":0,"icon":"♪"}' `./scripts/media.py`)
+(defpoll media :interval "2s" :initial '{"available":false,"player":"No media","title":"Nothing playing","artist":"","status":"Stopped","position":"0:00","length":"0:00","progress":0,"icon":"♪","art":""}' `./scripts/media.py`)
 
 (defwidget section-title [text]
   (label :show-truncated false :class "card-title" :text text :halign "start"))
@@ -110,7 +110,9 @@
           (box :class "card media-card" :orientation "v" :space-evenly false :spacing 12
             (box :space-evenly false :spacing 14
               (button :class "player-logo" :onclick "./scripts/media-control.sh spotify" :tooltip "Open Spotify on the next available workspace"
-                (label :text {media.icon}))
+                (box
+                  (image :visible {media.art != ""} :path {media.art} :image-width 54 :image-height 54 :preserve-aspect-ratio true)
+                  (label :visible {media.art == ""} :text {media.icon})))
               (box :orientation "v" :space-evenly false :hexpand true
                 (label :class "media-title" :text {media.title} :halign "start" :limit-width 32)
                 (label :class "media-artist" :text {media.artist != "" ? media.artist : media.player} :halign "start" :limit-width 36)))

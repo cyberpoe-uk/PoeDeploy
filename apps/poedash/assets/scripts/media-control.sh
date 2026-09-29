@@ -8,7 +8,9 @@ case "${1:-}" in
         while jq -e --argjson id "$workspace" '.[] | select(.id == $id)' <<<"$workspaces" >/dev/null; do
             ((workspace++))
         done
-        if command -v spotify >/dev/null; then
+        if command -v spotify-launcher >/dev/null; then
+            hyprctl dispatch exec "[workspace $workspace silent] spotify-launcher"
+        elif command -v spotify >/dev/null; then
             hyprctl dispatch exec "[workspace $workspace silent] spotify"
         elif command -v flatpak >/dev/null && flatpak info com.spotify.Client >/dev/null 2>&1; then
             hyprctl dispatch exec "[workspace $workspace silent] flatpak run com.spotify.Client"
