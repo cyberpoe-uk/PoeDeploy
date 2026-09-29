@@ -29,6 +29,10 @@ def run(argv, **kw):
     return subprocess.run([str(x) for x in argv], check=True, **kw)
 
 
+def refresh(root):
+    subprocess.Popen([str(root / 'scripts/start.sh')], start_new_session=True)
+
+
 def atomic(path, text, mode=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix='.' + path.name)
@@ -253,6 +257,9 @@ def install(args, root):
         if path.is_file():
             preserved[preserved_name] = path.read_bytes()
     if root.exists():
+        if shutil.which('eww'):
+            subprocess.run(['eww', '--config', str(root), 'kill'], check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         shutil.rmtree(root)
     root.mkdir(parents=True, exist_ok=True)
     for directory in ('scripts', 'templates'):
@@ -302,6 +309,12 @@ def install(args, root):
         atomic(matugen, clean_theme.rstrip() + '\n\n' + block)
         manifest['matugen_config'] = str(matugen)
     atomic(manifest_path, json.dumps(manifest, indent=2) + '\n')
+    if (not args.no_start and not (root / 'disabled').exists() and
+            os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and os.environ.get('WAYLAND_DISPLAY')):
+        try:
+            refresh(root)
+        except OSError as exc:
+            print(f'WARNING: PoeDash was installed but could not be refreshed automatically: {exc}', file=sys.stderr)
     print(f'Installed. Backup: {backup}\nRun ~/.local/bin/poedash doctor, then ~/.local/bin/poedash start.')
     print('Log in again to activate workspace protection, or reload Hyprland after reviewing the appended block.')
 
@@ -351,6 +364,7 @@ def main():
     ins.add_argument('--hyprland-config')
     ins.add_argument('--name')
     ins.add_argument('--non-interactive', action='store_true')
+    ins.add_argument('--no-start', action='store_true', help=argparse.SUPPRESS)
     for name in ('render', 'reload', 'doctor', 'uninstall', 'start', 'stop', 'enable', 'disable', 'update'):
         sub.add_parser(name)
     sub.add_parser('theme').add_argument('wallpaper')

@@ -29,7 +29,8 @@ class Installation(unittest.TestCase):
         self.monitor = patch.object(poedash, 'monitor_info', return_value={'name': 'TEST-1', 'width': 1920, 'height': 1080, 'scale': 1})
         self.monitor.start()
         self.args = argparse.Namespace(skip_deps=True, dry_run=False, no_integrate=False,
-                                       hyprland_config=None, name=None, non_interactive=True)
+                                       hyprland_config=None, name=None, non_interactive=True,
+                                       no_start=True)
 
     def tearDown(self):
         self.monitor.stop()
@@ -73,6 +74,17 @@ class Installation(unittest.TestCase):
         self.args.dry_run = True
         self.install()
         self.assertEqual(before, sorted(str(p) for p in self.home.rglob('*')))
+
+    def test_interactive_desktop_install_refreshes_running_dashboard(self):
+        self.args.no_start = False
+        with patch.dict(os.environ, {'HYPRLAND_INSTANCE_SIGNATURE': 'test', 'WAYLAND_DISPLAY': 'wayland-1'}), \
+                patch.object(poedash, 'refresh') as launch:
+            self.install()
+        launch.assert_called_once_with(self.root)
+
+    def test_startup_uses_installed_directory(self):
+        self.install()
+        self.assertIn('cd "$root"', (self.root / 'scripts/start.sh').read_text())
 
     def test_recognised_legacy_dashboard_is_backed_up_and_retired(self):
         legacy = self.home / '.config/eww'

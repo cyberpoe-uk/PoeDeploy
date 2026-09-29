@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root=$(dirname "$(dirname "$(realpath "$0")")")
+cd "$root"
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/poedash"
 mkdir -p "$cache"
 exec >>"$cache/startup.log" 2>&1
