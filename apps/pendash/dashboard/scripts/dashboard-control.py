@@ -68,7 +68,8 @@ def switch(root, action):
         else:
             marker.write_text('Dashboard disabled\n')
             if shutil.which('eww'):
-                subprocess.run(['eww', '--config', str(root), 'kill'], check=True)
+                subprocess.run(['eww', '--config', str(root), 'kill'], check=False,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def module(root):

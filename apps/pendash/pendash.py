@@ -377,8 +377,9 @@ def install_dashboard(browser, dry_run, preserve_colors=False):
         shutil.rmtree(state_copy.parent)
     write(destination / 'browser.json', json.dumps({'browser': browser}, indent=2) + '\n')
     (destination / 'state' / (browser + '-ctf')).mkdir(parents=True, exist_ok=True, mode=0o700)
-    run([sys.executable, destination / 'scripts/dashboard-control.py', '--root', destination, 'prepare'])
-    run([sys.executable, destination / 'scripts/dashboard-control.py', '--root', destination, 'quickshell'])
+    user_env = dict(os.environ, HOME=str(HOME))
+    run([sys.executable, destination / 'scripts/dashboard-control.py', '--root', destination, 'prepare'], env=user_env)
+    run([sys.executable, destination / 'scripts/dashboard-control.py', '--root', destination, 'quickshell'], env=user_env)
     custom = HOME / '.config/hypr/custom.lua'
     old = custom.read_text() if custom.exists() else ''
     if BEGIN not in old and '-- Home dashboard:' in old and 'local function protect_home' in old:

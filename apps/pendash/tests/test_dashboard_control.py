@@ -21,7 +21,9 @@ class DashboardControl(unittest.TestCase):
             with patch.object(c.shutil, 'which', return_value='/bin/eww'), patch.object(c.subprocess, 'run') as run, patch.object(c.subprocess, 'Popen') as start:
                 c.switch(root, 'disable')
                 self.assertTrue((root / 'disabled').exists())
-                run.assert_called_once_with(['eww', '--config', str(root), 'kill'], check=True)
+                run.assert_called_once_with(['eww', '--config', str(root), 'kill'], check=False,
+                                            stdout=c.subprocess.DEVNULL,
+                                            stderr=c.subprocess.DEVNULL)
                 c.switch(root, 'toggle')
                 self.assertFalse((root / 'disabled').exists())
                 start.assert_called_once()

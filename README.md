@@ -102,6 +102,10 @@ name and lets the user enter another name. It shows performance, power and
 battery data, top processes, system details, active VPN interfaces, mounted
 SMB/NFS shares, package updates, and a compact calendar. PenDash has two choices:
 
+PoeDeploy asks for the PoeDash name during the visible application-planning
+step. The background installation and dashboard updates are non-interactive, so
+they cannot stall behind the static progress screen.
+
 - **PenDash (dashboard only)** installs its dashboard and dashboard packages,
   without BlackArch, Burp Suite, NVIDIA configuration, or laptop power rules.
 - **PenDash (full laptop setup)** runs the complete interactive laptop workflow,

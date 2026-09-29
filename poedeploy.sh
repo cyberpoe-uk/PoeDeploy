@@ -74,6 +74,8 @@ SELECTED_PACKAGES=()
 
 SELECTED_APPS=()
 
+POEDASH_NAME="PoeDash"
+
 ML4W_ENABLED=false
 
 CONFIGURE_ML4W_SDDM=false
@@ -3254,6 +3256,19 @@ select_applications() {
 
     done
 
+    if [[ " ${SELECTED_PACKAGES[*]} " == *" @poedash "* ]]; then
+        local requested_name
+        if ! read -rp "Dashboard name [PoeDash]: " requested_name; then
+            requested_name=""
+        fi
+        requested_name=${requested_name:-PoeDash}
+        if (( ${#requested_name} > 32 )) || [[ "$requested_name" == *$'\n'* || "$requested_name" == *$'\r'* ]]; then
+            warning "Dashboard name must contain 1–32 printable characters. Using PoeDash."
+            requested_name="PoeDash"
+        fi
+        POEDASH_NAME="$requested_name"
+    fi
+
     echo
 
     if [[ ${#SELECTED_PACKAGES[@]} -eq 0 ]]; then
@@ -3348,7 +3363,8 @@ install_selected_applications() {
     for package in "${SELECTED_PACKAGES[@]}"; do
         case "$package" in
             @poedash)
-                install_bundled_dashboard_application PoeDash poedash
+                install_bundled_dashboard_application PoeDash poedash \
+                    --skip-deps --non-interactive --name "$POEDASH_NAME"
                 continue
                 ;;
             @pendash-dashboard)
@@ -4388,7 +4404,7 @@ run_setup_module() {
 
 PD_PERSIST_VARIABLES=(
     FAILED_PACKAGES SKIPPED_PACKAGES INSTALLED_PACKAGES SELECTED_PACKAGES SELECTED_APPS
-    ML4W_ENABLED CONFIGURE_ML4W_SDDM DEFAULT_BROWSER_ACTION SECURE_BOOT_ACTION
+    POEDASH_NAME ML4W_ENABLED CONFIGURE_ML4W_SDDM DEFAULT_BROWSER_ACTION SECURE_BOOT_ACTION
     SECURE_BOOT_VERIFY_STATUS SECURE_BOOT_OTHER_FILES_WARNING SECURE_BOOT_AUTOMATIC_ACTION
     BOOT_IMAGE_ACTION VERIFIED_PLYMOUTH_UKIS UKI_ACTION GPU_VENDOR GPU_MODEL BOOTLOADER
     UKI_ENABLED UKI_BOOTED UKI_STATUS UKI_BOOT_ROOT UKI_SPLASH_PATH UKI_CMDLINE_WRITE_ATTEMPTED

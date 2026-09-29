@@ -96,6 +96,9 @@ class Installation(unittest.TestCase):
         self.install()
         cfg = poedash.settings(self.root)
         self.assertEqual(cfg['name'], 'PoeDash')
+        self.assertEqual(cfg['layout']['system_width'], 620)
+        self.assertEqual(cfg['layout']['network_width'], 520)
+        self.assertEqual(cfg['layout']['lower_height'], 250)
         yuck = (self.root / 'eww.yuck').read_text()
         for unwanted in ('QUICK LAUNCH', 'CTF FIREFOX', 'WIRESHARK', 'START WEB CTF'):
             self.assertNotIn(unwanted, yuck)

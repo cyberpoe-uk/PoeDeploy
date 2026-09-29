@@ -45,7 +45,7 @@ install_bundled_dashboard_application() { printf 'DASHBOARD:%s:%s:%s\n' "$1" "$2
 SELECTED_PACKAGES=(@poedash @pendash-dashboard @pendash-full)
 install_selected_applications
 ''')
-        self.assertIn('DASHBOARD:PoeDash:poedash:', output)
+        self.assertIn('DASHBOARD:PoeDash:poedash:--skip-deps', output)
         self.assertIn('DASHBOARD:PenDash dashboard:pendash:--dashboard-only', output)
         self.assertIn('DASHBOARD:PenDash full laptop setup:pendash:', output)
 
@@ -74,6 +74,18 @@ select_applications
 rm -f -- "$attempt_file"
 ''')
         self.assertIn('cannot be installed together', output)
+
+    def test_poedash_name_is_collected_before_background_installation(self):
+        self.check(r'''
+gum() { :; }
+choose_checklist() { cat >/dev/null; echo 'PoeDash (dashboard)'; }
+select_applications <<< 'Office Dashboard'
+[[ "$POEDASH_NAME" == 'Office Dashboard' ]]
+install_bundled_dashboard_application() {
+    [[ "$*" == 'PoeDash poedash --skip-deps --non-interactive --name Office Dashboard' ]]
+}
+install_selected_applications
+''')
 
     def test_noninteractive_dashboard_refresh_dispatches_without_setup_menu(self):
         output = self.check(r'''

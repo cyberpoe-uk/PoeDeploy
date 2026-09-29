@@ -272,7 +272,8 @@ def install(args, root):
     new_settings['name'] = name
     if 'monitor' in old_settings:
         new_settings['monitor'] = old_settings['monitor']
-    if isinstance(old_settings.get('layout'), dict):
+    new_schema = set(old_settings) == {'name', 'monitor', 'layout'}
+    if new_schema and isinstance(old_settings.get('layout'), dict):
         for key in new_settings['layout']:
             if key in old_settings['layout']:
                 new_settings['layout'][key] = old_settings['layout'][key]
