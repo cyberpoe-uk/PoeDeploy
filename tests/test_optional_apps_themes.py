@@ -140,3 +140,50 @@ if select_plymouth_theme; then echo DONE; else echo CANCELLED; fi
                         os.killpg(pid, signal.SIGTERM)
                         os.waitpid(pid, 0)
                     os.close(fd)
+
+    def test_short_terminal_starts_picker_on_fresh_view(self):
+        pid, fd = pty.fork()
+        if pid == 0:
+            os.environ['TERM'] = 'xterm-256color'
+            termios.tcsetwinsize(0, (10, 100))
+            body = PRELUDE + r'''
+get_remote_plymouth_themes() { :; }
+plymouth-set-default-theme() {
+    if [[ "${1:-}" == -l ]]; then printf 'theme%02d\n' {1..14}; else echo theme01; fi
+}
+sudo() { [[ "$1" == plymouth-set-default-theme ]] || exit 97; echo "APPLIED:$2"; }
+select_plymouth_theme
+'''
+            os.execvp('bash', ['bash', '--noprofile', '--norc', '-c', body, 'test', SCRIPT])
+
+        output = b''
+        done = 0
+        sent = False
+        deadline = time.monotonic() + 8
+        try:
+            while time.monotonic() < deadline:
+                if select.select([fd], [], [], 0.05)[0]:
+                    try:
+                        output += os.read(fd, 8192)
+                    except OSError as exc:
+                        if exc.errno != errno.EIO:
+                            raise
+                if not sent and b'> Keep current theme' in output:
+                    os.write(fd, b'\x1b[B')
+                    time.sleep(0.1)
+                    os.write(fd, b'\r')
+                    sent = True
+                done, status = os.waitpid(pid, os.WNOHANG)
+                if done:
+                    break
+
+            self.assertTrue(done, output)
+            self.assertEqual(os.waitstatus_to_exitcode(status), 0, output)
+            self.assertIn(b'\x1b[1;1H', output)
+            self.assertIn(b'Current theme: theme01', output)
+            self.assertIn(b'APPLIED:theme01', output)
+        finally:
+            if not done:
+                os.killpg(pid, signal.SIGTERM)
+                os.waitpid(pid, 0)
+            os.close(fd)

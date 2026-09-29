@@ -185,6 +185,23 @@ ui_heading() {
     printf '\n'
 }
 
+ui_start_fresh_view() {
+    # Scroll completed output into the terminal's normal history, then return
+    # to the top of the newly blank viewport. Unlike clearing the screen, this
+    # keeps the earlier setup output available when the user scrolls back.
+    [[ -t 1 && "${TERM:-dumb}" != dumb ]] || return 0
+
+    local terminal_rows i
+    terminal_rows=$(tput lines 2>/dev/null) || return 0
+    [[ "$terminal_rows" =~ ^[0-9]+$ ]] || return 0
+    ((terminal_rows > 1)) || return 0
+
+    for ((i = 1; i < terminal_rows; i++)); do
+        printf '\n'
+    done
+    tput cup 0 0 2>/dev/null || printf '\033[H'
+}
+
 show_task_progress() {
     # Count sections, not time. Package builds can take very different amounts of time.
     ui_heading "Step $1 of $2  |  $3"
@@ -2560,7 +2577,15 @@ select_plymouth_theme() {
 
     current_theme=$(plymouth-set-default-theme 2>/dev/null || true)
 
+    local interactive_picker=false
+    if can_use_checklist; then
+        interactive_picker=true
+    fi
+
     ui_heading "Choose a boot theme"
+    if [[ "$interactive_picker" == true ]]; then
+        ui_start_fresh_view
+    fi
     echo "Current theme: $(plymouth_theme_display_name "${current_theme:-unknown}")"
     local theme label selection choice="" i
     local -a labels=("Keep current theme")
@@ -2572,9 +2597,19 @@ select_plymouth_theme() {
         labels+=("$label")
     done
 
-    if can_use_checklist; then
+    if [[ "$interactive_picker" == true ]]; then
+        local picker_height=12 terminal_rows
+        terminal_rows=$(tput lines 2>/dev/null || true)
+        # Reserve two rows for the context above the picker and two for gum's
+        # paging indicator, which is drawn in addition to --height.
+        if [[ "$terminal_rows" =~ ^[0-9]+$ ]] && ((terminal_rows > 4)) &&
+           ((picker_height > terminal_rows - 4)); then
+            picker_height=$((terminal_rows - 4))
+        fi
+        ((picker_height >= 3)) || picker_height=3
+
         echo "↑/↓ or j/k move · ←/→ or h/l page · g/G first/last · Enter apply · Esc cancel"
-        if ! selection=$(gum choose --limit=1 --selected="" --height=12 \
+        if ! selection=$(gum choose --limit=1 --selected="" --height="$picker_height" \
             --cursor='> ' --no-show-help --cursor.foreground='#004FFE' \
             --header.foreground='#004FFE' --header='Select Plymouth theme' \
             "${labels[@]}"); then
