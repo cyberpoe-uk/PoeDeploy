@@ -12,6 +12,8 @@ window { background-color: transparent; }
   border: 1px solid rgba($border, 0.45);
   padding: 30px;
 }
+.dashboard-home { opacity: 1; }
+.dashboard-away { opacity: 0; }
 .header { padding: 0 4px 18px; border-bottom: 1px solid rgba($border, 0.30); }
 .title { font-size: 34px; font-weight: 800; letter-spacing: 2px; }
 .subtitle { color: $muted; font-size: 13px; letter-spacing: 1.2px; }

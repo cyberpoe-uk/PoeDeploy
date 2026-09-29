@@ -155,6 +155,9 @@ class Installation(unittest.TestCase):
                         'Tailscale IP', ':wrap true'):
             self.assertIn(feature, yuck)
         self.assertIn(':visible {power.available}', yuck)
+        self.assertNotIn(':visible home_visible', yuck)
+        self.assertIn('dashboard-away', yuck)
+        self.assertIn('deflisten home_visible', yuck)
         self.assertIn(':width 520', yuck)
         self.assertIn('updates > 50 ? "updates critical"', yuck)
         for script in ('system-info.py', 'processes.py', 'shares.py', 'power.py', 'media.py'):

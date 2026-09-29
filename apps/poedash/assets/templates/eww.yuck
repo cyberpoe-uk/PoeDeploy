@@ -2,7 +2,7 @@
 (defpoll clock :interval "10s" :initial "--:--" `date '+%H:%M'`)
 (defpoll today :interval "30s" :initial "" `LC_ALL=C date '+%a %d %b' | tr '[:lower:]' '[:upper:]'`)
 (defpoll month :interval "1m" :initial "" `LC_ALL=C date '+%B %Y'`)
-(defpoll home_visible :interval "500ms" :initial false `./scripts/workspace.sh`)
+(deflisten home_visible :initial false `./scripts/workspace.sh --listen`)
 (defpoll cpu :interval "2s" :initial 0 `./scripts/cpu.sh`)
 (defpoll ram :interval "3s" :initial 0 `./scripts/arch-status.sh ram`)
 (defpoll gpu :interval "5s" :initial '{"usage":0,"label":"--","temperature":"--"}' `./scripts/gpu.sh`)
@@ -44,7 +44,7 @@
 
 (defwidget dashboard-content []
   (box :space-evenly false
-    (box :class "dashboard-panel" :hexpand true :vexpand true :orientation "v" :space-evenly false :spacing 20 :visible home_visible
+    (box :class {home_visible ? "dashboard-panel dashboard-home" : "dashboard-panel dashboard-away"} :hexpand true :vexpand true :orientation "v" :space-evenly false :spacing 20
       (box :class "header" :space-evenly false
         (box :orientation "v" :space-evenly false :hexpand true :spacing 5
           (label :show-truncated false :class "title" :text "@@DASHBOARD_NAME@@" :halign "start")
