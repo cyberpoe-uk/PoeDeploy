@@ -39,6 +39,38 @@ install_selected_applications
 [[ ${#INSTALLED_PACKAGES[@]} == 3 ]]
 ''')
 
+    def test_poedash_and_pendash_are_public_optional_installers(self):
+        output = self.check(r'''
+gum() { :; }
+choose_checklist() {
+    options=$(cat)
+    [[ "$options" == *'PoeDash (dashboard)'* ]] || exit 91
+    [[ "$options" == *'PenDash (dashboard)'* ]] || exit 92
+    printf '%s\n' 'PoeDash (dashboard)' 'PenDash (dashboard)'
+}
+select_applications
+[[ "${SELECTED_PACKAGES[*]}" == '@poedash @pendash' || "${SELECTED_PACKAGES[*]}" == '@pendash @poedash' ]]
+install_dashboard_application() { printf 'DASHBOARD:%s:%s\n' "$1" "$2"; }
+install_selected_applications
+''')
+        self.assertIn('DASHBOARD:PoeDash:https://cyberpoe.uk/poedash-latest', output)
+        self.assertIn('DASHBOARD:PenDash:https://cyberpoe.uk/pendash-latest', output)
+
+    def test_dashboard_installer_validates_download_before_running(self):
+        output = self.check(r'''
+download=''
+curl() {
+    while (($#)); do
+        if [[ "$1" == --output ]]; then download="$2"; break; fi
+        shift
+    done
+    printf '#!/usr/bin/env bash\necho DASHBOARD_INSTALL_RAN\n' >"$download"
+}
+install_dashboard_application PoeDash "$POEDASH_INSTALLER_URL"
+[[ "${INSTALLED_PACKAGES[*]}" == PoeDash && ! -e "$download" ]]
+''')
+        self.assertIn('DASHBOARD_INSTALL_RAN', output)
+
     def test_plymouth_cancellation_ignores_partial_output(self):
         self.check(r'''
 can_use_checklist() { return 0; }

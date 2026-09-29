@@ -121,6 +121,18 @@ SCRIPT_VERSION="unknown"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
 
+for poedeploy_component in \
+    ui/logger.sh ui/progress.sh ui/keyboard.sh ui/dashboard.sh \
+    installer/applications.sh; do
+    if [[ ! -r "$SCRIPT_DIR/$poedeploy_component" ]]; then
+        printf '[ERROR] PoeDeploy component is missing: %s\n' "$poedeploy_component" >&2
+        exit 1
+    fi
+    # shellcheck source=/dev/null
+    source "$SCRIPT_DIR/$poedeploy_component"
+done
+unset poedeploy_component
+
 load_version() {
 
     local local_version_file="${SCRIPT_DIR}/VERSION"
@@ -179,6 +191,11 @@ ui_rule() {
 }
 
 ui_heading() {
+    if [[ "${PD_UI_ACTIVE:-false}" == true ]]; then
+        pd_log STAGE "$1${2:+ - $2}"
+        ui_set_operation "$1"
+        return 0
+    fi
     printf '\n%b%s%b\n' "${BLUE}${UI_BOLD}" "$1" "$NC"
     ui_rule
     [[ -z "${2:-}" ]] || printf '%s\n' "$2"
@@ -208,26 +225,43 @@ show_task_progress() {
 }
 
 info() {
-
-    echo -e "${BLUE}[INFO]${NC} $1"
+    if [[ "${PD_UI_ACTIVE:-false}" == true ]]; then
+        pd_log INFO "$1"
+        ui_set_operation "$1"
+    else
+        echo -e "${BLUE}[INFO]${NC} $1"
+    fi
 
 }
 
 success() {
-
-    echo -e "${GREEN}[ OK ]${NC} $1"
+    if [[ "${PD_UI_ACTIVE:-false}" == true ]]; then
+        pd_log OK "$1"
+        ui_set_operation "$1"
+    else
+        echo -e "${GREEN}[ OK ]${NC} $1"
+    fi
 
 }
 
 warning() {
-
-    echo -e "${YELLOW}[WARN]${NC} $1"
+    if [[ "${PD_UI_ACTIVE:-false}" == true ]]; then
+        pd_log WARN "$1"
+        ui_step_warning "$1"
+    else
+        echo -e "${YELLOW}[WARN]${NC} $1"
+    fi
 
 }
 
 error() {
-
-    echo -e "${RED}[ERROR]${NC} $1"
+    if [[ "${PD_UI_ACTIVE:-false}" == true ]]; then
+        pd_log ERROR "$1"
+        PD_ERROR_COUNT=$((PD_ERROR_COUNT + 1))
+        ui_set_operation "$1"
+    else
+        echo -e "${RED}[ERROR]${NC} $1"
+    fi
 
 }
 
@@ -284,7 +318,7 @@ confirm_start() {
 
     echo
 
-    read -rp "Continue with PoeDeploy? [Y/n]: " answer
+    ui_prompt answer "Continue with PoeDeploy? [Y/n]: "
 
     if [[ -z "$answer" || "$answer" =~ ^[Yy]$ ]]; then
         :
@@ -298,15 +332,48 @@ confirm_start() {
 
 }
 
+POEDEPLOY_IN_CHROOT=false
+
+detect_chroot() {
+    if command -v systemd-detect-virt >/dev/null 2>&1 && systemd-detect-virt --quiet --chroot; then
+        POEDEPLOY_IN_CHROOT=true
+    elif [[ -r /proc/1/root/. && -r /. ]] &&
+         [[ "$(stat -Lc '%d:%i' /proc/1/root/. 2>/dev/null || true)" != "$(stat -Lc '%d:%i' /. 2>/dev/null || true)" ]]; then
+        POEDEPLOY_IN_CHROOT=true
+    fi
+}
+
 check_not_root() {
 
     if [[ "$EUID" -eq 0 ]]; then
+        if [[ "$POEDEPLOY_IN_CHROOT" == true ]]; then
+            sudo() { command "$@"; }
+            warning "Chroot detected. Privileged commands will run directly. Services will only be enabled, not started."
+            return 0
+        fi
         die "Run PoeDeploy as a regular user. It will request sudo when required."
     fi
 
-    if ! command -v sudo >/dev/null 2>&1; then
+    POEDEPLOY_SUDO_BIN=$(type -P sudo || true)
+    if [[ -z "$POEDEPLOY_SUDO_BIN" ]]; then
         die "sudo is required to run PoeDeploy."
     fi
+
+    sudo() {
+        local authentication_status
+        if [[ "${PD_UI_ACTIVE:-false}" == true ]] &&
+           ! command "$POEDEPLOY_SUDO_BIN" -n true 2>/dev/null; then
+            ui_dashboard_pause
+            if command "$POEDEPLOY_SUDO_BIN" -v </dev/tty >/dev/tty; then
+                authentication_status=0
+            else
+                authentication_status=$?
+            fi
+            ui_dashboard_resume
+            ((authentication_status == 0)) || return "$authentication_status"
+        fi
+        command "$POEDEPLOY_SUDO_BIN" "$@"
+    }
 }
 
 can_use_checklist() {
@@ -319,13 +386,21 @@ can_use_checklist() {
 # Keep both menus consistent and preserve gum's cancellation exit status.
 choose_checklist() {
     local header="$1" defaults="${2:-}"
-    gum choose --no-limit --selected="$defaults" \
+    local status
+    ui_dashboard_pause
+    if gum choose --no-limit --selected="$defaults" \
         --cursor='> ' --cursor-prefix '[ ] ' --selected-prefix '[✓] ' \
         --unselected-prefix '[ ] ' --height=15 --no-show-help \
         --cursor.foreground='#004FFE' \
         --selected.foreground='#004FFE' \
         --header.foreground='#004FFE' \
-        --header="$header"
+        --header="$header"; then
+        status=0
+    else
+        status=$?
+    fi
+    ui_dashboard_resume
+    return "$status"
 }
 
 choose_setup_checklist() {
@@ -396,7 +471,7 @@ choose_run_mode() {
     printf '  1. %s\n  2. %s\n  3. %s\n\n' "${options[@]}"
     echo "Enter 1–3 · Enter defaults to Choose sections · Ctrl+C exits"
     while true; do
-        if ! read -rp "Choice [1]: " selection; then
+        if ! ui_prompt selection "Choice [1]: "; then
             return 1
         fi
         case "$selection" in
@@ -439,7 +514,7 @@ choose_setup_modules() {
             printf '  [%s] %2d. %s\n' "$marker" "$((index + 1))" "${SETUP_MODULE_LABELS[$module]}"
         done
         echo "Enter numbers to toggle, for example 6 11. You can also enter all, none, run, or quit."
-        if ! read -rp "Selection: " input; then
+        if ! ui_prompt input "Selection: "; then
             return 1
         fi
         case "${input,,}" in
@@ -1257,7 +1332,7 @@ setup_uki() {
     fi
 
     local answer
-    read -rp "Create UKIs alongside the existing boot images? [y/N]: " answer
+    ui_prompt answer "Create UKIs alongside the existing boot images? [y/N]: "
 
     if [[ ! "$answer" =~ ^[Yy]$ ]]; then
         info "UKI setup skipped."
@@ -1520,7 +1595,7 @@ check_networkmanager() {
 
     fi
 
-    if ! systemctl is-active NetworkManager &>/dev/null; then
+    if [[ "$POEDEPLOY_IN_CHROOT" != true ]] && ! systemctl is-active NetworkManager &>/dev/null; then
 
         sudo systemctl start NetworkManager
 
@@ -2609,13 +2684,16 @@ select_plymouth_theme() {
         ((picker_height >= 3)) || picker_height=3
 
         echo "↑/↓ or j/k move · ←/→ or h/l page · g/G first/last · Enter apply · Esc cancel"
+        ui_dashboard_pause
         if ! selection=$(gum choose --limit=1 --selected="" --height="$picker_height" \
             --cursor='> ' --no-show-help --cursor.foreground='#004FFE' \
             --header.foreground='#004FFE' --header='Select Plymouth theme' \
             "${labels[@]}"); then
+            ui_dashboard_resume
             warning "Theme selection cancelled before rebuilding boot images."
             return 1
         fi
+        ui_dashboard_resume
         for i in "${!labels[@]}"; do
             if [[ "$selection" == "${labels[$i]}" ]]; then
                 choice="$i"
@@ -2632,7 +2710,7 @@ select_plymouth_theme() {
             printf '  [%s] %s\n' "$i" "${labels[$i]}"
         done
         while true; do
-            if ! read -rp "Select a theme [0-${#themes[@]}]: " choice; then
+            if ! ui_prompt choice "Select a theme [0-${#themes[@]}]: "; then
                 warning "Theme selection cancelled before rebuilding boot images."
                 return 1
             fi
@@ -2873,7 +2951,7 @@ install_ml4w() {
     local answer installer_file
     ui_heading "ML4W desktop"
 
-    read -rp "Install ML4W Hyprland? [Y/n]: " answer
+    ui_prompt answer "Install ML4W Hyprland? [Y/n]: "
 
     if [[ -n "$answer" && ! "$answer" =~ ^[Yy]$ ]]; then
         info "ML4W installation skipped."
@@ -2916,7 +2994,7 @@ install_ml4w() {
 
 choose_sddm_setup() {
     local answer
-    read -rp "Install and configure SDDM graphical login? [Y/n]: " answer
+    ui_prompt answer "Install and configure SDDM graphical login? [Y/n]: "
     if [[ -n "$answer" && ! "$answer" =~ ^[Yy]$ ]]; then
         CONFIGURE_ML4W_SDDM=false
         SDDM_ACTION="skipped"
@@ -2924,7 +3002,7 @@ choose_sddm_setup() {
     fi
 
     CONFIGURE_ML4W_SDDM=true
-    read -rp "Use the ML4W SDDM theme? [Y/n]: " answer
+    ui_prompt answer "Use the ML4W SDDM theme? [Y/n]: "
     if [[ -z "$answer" || "$answer" =~ ^[Yy]$ ]]; then
         ML4W_ENABLED=true
         ensure_command_dependencies git:git
@@ -3075,6 +3153,10 @@ declare -A APPLICATIONS=(
 
     ["PowerTOP"]="powertop"
 
+    ["PenDash (dashboard)"]="@pendash"
+
+    ["PoeDash (dashboard)"]="@poedash"
+
     ["Proton VPN"]="proton-vpn-gtk-app"
 
     ["Tailscale"]="tailscale"
@@ -3220,7 +3302,7 @@ install_optional_package() {
             warning "$package was interrupted. The package command has exited."
             info "Already installed dependencies are kept. Skipping does not uninstall or roll back files."
             while true; do
-                if ! read -rp "[s] Skip this package, [r] Retry, [q] Quit PoeDeploy [s]: " choice; then
+                if ! ui_prompt choice "[s] Skip this package, [r] Retry, [q] Quit PoeDeploy [s]: "; then
                     exit 130
                 fi
                 case "${choice,,}" in
@@ -3255,6 +3337,16 @@ install_selected_applications() {
     fi
 
     for package in "${SELECTED_PACKAGES[@]}"; do
+        case "$package" in
+            @poedash)
+                install_dashboard_application PoeDash "$POEDASH_INSTALLER_URL"
+                continue
+                ;;
+            @pendash)
+                install_dashboard_application PenDash "$PENDASH_INSTALLER_URL"
+                continue
+                ;;
+        esac
         if [[ "$package" == vlc-plugins-all ]] && package_was_skipped vlc; then
             SKIPPED_PACKAGES+=("$package")
             info "Skipping VLC plugins because VLC was skipped."
@@ -3374,7 +3466,7 @@ select_default_browser() {
 
     local choice
     while true; do
-        read -rp "Select the default browser [0-${#browser_names[@]}]: " choice || choice=0
+        ui_prompt choice "Select the default browser [0-${#browser_names[@]}]: " || choice=0
 
         if [[ "$choice" == "0" || -z "$choice" ]]; then
             info "Keeping the current default browser."
@@ -3481,7 +3573,7 @@ share_mount_record() {
 require_input() {
     local prompt="$1" value retry
     while true; do
-        read -rp "$prompt" value || return 1
+        ui_prompt value "$prompt" || return 1
         value="${value#"${value%%[![:space:]]*}"}"
         value="${value%"${value##*[![:space:]]}"}"
         if [[ -n "$value" ]]; then
@@ -3489,7 +3581,7 @@ require_input() {
             return 0
         fi
         warning "This field cannot be empty."
-        read -rp "Try again? [Y/n]: " retry || return 1
+        ui_prompt retry "Try again? [Y/n]: " || return 1
         [[ -z "$retry" || "$retry" =~ ^[Yy]$ ]] || return 1
     done
 }
@@ -3680,9 +3772,8 @@ setup_network_share() {
             if [[ "$kind" == SMB ]]; then
                 require_input "SMB username: " || return 0
                 username="$REPLY"
-                read -rsp "SMB password: " password || { echo; return 0; }
-                echo
-                read -rp "SMB domain/workgroup (optional): " domain || return 0
+                ui_prompt password "SMB password: " true || return 0
+                ui_prompt domain "SMB domain/workgroup (optional): " || return 0
                 source="//$server/$share"
             else
                 source="$server:$share"
@@ -3710,7 +3801,7 @@ setup_network_share() {
         fi
         warning "$kind setup failed. Check the address, share/export, access permissions and network."
         while true; do
-            if ! read -rp "[r] Retry with corrected details, [s] Skip this share [s]: " answer; then
+            if ! ui_prompt answer "[r] Retry with corrected details, [s] Skip this share [s]: "; then
                 action="skipped after failed attempt"
                 return 0
             fi
@@ -3744,7 +3835,7 @@ configure_network_shares() {
     NETWORK_SHARES_ACTION="not selected"
 
     while true; do
-        read -rp "Select an option [0-3]: " choice
+        ui_prompt choice "Select an option [0-3]: "
 
         case "$choice" in
             0|"")
@@ -3846,7 +3937,11 @@ configure_tailscale() {
 
     fi
 
-    if systemctl is-active tailscaled &>/dev/null; then
+    if [[ "$POEDEPLOY_IN_CHROOT" == true ]]; then
+
+        info "Chroot detected. tailscaled will start after reboot."
+
+    elif systemctl is-active tailscaled &>/dev/null; then
 
         success "Tailscale service is already running."
 
@@ -3898,7 +3993,7 @@ setup_secure_boot() {
 
     ui_heading "Secure Boot"
 
-    read -rp "Configure Secure Boot with sbctl? [y/N]: " answer
+    ui_prompt answer "Configure Secure Boot with sbctl? [y/N]: "
 
     if [[ -z "$answer" || ! "$answer" =~ ^[Yy]$ ]]; then
         info "Secure Boot configuration skipped."
@@ -3964,7 +4059,7 @@ setup_secure_boot() {
         echo
         warning "Creating Secure Boot keys changes the trust configuration used by this machine."
         warning "Do not continue unless you understand how to recover through the firmware setup."
-        read -rp "Type CREATE to create new Secure Boot keys: " create_confirmation
+        ui_prompt create_confirmation "Type CREATE to create new Secure Boot keys: "
 
         if [[ "$create_confirmation" != "CREATE" ]]; then
             info "Secure Boot key creation cancelled."
@@ -3996,7 +4091,7 @@ setup_secure_boot() {
         echo
         warning "The next step writes Secure Boot keys to firmware variables."
         warning "Microsoft certificates will be retained for Windows and signed option ROM compatibility."
-        read -rp "Type ENROLL to enrol the keys with Microsoft certificates: " enroll_confirmation
+        ui_prompt enroll_confirmation "Type ENROLL to enrol the keys with Microsoft certificates: "
 
         if [[ "$enroll_confirmation" != "ENROLL" ]]; then
             info "Firmware key enrollment cancelled. No EFI files will be signed."
@@ -4020,7 +4115,7 @@ setup_secure_boot() {
 
         warning "Existing key files alone do not prove that these keys are enrolled in firmware."
         local enrolled_confirmation
-        read -rp "Have these exact sbctl keys already been enrolled in this machine? [y/N]: " enrolled_confirmation
+        ui_prompt enrolled_confirmation "Have these exact sbctl keys already been enrolled in this machine? [y/N]: "
         if [[ ! "$enrolled_confirmation" =~ ^[Yy]$ ]]; then
             SECURE_BOOT_ACTION="keys created but not enrolled"
             return 0
@@ -4029,7 +4124,7 @@ setup_secure_boot() {
 
     echo
     warning "Signing replaces or adds signatures on the systemd-boot and UKI files listed below."
-    read -rp "Type SIGN to build and sign the boot chain: " sign_confirmation
+    ui_prompt sign_confirmation "Type SIGN to build and sign the boot chain: "
 
     if [[ "$sign_confirmation" != "SIGN" ]]; then
         info "Secure Boot signing cancelled."
@@ -4268,7 +4363,6 @@ run_setup_module() {
         sddm) wait_for_pacman_lock; choose_sddm_setup ;;
         applications)
             wait_for_pacman_lock
-            select_applications
             install_selected_applications
             ;;
         browser) ensure_command_dependencies xdg-settings:xdg-utils xdg-mime:xdg-utils; select_default_browser ;;
@@ -4277,6 +4371,71 @@ run_setup_module() {
         secure_boot) ensure_command_dependencies objcopy:binutils jq:jq; wait_for_pacman_lock; setup_secure_boot ;;
         *) die "Unknown setup section: $1" ;;
     esac
+}
+
+PD_PERSIST_VARIABLES=(
+    FAILED_PACKAGES SKIPPED_PACKAGES INSTALLED_PACKAGES SELECTED_PACKAGES SELECTED_APPS
+    ML4W_ENABLED CONFIGURE_ML4W_SDDM DEFAULT_BROWSER_ACTION SECURE_BOOT_ACTION
+    SECURE_BOOT_VERIFY_STATUS SECURE_BOOT_OTHER_FILES_WARNING SECURE_BOOT_AUTOMATIC_ACTION
+    BOOT_IMAGE_ACTION VERIFIED_PLYMOUTH_UKIS UKI_ACTION GPU_VENDOR GPU_MODEL BOOTLOADER
+    UKI_ENABLED UKI_BOOTED UKI_STATUS UKI_BOOT_ROOT UKI_SPLASH_PATH UKI_CMDLINE_WRITE_ATTEMPTED
+    ROOT_FILESYSTEM HYPRLAND_STATUS SDDM_STATUS SDDM_ACTIVE_STATUS SDDM_THEME_STATUS
+    HYPRLAND_INITIAL_STATUS SDDM_INITIAL_STATUS SDDM_ACTIVE_INITIAL_STATUS
+    SDDM_THEME_INITIAL_STATUS ML4W_ACTION SDDM_ACTION APPLICATIONS_ACTION
+    NETWORK_SHARES_ACTION SMB_ACTION NFS_ACTION PD_WARNING_COUNT PD_ERROR_COUNT
+)
+
+pd_save_child_state() {
+    local destination="$1" name declaration temporary
+    temporary="${destination}.new.$$"
+    : >"$temporary"
+    for name in "${PD_PERSIST_VARIABLES[@]}"; do
+        declaration=$(declare -p "$name" 2>/dev/null) || continue
+        declaration=${declaration/#declare -a /declare -ga }
+        declaration=${declaration/#declare -A /declare -gA }
+        declaration=${declaration/#declare -- /declare -g -- }
+        printf '%s\n' "$declaration" >>"$temporary"
+    done
+    mv -f -- "$temporary" "$destination"
+}
+
+run_dashboard_stage() {
+    local module="$1" index="$2" label="$3" state_file="$PD_UI_DIR/module-state" status decision safe_skip=false
+    case "$module" in applications|browser|shares|tailscale) safe_skip=true ;; esac
+
+    while true; do
+        rm -f -- "$state_file" "$PD_UI_DIR/abort"
+        ui_step_start "$index" "$label"
+        (
+            trap - EXIT INT TERM
+            set -Eeuo pipefail
+            run_setup_module "$module"
+            pd_save_child_state "$state_file"
+        ) >>"$POEDEPLOY_LOG" 2>&1 </dev/tty &
+        PD_TASK_PID=$!
+        printf '%s\n' "$PD_TASK_PID" >"$PD_UI_DIR/task_pid"
+        if wait "$PD_TASK_PID"; then status=0; else status=$?; fi
+        rm -f -- "$PD_UI_DIR/task_pid"
+
+        if [[ -r "$state_file" ]]; then
+            # Contains only declare statements generated by this PoeDeploy process.
+            # shellcheck source=/dev/null
+            source "$state_file"
+        fi
+        if ((status == 0)); then
+            ui_step_complete "$index"
+            return 0
+        fi
+        ui_step_failed "$index" "$label failed with exit code $status"
+        pd_log ERROR "$label failed with exit code $status"
+        if [[ -e "$PD_UI_DIR/abort" ]]; then return 130; fi
+        if ui_error_screen "$label" "$status" "$safe_skip"; then decision=0; else decision=$?; fi
+        case "$decision" in
+            10) continue ;;
+            30) PD_STAGE_STATUS[$((index - 1))]=warning; PD_COMPLETED_STAGES="$index"; _pd_state_write; return 0 ;;
+            *) return "$status" ;;
+        esac
+    done
 }
 
 run_selected_setup_modules() {
@@ -4290,8 +4449,12 @@ run_selected_setup_modules() {
     for module in "${SETUP_MODULE_IDS[@]}"; do
         if [[ "${SELECTED_SETUP_MODULES[$module]:-false}" == true ]]; then
             current=$((current + 1))
-            show_task_progress "$current" "$total" "${SETUP_MODULE_LABELS[$module]}"
-            run_setup_module "$module"
+            if [[ "${PD_UI_ACTIVE:-false}" == true ]]; then
+                run_dashboard_stage "$module" "$current" "${SETUP_MODULE_LABELS[$module]}"
+            else
+                show_task_progress "$current" "$total" "${SETUP_MODULE_LABELS[$module]}"
+                run_setup_module "$module"
+            fi
             PROCESSED_SETUP_MODULES+=("$module")
         fi
     done
@@ -4314,7 +4477,7 @@ preview_interface() {
     show_selected_setup_modules
     show_task_progress 1 3 'Plymouth boot theme'
     info "Example: checking the installed boot theme."
-    printf '  Command output stays visible here as each task runs.\n'
+    printf '  Command output is written to the PoeDeploy log during a real run.\n'
     show_task_progress 2 3 'Optional applications'
     info "Example: installing an application you selected."
     show_task_progress 3 3 'SMB / NFS shares'
@@ -4331,6 +4494,7 @@ main() {
     fi
     load_version
     show_header
+    detect_chroot
     check_not_root
     check_arch
 
@@ -4351,10 +4515,31 @@ main() {
     save_initial_graphical_status
     show_summary
 
+    # Collect optional application choices before the static installation view
+    # starts, so interactive planning never competes with background tasks.
+    if [[ "${SELECTED_SETUP_MODULES[applications]:-false}" == true ]]; then
+        select_applications
+    fi
+
     if [[ "$RUN_MODE" == full ]]; then
         check_internet
     fi
+    pd_logger_init
+    local -a selected_stage_names=()
+    local module
+    for module in "${SETUP_MODULE_IDS[@]}"; do
+        [[ "${SELECTED_SETUP_MODULES[$module]:-false}" != true ]] ||
+            selected_stage_names+=("${SETUP_MODULE_LABELS[$module]}")
+    done
+    ui_progress_init "${selected_stage_names[@]}"
+    ui_dashboard_start
+    trap 'status=$?; ui_cleanup "$status"; exit "$status"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
     run_selected_setup_modules
+    ui_complete
+    ui_cleanup 0
+    trap - EXIT INT TERM
 
     # Final result
 

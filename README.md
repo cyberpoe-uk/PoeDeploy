@@ -55,9 +55,15 @@ PoeDeploy folder and run:
 bash poedeploy.sh --preview
 ```
 
-During setup, numbered steps show which task is running. Command output stays
-visible and you can scroll back to read it. The menus and headings use PoeDeploy
-blue, with plain text when colours are disabled.
+During installation, PoeDeploy uses a static terminal dashboard showing the real
+stage count, current operation, completed and pending stages, warnings, errors,
+and the log path. Press `L` to switch to the live log and `Q` or Esc to return.
+On the main dashboard, `Q` aborts the active task. Normal command output is kept
+out of the dashboard and written to the log instead.
+
+The preferred log is `/var/log/poedeploy.log`. When that location is not
+writable, PoeDeploy uses `~/.local/state/poedeploy/poedeploy.log`. The normal
+terminal screen and cursor are restored after completion, failure, or Ctrl+C.
 
 ## A few examples
 
@@ -83,7 +89,12 @@ Esc cancels. **Keep current theme** leaves the selection unchanged.
 The application list includes:
 
 7-Zip, Discord, Firefox, GIMP, HyprMod, LibreOffice, LocalSend, OBS Studio,
-PowerTOP, Proton VPN, Spotify, Tailscale, Thunderbird, Visual Studio Code, and VLC.
+PenDash, PoeDash, PowerTOP, Proton VPN, Spotify, Tailscale, Thunderbird,
+Visual Studio Code, and VLC.
+
+PoeDash and PenDash use their public installers from `cyberpoe.uk`. PoeDeploy
+downloads each installer to a temporary file, validates its Bash syntax, runs it
+as your desktop user, and removes the temporary file afterwards.
 
 PoeDeploy prefers packages from the official Arch repositories. It uses `yay`
 when an application is only available from the Arch User Repository, usually
@@ -154,9 +165,36 @@ repository helps make sure the same safety checks are available on every machine
 To run those checks while developing PoeDeploy:
 
 ```bash
-bash -n poedeploy.sh
+bash -n poedeploy.sh poedeploy-latest ui/*.sh installer/*.sh
 python3 -m unittest discover -s tests -v
 ```
+
+## Installer architecture
+
+The existing setup functions remain in `poedeploy.sh`, while the new runtime is
+split into three layers:
+
+- `installer/applications.sh` contains the PoeDash and PenDash installers.
+- `ui/progress.sh` owns stage state and real progress calculations.
+- `ui/dashboard.sh` and `ui/keyboard.sh` render the static TTY and handle keys.
+- `ui/logger.sh` owns the log and provides `run_cmd` and `run_cmd_capture` for
+  new or gradually refactored installer operations.
+
+The ordered `SETUP_MODULE_IDS` and `SETUP_MODULE_LABELS` declarations define the
+stages. To add one, add its ID and label, implement its setup function, and add a
+dispatcher case in `run_setup_module`. Installer code reports detail with
+`info`, `success`, `warning`, or `ui_set_operation`. It never needs to draw the
+dashboard itself.
+
+Each selected stage runs as a background task while the dashboard owns the TTY.
+Interactive questions temporarily restore the normal screen, then redraw the
+dashboard. A failed critical stage offers retry, log, or abort. Explicitly safe
+optional stages also offer skip.
+
+Inside an Arch chroot, PoeDeploy allows the chroot's root user, runs privileged
+commands directly, and enables services without trying to start them. Tasks that
+need a running graphical session or real boot state may still need to be rerun
+after the first boot.
 
 ## Development note
 
