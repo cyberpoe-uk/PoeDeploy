@@ -9,7 +9,7 @@ try:
         capture_output=True, text=True, check=True, timeout=3)
     mounts = json.loads(result.stdout).get('filesystems', [])
     rows = [f"{item.get('fstype', '--').upper():5} {item.get('target', '--')}  ←  {item.get('source', '--')}"
-            for item in mounts[:5]]
+            for item in mounts]
 except (OSError, ValueError, subprocess.SubprocessError):
     rows = []
 print(json.dumps(rows or ['No SMB or NFS shares mounted']))

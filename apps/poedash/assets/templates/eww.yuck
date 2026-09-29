@@ -6,7 +6,7 @@
 (defpoll cpu :interval "2s" :initial 0 `./scripts/cpu.sh`)
 (defpoll ram :interval "3s" :initial 0 `./scripts/arch-status.sh ram`)
 (defpoll gpu :interval "5s" :initial '{"usage":0,"label":"--","temperature":"--"}' `./scripts/gpu.sh`)
-(defpoll network :interval "5s" :initial '{"interface":"--","ip":"--","state":"Offline"}' `./scripts/network.sh`)
+(defpoll network :interval "5s" :initial '{"interface":"--","ip":"--","tailscale":"--","state":"Offline"}' `./scripts/network.sh`)
 (defpoll vpn :interval "5s" :initial '{"summary":"No active VPN","count":"0"}' `./scripts/vpn.sh`)
 (defpoll arch :interval "1m" :initial '{"kernel":"--","uptime":"--"}' `./scripts/arch-status.sh`)
 (defpoll packages :interval "30m" :initial "--" `./scripts/arch-status.sh packages`)
@@ -100,11 +100,12 @@
             (stat-row :name "Network" :value {network.state})
             (stat-row :name "Interface" :value {network.interface})
             (stat-row :name "Address" :value {network.ip})
+            (stat-row :name "Tailscale IP" :value {network.tailscale})
             (stat-row :name "VPN" :value {vpn.summary})
             (box :class "shares" :orientation "v" :space-evenly false :spacing 7 :vexpand true
               (label :class "subheading" :text "SMB / NFS SHARES" :halign "start")
               (for share in shares
-                (label :class "share-row" :text share :halign "start" :limit-width 48))))
+                (label :class "share-row" :text share :halign "start" :wrap true :hexpand true))))
 
           (box :class "card media-card" :orientation "v" :space-evenly false :spacing 12
             (box :space-evenly false :spacing 14

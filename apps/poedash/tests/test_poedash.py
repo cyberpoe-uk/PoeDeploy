@@ -151,7 +151,8 @@ class Installation(unittest.TestCase):
         self.assertEqual(poedash.settings(self.root)['name'], 'Studio PC')
         yuck = (self.root / 'eww.yuck').read_text()
         for feature in ('TOP PROCESSES', 'Power draw', 'SMB / NFS SHARES',
-                        '${system_info.host} SPECIFICATIONS', 'media-control.sh spotify'):
+                        '${system_info.host} SPECIFICATIONS', 'media-control.sh spotify',
+                        'Tailscale IP', ':wrap true'):
             self.assertIn(feature, yuck)
         self.assertIn(':visible {power.available}', yuck)
         self.assertIn(':width 520', yuck)

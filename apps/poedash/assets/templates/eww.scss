@@ -32,6 +32,7 @@ progressbar trough { min-width: 65px; min-height: 6px; background-color: rgba($b
 progressbar progress { min-height: 6px; background-color: $accent; border-radius: 3px; }
 .power-strip, .shares { border-top: 1px solid rgba($border, 0.30); padding-top: 15px; }
 .process-row, .share-row { font-size: 14px; color: $secondary; }
+.share-row { padding: 4px 0; }
 .process-heading, .process-row { font-family: "JetBrains Mono", monospace; }
 .process-row { padding: 5px 0; border-bottom: 1px solid rgba($border, 0.18); }
 .info-key { color: $muted; font-size: 12px; letter-spacing: 0.8px; }
