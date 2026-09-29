@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+on_ac=false
+for supply in /sys/class/power_supply/*; do
+  [ -r "$supply/type" ] && [ -r "$supply/online" ] || continue
+  [ "$(cat "$supply/type")" = Battery ] && continue
+  [ "$(cat "$supply/online")" = 1 ] && on_ac=true
+done
+case "${1:-}" in
+  battery-display)
+    $on_ac || hyprctl dispatch 'hl.dsp.dpms({ action = "disable" })' ;;
+  final)
+    if $on_ac; then
+      hyprctl dispatch 'hl.dsp.dpms({ action = "disable" })'
+    else
+      systemctl suspend
+    fi ;;
+  *) exit 2 ;;
+esac

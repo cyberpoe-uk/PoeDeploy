@@ -39,37 +39,53 @@ install_selected_applications
 [[ ${#INSTALLED_PACKAGES[@]} == 3 ]]
 ''')
 
-    def test_poedash_and_pendash_are_public_optional_installers(self):
+    def test_dashboards_are_bundled_and_dispatch_with_distinct_modes(self):
+        output = self.check(r'''
+install_bundled_dashboard_application() { printf 'DASHBOARD:%s:%s:%s\n' "$1" "$2" "${3:-}"; }
+SELECTED_PACKAGES=(@poedash @pendash-dashboard @pendash-full)
+install_selected_applications
+''')
+        self.assertIn('DASHBOARD:PoeDash:poedash:', output)
+        self.assertIn('DASHBOARD:PenDash dashboard:pendash:--dashboard-only', output)
+        self.assertIn('DASHBOARD:PenDash full laptop setup:pendash:', output)
+
+    def test_dashboard_choices_are_mutually_exclusive(self):
         output = self.check(r'''
 gum() { :; }
+attempt_file=$(mktemp)
+printf '0\n' >"$attempt_file"
 choose_checklist() {
     options=$(cat)
     [[ "$options" == *'PoeDash (dashboard)'* ]] || exit 91
-    [[ "$options" == *'PenDash (dashboard)'* ]] || exit 92
-    printf '%s\n' 'PoeDash (dashboard)' 'PenDash (dashboard)'
+    [[ "$options" == *'PenDash (dashboard only)'* ]] || exit 92
+    [[ "$options" == *'PenDash (full laptop setup)'* ]] || exit 93
+    calls=$(<"$attempt_file")
+    calls=$((calls + 1))
+    printf '%s\n' "$calls" >"$attempt_file"
+    if ((calls == 1)); then
+        printf '%s\n' 'PoeDash (dashboard)' 'PenDash (dashboard only)'
+    else
+        printf '%s\n' 'PenDash (dashboard only)'
+    fi
 }
 select_applications
-[[ "${SELECTED_PACKAGES[*]}" == '@poedash @pendash' || "${SELECTED_PACKAGES[*]}" == '@pendash @poedash' ]]
-install_dashboard_application() { printf 'DASHBOARD:%s:%s\n' "$1" "$2"; }
-install_selected_applications
+[[ "$(<"$attempt_file")" == 2 ]]
+[[ "${SELECTED_PACKAGES[*]}" == '@pendash-dashboard' ]]
+rm -f -- "$attempt_file"
 ''')
-        self.assertIn('DASHBOARD:PoeDash:https://cyberpoe.uk/poedash-latest', output)
-        self.assertIn('DASHBOARD:PenDash:https://cyberpoe.uk/pendash-latest', output)
+        self.assertIn('cannot be installed together', output)
 
-    def test_dashboard_installer_validates_download_before_running(self):
+    def test_noninteractive_dashboard_refresh_dispatches_without_setup_menu(self):
         output = self.check(r'''
-download=''
-curl() {
-    while (($#)); do
-        if [[ "$1" == --output ]]; then download="$2"; break; fi
-        shift
-    done
-    printf '#!/usr/bin/env bash\necho DASHBOARD_INSTALL_RAN\n' >"$download"
-}
-install_dashboard_application PoeDash "$POEDASH_INSTALLER_URL"
-[[ "${INSTALLED_PACKAGES[*]}" == PoeDash && ! -e "$download" ]]
+load_version() { :; }
+check_not_root() { :; }
+check_arch() { :; }
+install_bundled_dashboard_application() { printf 'REFRESH:%s:%s:%s\n' "$1" "$2" "$3"; }
+main --install-dashboard poedash
+main --install-dashboard pendash
 ''')
-        self.assertIn('DASHBOARD_INSTALL_RAN', output)
+        self.assertIn('REFRESH:PoeDash update:poedash:--skip-deps', output)
+        self.assertIn('REFRESH:PenDash update:pendash:--update-dashboard', output)
 
     def test_plymouth_cancellation_ignores_partial_output(self):
         self.check(r'''

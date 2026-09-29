@@ -57,6 +57,25 @@ rm -f -- "$POEDEPLOY_LOG"
         for relative in expected:
             self.assertTrue((root / relative).is_file(), relative)
 
+    def test_dashboard_installers_are_fully_bundled(self):
+        root = Path(__file__).resolve().parents[1]
+        expected = [
+            'apps/poedash/install.sh', 'apps/poedash/poedash.py',
+            'apps/poedash/assets/templates/eww.yuck',
+            'apps/poedash/assets/scripts/DashboardModule.qml',
+            'apps/poedash/assets/scripts/dashboard-control.py',
+            'apps/pendash/install.sh', 'apps/pendash/pendash.py',
+            'apps/pendash/dashboard/eww.yuck', 'apps/pendash/assets/custom.lua',
+            'apps/pendash/dashboard/scripts/DashboardModule.qml',
+            'apps/pendash/dashboard/scripts/dashboard-control.py',
+        ]
+        for relative in expected:
+            self.assertTrue((root / relative).is_file(), relative)
+        installer = (root / 'installer/applications.sh').read_text()
+        self.assertNotIn('cyberpoe.uk', installer)
+        self.assertNotIn('github.com', installer)
+        self.assertNotIn('curl ', installer)
+
     def test_live_log_switch_and_terminal_cleanup_in_a_real_pty(self):
         pid, fd = pty.fork()
         if pid == 0:

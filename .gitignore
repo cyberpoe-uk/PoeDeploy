@@ -11,6 +11,8 @@
 
 # OS files
 .DS_Store
+__pycache__/
+*.py[cod]
 
 # Local testing
 test/

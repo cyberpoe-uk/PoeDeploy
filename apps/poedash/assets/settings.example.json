@@ -1,0 +1,12 @@
+{
+  "monitor": 0,
+  "layout": {"scale": "auto", "system_width": 540, "network_width": 450, "lower_height": 210},
+  "launchers": {
+    "burp": {"label": "BURP", "workspace": 2, "command": [], "classes": ["install4j-burp-StartBurp", "burp-StartBurp", "burpsuite"]},
+    "firefox": {"label": "CTF FIREFOX", "workspace": 2, "command": [], "classes": ["firefox-ctf"]},
+    "terminal": {"label": "TERMINAL", "workspace": 3, "command": ["kitty", "--class", "dashboard-ctf-terminal"], "classes": ["dashboard-ctf-terminal", "kitty"]},
+    "code": {"label": "CODE", "workspace": 4, "command": [], "classes": ["com.microsoft.VSCode", "Code", "VSCodium", "codium"]},
+    "wireshark": {"label": "WIRESHARK", "workspace": 5, "command": ["wireshark"], "classes": ["org.wireshark.Wireshark", "wireshark"]}
+  },
+  "web_ctf": {"apps": ["burp", "firefox", "terminal"], "workspace": 2}
+}

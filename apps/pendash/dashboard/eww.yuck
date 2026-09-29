@@ -1,0 +1,133 @@
+;; BlackArch home screen. Collectors live in scripts/; GTK styling in eww.scss.
+(deflisten home_visible :initial false `~/.config/eww/scripts/workspace-watch.py`)
+(defpoll clock :run-while home_visible :interval "10s" :initial "--:--" `date '+%H:%M'`)
+(defpoll today :run-while home_visible :interval "30s" :initial "" `LC_ALL=C date '+%a %d %b' | tr '[:lower:]' '[:upper:]'`)
+(defpoll month :run-while home_visible :interval "1m" :initial "" `LC_ALL=C date '+%B %Y'`)
+(defpoll arch :run-while home_visible :interval "1m" :initial '{"kernel":"--","uptime":"--"}' `~/.config/eww/scripts/arch-status.sh`)
+(defpoll packages :run-while home_visible :interval "30m" :initial "--" `~/.config/eww/scripts/arch-status.sh packages`)
+(defpoll updates :run-while home_visible :interval "30m" :initial "--" `~/.config/eww/scripts/arch-status.sh updates`)
+(defpoll calendar_text :run-while home_visible :interval "1m" :initial "" `~/.config/eww/scripts/calendar.sh`)
+
+;; Eww wakes at the AC cadence; expensive collectors return cached data on battery.
+(defpoll cpu :run-while home_visible :interval "2s" :initial 0 `~/.config/eww/scripts/adaptive-run.py cpu 2 15 ~/.config/eww/scripts/cpu.sh`)
+(defpoll ram :run-while home_visible :interval "2s" :initial 0 `~/.config/eww/scripts/adaptive-run.py ram 2 15 ~/.config/eww/scripts/arch-status.sh ram`)
+(defpoll gpu :run-while home_visible :interval "5s" :initial '{"usage":0,"label":"--","temperature":"--"}' `~/.config/eww/scripts/adaptive-run.py gpu 5 30 ~/.config/eww/scripts/gpu.sh`)
+(defpoll network :run-while home_visible :interval "5s" :initial '{"interface":"--","ip":"--","state":"Offline"}' `~/.config/eww/scripts/adaptive-run.py network 5 30 ~/.config/eww/scripts/network.sh`)
+(defpoll vpn :run-while home_visible :interval "5s" :initial '{"tailscale":false,"lab":false}' `~/.config/eww/scripts/adaptive-run.py vpn 5 30 ~/.config/eww/scripts/vpn.sh`)
+(defpoll ctf_status :run-while home_visible :interval "10s" :initial '{"ready":false,"label":"CHECK","detail":"Checking workstation requirements"}' `~/.config/eww/scripts/adaptive-run.py ctf-status 10 60 ~/.config/eww/scripts/ctf-status.sh`)
+(defpoll ctf_target :run-while home_visible :interval "10s" :initial "NOT SET" `~/.config/eww/scripts/adaptive-run.py ctf-target 10 60 ~/.config/eww/scripts/target.sh`)
+(defpoll power :run-while home_visible :interval "2s" :initial '{"laptop":false,"battery":"--","draw":"--","remaining":"--","status":"--","profile":"--","effects":"--","top1":"","top2":"","top3":"","pt_label":"PowerTOP scan","pt_detail":""}' `~/.config/eww/scripts/adaptive-run.py power 2 15 ~/.config/eww/scripts/power-status.py`)
+
+(defwidget launch-button [name app]
+  (button :class "launch-button" :onclick "~/.config/eww/scripts/launch-app.sh ${app}"
+    (label :show-truncated false :text name)))
+
+(defwidget quick-launch []
+  (box :class "quick-launch" :orientation "v" :space-evenly false :spacing 7
+    (label :class "quick-title" :text "QUICK LAUNCH" :halign "start" :show-truncated false)
+    (box :space-evenly true :spacing 12
+      (launch-button :name "BURP" :app "burp")
+      (launch-button :name "CTF BROWSER" :app "firefox")
+      (launch-button :name "TERMINAL" :app "terminal")
+      (launch-button :name "CODE" :app "code")
+      (launch-button :name "WIRESHARK" :app "wireshark"))
+    (box :space-evenly false :spacing 18
+      (button :class "launch-button ctf-start" :width 260 :onclick "~/.config/eww/scripts/launch-app.sh web-ctf"
+        (label :text "START WEB CTF" :show-truncated false))
+      (label :class "target-caption" :text "TARGET:" :show-truncated false)
+      (button :class "target-field" :hexpand true :tooltip "Click to edit target. Enter saves; Escape cancels. No connection or scan is performed." :onclick "~/.config/eww/scripts/target.sh edit"
+        (label :text ctf_target :xalign 0 :limit-width 70))
+      (box :class {ctf_status.ready ? "ctf-ready" : "ctf-check"} :tooltip {ctf_status.detail} :space-evenly false :spacing 8
+        (label :text "●" :show-truncated false)
+        (label :text {ctf_status.label} :show-truncated false)))))
+
+(defwidget section-title [text]
+  (label :show-truncated false :class "card-title" :text text :halign "start"))
+
+(defwidget stat-row [name value]
+  (box :space-evenly false :spacing 22 :hexpand true
+    (label :show-truncated false :class "stat-name" :text name :halign "start" :hexpand true)
+    (label :show-truncated false :class "stat-value" :text value :halign "end")))
+
+(defwidget meter [name value display action]
+  (button :vexpand true :onclick action
+    (box :space-evenly false :spacing 20 :class "meter-row" :vexpand true
+      (label :show-truncated false :class "stat-name" :text name :width 48 :halign "start")
+      (progress :value value :hexpand true :valign "center")
+      (label :show-truncated false :class "stat-value" :text display :width 70 :xalign 1))))
+
+(defwidget vpn-row [name connected]
+  (box :space-evenly false :spacing 20 :vexpand true
+    (label :show-truncated false :class {connected ? "status-dot online" : "status-dot offline"} :text {connected ? "●" : "○"})
+    (label :show-truncated false :text name :halign "start" :hexpand true)
+    (label :show-truncated false :class "micro" :text {connected ? "UP" : "OFF"})))
+
+(defwidget dashboard-content []
+  ;; Only the blocking workspace listener remains active while hidden.
+  (box :space-evenly false
+    (box :class "dashboard-panel" :hexpand true :vexpand true :orientation "v" :space-evenly false :spacing 20 :visible home_visible
+      (box :class "header" :space-evenly false
+        (box :orientation "v" :space-evenly false :hexpand true :spacing 10
+          (label :show-truncated false :class "title" :text "BLACKARCH" :halign "start")
+          (label :show-truncated false :class "subtitle" :text "CYBERPOE // PENTEST WORKSTATION" :halign "start"))
+        (box :orientation "v" :space-evenly false :spacing 10
+          (label :show-truncated false :class "clock" :text clock :halign "end")
+          (label :show-truncated false :class "date" :text today :halign "end")))
+      (box :spacing 22 :space-evenly false :vexpand true
+        (box :class "card system-card" :orientation "v" :space-evenly false :spacing 16 :width 540
+          (button :onclick "~/.config/eww/scripts/launch.sh system" :tooltip "Open btop"
+            (section-title :text "SYSTEM"))
+          (meter :name "CPU" :value cpu :display "${cpu}%" :action "~/.config/eww/scripts/launch.sh system")
+          (meter :name "GPU" :value {gpu.usage} :display {gpu.label} :action "~/.config/eww/scripts/launch.sh gpu")
+          (meter :name "RAM" :value ram :display "${ram}%" :action "~/.config/eww/scripts/launch.sh system")
+          (box :class "temperature" :space-evenly false :vexpand true :valign "end"
+            (stat-row :name "GPU TEMP" :value {gpu.temperature})))
+        (button :onclick "~/.config/eww/scripts/launch.sh network" :tooltip "View addresses and routes"
+          (box :class "card network-card" :orientation "v" :space-evenly false :spacing 28 :width 450
+            (section-title :text "NETWORK")
+            (box :space-evenly false :spacing 8
+              (label :show-truncated false :class {network.state == "Connected" ? "online" : "offline"} :text "●")
+              (label :show-truncated false :class "connection" :text {network.state == "Connected" ? "CONNECTED" : "OFFLINE"}))
+            (label :show-truncated false :class "network-interface" :text {network.interface} :halign "start" :limit-width 22)
+            (label :show-truncated false :class "network-address" :text {network.ip} :halign "start")
+            (label :show-truncated false :class "micro" :text "IPv4 / ROUTE" :halign "start" :valign "end" :vexpand true)))
+        (box :class "card calendar-card" :orientation "v" :space-evenly false :spacing 20 :hexpand true
+          (section-title :text "CALENDAR")
+          (label :show-truncated false :class "calendar-month" :text month :halign "start")
+          (label :show-truncated false :class "calendar-text" :markup calendar_text :unindent false :halign "center" :valign "center" :vexpand true)))
+      (box :spacing 22 :space-evenly false :height 260
+        (box :class "card vpn-card" :orientation "v" :space-evenly false :spacing 20 :width 280
+          (section-title :text "VPN")
+          (vpn-row :name "Tailscale" :connected {vpn.tailscale})
+          (vpn-row :name "Lab VPN" :connected {vpn.lab}))
+        (box :class "card arch-card" :orientation "v" :space-evenly false :spacing 20 :hexpand true
+          (section-title :text "ARCH")
+          (box :space-evenly false :spacing 28
+            (box :orientation "v" :space-evenly false :spacing 20 :hexpand true
+              (stat-row :name "Kernel" :value {arch.kernel})
+              (stat-row :name "Uptime" :value {arch.uptime}))
+            (box :orientation "v" :space-evenly false :spacing 20 :width 240
+              (stat-row :name "Packages" :value packages)
+              (button :onclick "~/.config/eww/scripts/launch.sh updates" :tooltip "Check Arch repository updates"
+                (box :class {updates == "0" ? "updates current" : updates == "--" ? "updates unknown" : "updates pending"}
+                  (stat-row :name "Updates" :value updates))))))
+        (box :class "card power-card" :visible {power.laptop} :orientation "v" :space-evenly false :spacing 6 :width 450
+          (section-title :text "LAPTOP POWER")
+          (label :halign "start" :text "${power.battery} · ${power.status} · ${power.draw}")
+          (label :halign "start" :text {power.remaining})
+          (label :halign "start" :text "CPU: ${power.profile} · FX: ${power.effects}")
+          (label :class "micro" :halign "start" :text "TOP APP ACTIVITY · CPU, NOT WATTS")
+          (label :halign "start" :text {power.top1})
+          (label :halign "start" :text {power.top2})
+          (label :halign "start" :text {power.top3})
+          (button :class "power-scan" :tooltip {power.pt_detail} :onclick "~/.config/eww/scripts/powertop-scan.py"
+            (label :halign "start" :text {power.pt_label}))))
+      (quick-launch))))
+
+(defwindow dashboard
+  :monitor 0
+  :geometry (geometry :x "0px" :y "0px" :width "100%" :height "100%" :anchor "center")
+  :stacking "bg"
+  :exclusive false
+  :focusable false
+  (dashboard-content))

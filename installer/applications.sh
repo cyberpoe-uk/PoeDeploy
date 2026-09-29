@@ -1,31 +1,36 @@
 #!/usr/bin/env bash
 
-POEDASH_INSTALLER_URL="https://cyberpoe.uk/poedash-latest"
-PENDASH_INSTALLER_URL="https://cyberpoe.uk/pendash-latest"
+install_bundled_dashboard_application() {
+    local name="$1" relative_source="$2"
+    shift 2
+    local source_dir="$SCRIPT_DIR/apps/$relative_source"
 
-install_dashboard_application() {
-    local name="$1" url="$2" installer_file
-    ui_set_operation "Downloading the $name installer"
-    if ! installer_file=$(mktemp -t "poedeploy-${name,,}-XXXXXXXX"); then
-        warning "Could not create a temporary file for $name."
+    ui_set_operation "Installing bundled $name"
+    if [[ ! -r "$source_dir/install.sh" ]]; then
+        warning "Bundled $name installer is missing: $source_dir/install.sh"
         FAILED_PACKAGES+=("$name")
         return 0
     fi
-    if ! curl --fail --show-error --silent --location \
-        --proto '=https' --proto-redir '=https' \
-        --connect-timeout 15 --max-time 180 --retry 2 \
-        --output "$installer_file" "$url"; then
-        warning "$name installer download failed. No downloaded code was run."
+    if ! bash -n "$source_dir/install.sh"; then
+        warning "Bundled $name installer has invalid Bash syntax."
         FAILED_PACKAGES+=("$name")
-    elif [[ ! -s "$installer_file" ]] || ! bash -n "$installer_file"; then
-        warning "$name installer download is empty or invalid. No downloaded code was run."
-        FAILED_PACKAGES+=("$name")
-    elif bash "$installer_file"; then
+        return 0
+    fi
+    if bash "$source_dir/install.sh" "$@"; then
         INSTALLED_PACKAGES+=("$name")
-        success "$name installed successfully."
+        success "$name installed successfully from the PoeDeploy bundle."
     else
         warning "$name installation failed. Review $POEDEPLOY_LOG."
         FAILED_PACKAGES+=("$name")
     fi
-    rm -f -- "$installer_file"
+}
+
+dashboard_application_selection_count() {
+    local selected count=0
+    for selected in "$@"; do
+        case "${APPLICATIONS[$selected]:-}" in
+            @poedash|@pendash-dashboard|@pendash-full) count=$((count + 1)) ;;
+        esac
+    done
+    printf '%s\n' "$count"
 }

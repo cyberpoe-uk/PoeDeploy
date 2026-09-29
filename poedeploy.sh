@@ -3153,7 +3153,9 @@ declare -A APPLICATIONS=(
 
     ["PowerTOP"]="powertop"
 
-    ["PenDash (dashboard)"]="@pendash"
+    ["PenDash (dashboard only)"]="@pendash-dashboard"
+
+    ["PenDash (full laptop setup)"]="@pendash-full"
 
     ["PoeDash (dashboard)"]="@poedash"
 
@@ -3205,15 +3207,22 @@ select_applications() {
 
     )
 
-    if ! selection=$(printf '%s\n' "${options[@]}" |
-        choose_checklist "Select applications" ""); then
-        info "Application selection cancelled. Skipping optional applications."
-        APPLICATIONS_ACTION="selection cancelled"
-        return 0
-    fi
-    if [[ -n "$selection" ]]; then
-        mapfile -t SELECTED_APPS <<< "$selection"
-    fi
+    while true; do
+        SELECTED_APPS=()
+        if ! selection=$(printf '%s\n' "${options[@]}" |
+            choose_checklist "Select applications" ""); then
+            info "Application selection cancelled. Skipping optional applications."
+            APPLICATIONS_ACTION="selection cancelled"
+            return 0
+        fi
+        if [[ -n "$selection" ]]; then
+            mapfile -t SELECTED_APPS <<< "$selection"
+        fi
+        if (( $(dashboard_application_selection_count "${SELECTED_APPS[@]}") <= 1 )); then
+            break
+        fi
+        warning "PoeDash and PenDash cannot be installed together. Select only one dashboard option."
+    done
 
     if [[ ${#SELECTED_APPS[@]} -eq 0 ||
           ( ${#SELECTED_APPS[@]} -eq 1 && -z "${SELECTED_APPS[0]}" ) ]]; then
@@ -3339,11 +3348,15 @@ install_selected_applications() {
     for package in "${SELECTED_PACKAGES[@]}"; do
         case "$package" in
             @poedash)
-                install_dashboard_application PoeDash "$POEDASH_INSTALLER_URL"
+                install_bundled_dashboard_application PoeDash poedash
                 continue
                 ;;
-            @pendash)
-                install_dashboard_application PenDash "$PENDASH_INSTALLER_URL"
+            @pendash-dashboard)
+                install_bundled_dashboard_application "PenDash dashboard" pendash --dashboard-only
+                continue
+                ;;
+            @pendash-full)
+                install_bundled_dashboard_application "PenDash full laptop setup" pendash
                 continue
                 ;;
         esac
@@ -4488,6 +4501,22 @@ preview_interface() {
 }
 
 main() {
+    if [[ "${1:-}" == --install-dashboard ]]; then
+        [[ -n "${2:-}" ]] || die "--install-dashboard requires poedash or pendash."
+        load_version
+        check_not_root
+        check_arch
+        case "$2" in
+            poedash)
+                install_bundled_dashboard_application "PoeDash update" poedash --skip-deps
+                ;;
+            pendash)
+                install_bundled_dashboard_application "PenDash update" pendash --update-dashboard
+                ;;
+            *) die "Unknown dashboard: $2" ;;
+        esac
+        return
+    fi
     if [[ "${1:-}" == --preview ]]; then
         preview_interface
         return 0

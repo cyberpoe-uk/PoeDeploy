@@ -1,0 +1,8 @@
+# Lenovo Legion Y540: runtime PM for Ethernet and unused SATA; NVMe untouched.
+ACTION=="add", SUBSYSTEM=="pci", KERNEL=="0000:07:00.0", ATTR{vendor}=="0x10ec", ATTR{device}=="0x8168", TEST=="power/control", ATTR{power/control}="auto"
+ACTION=="add", SUBSYSTEM=="pci", KERNEL=="0000:00:17.0", ATTR{vendor}=="0x8086", ATTR{device}=="0xa353", TEST=="power/control", ATTR{power/control}="auto"
+ACTION=="add|bind", SUBSYSTEM=="pci", KERNEL=="0000:00:17.0", TEST=="ata1/power/control", ATTR{ata1/power/control}="auto"
+ACTION=="add|bind", SUBSYSTEM=="pci", KERNEL=="0000:00:17.0", TEST=="ata2/power/control", ATTR{ata2/power/control}="auto"
+ACTION=="add|bind", SUBSYSTEM=="pci", KERNEL=="0000:00:17.0", TEST=="ata3/power/control", ATTR{ata3/power/control}="auto"
+ACTION=="add|bind", SUBSYSTEM=="pci", KERNEL=="0000:00:17.0", TEST=="ata4/power/control", ATTR{ata4/power/control}="auto"
+ACTION=="add|bind", SUBSYSTEM=="pci", KERNEL=="0000:00:17.0", TEST=="ata5/power/control", ATTR{ata5/power/control}="auto"

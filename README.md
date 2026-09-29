@@ -92,9 +92,24 @@ The application list includes:
 PenDash, PoeDash, PowerTOP, Proton VPN, Spotify, Tailscale, Thunderbird,
 Visual Studio Code, and VLC.
 
-PoeDash and PenDash use their public installers from `cyberpoe.uk`. PoeDeploy
-downloads each installer to a temporary file, validates its Bash syntax, runs it
-as your desktop user, and removes the temporary file afterwards.
+PoeDash and PenDash are bundled under `apps/` and install directly from the
+PoeDeploy release. Their installation does not download another installer or
+source archive from a website or GitHub repository. Choose only one dashboard.
+
+PoeDash is the general dashboard without PenDash's security-tool or
+laptop-specific setup. PenDash has two choices:
+
+- **PenDash (dashboard only)** installs its dashboard and dashboard packages,
+  without BlackArch, Burp Suite, NVIDIA configuration, or laptop power rules.
+- **PenDash (full laptop setup)** runs the complete interactive laptop workflow,
+  including its browser and tool choices, Burp, NVIDIA, and power configuration.
+
+Both dashboards add enable/disable and update controls to a supported ML4W
+QuickShell status bar. The update control downloads the latest stable PoeDeploy
+release and refreshes the selected dashboard from its bundled copy. Selecting
+the same dashboard in PoeDeploy performs the same clean refresh: managed
+interface files are replaced while Eww itself, dashboard preferences, the
+enabled state, colour palette, and browser state are retained.
 
 PoeDeploy prefers packages from the official Arch repositories. It uses `yay`
 when an application is only available from the Arch User Repository, usually
@@ -174,7 +189,9 @@ python3 -m unittest discover -s tests -v
 The existing setup functions remain in `poedeploy.sh`, while the new runtime is
 split into three layers:
 
-- `installer/applications.sh` contains the PoeDash and PenDash installers.
+- `installer/applications.sh` dispatches the bundled PoeDash and PenDash installers.
+- `apps/poedash/` and `apps/pendash/` contain their program files, assets, and
+  focused regression tests.
 - `ui/progress.sh` owns stage state and real progress calculations.
 - `ui/dashboard.sh` and `ui/keyboard.sh` render the static TTY and handle keys.
 - `ui/logger.sh` owns the log and provides `run_cmd` and `run_cmd_capture` for

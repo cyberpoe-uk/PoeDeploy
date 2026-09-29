@@ -1,0 +1,12 @@
+[Unit]
+Description=Select power profile when charger state changes
+After=graphical-session.target power-profiles-daemon.service
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/python3 %h/.local/bin/pendash-power-watch.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical-session.target
