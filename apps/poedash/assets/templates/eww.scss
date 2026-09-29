@@ -3,66 +3,44 @@
 * {
   all: unset;
   font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", monospace;
-  font-size: 20px;
+  font-size: 16px;
   color: $foreground;
 }
 window { background-color: transparent; }
 .dashboard-panel {
   background-color: rgba($background, 0.50);
   border: 1px solid rgba($border, 0.45);
-  border-radius: 0;
-  padding: 40px;
+  padding: 30px;
 }
-.header { padding-bottom: 24px; border-bottom: 1px solid rgba($border, 0.30); }
-.title { font-size: 48px; font-weight: 800; letter-spacing: 3px; }
-.subtitle { color: $muted; font-size: 16px; letter-spacing: 1.3px; }
-.clock { font-size: 48px; font-weight: 500; letter-spacing: 1px; }
-.date { color: $secondary; font-size: 18px; }
+.header { padding: 0 4px 18px; border-bottom: 1px solid rgba($border, 0.30); }
+.title { font-size: 34px; font-weight: 800; letter-spacing: 2px; }
+.subtitle { color: $muted; font-size: 13px; letter-spacing: 1.2px; }
+.clock { font-size: 34px; font-weight: 600; }
+.date { color: $secondary; font-size: 14px; }
 .card {
-  background-color: rgba($card, 0.55);
-  border: 1px solid rgba($border, 0.30);
+  background-color: rgba($card, 0.58);
+  border: 1px solid rgba($border, 0.32);
   border-radius: 11px;
-  padding: 32px;
+  padding: 24px;
 }
-.card-title { color: $accent; font-size: 18px; font-weight: 700; letter-spacing: 1.8px; margin-bottom: 3px; }
-.stat-name { color: $secondary; font-size: 18px; }
-.stat-value { font-size: 20px; font-weight: 600; }
-.meter-row { min-height: 60px; }
+.card-title { color: $accent; font-size: 16px; font-weight: 700; letter-spacing: 1.5px; margin-bottom: 2px; }
+.subheading, .column-heading { color: $muted; font-size: 12px; letter-spacing: 1px; }
+.stat-name { color: $secondary; font-size: 14px; }
+.stat-value { font-size: 15px; font-weight: 600; }
+.meter-row { min-height: 46px; }
 progressbar trough { min-width: 65px; min-height: 6px; background-color: rgba($border, 0.45); border-radius: 3px; }
 progressbar progress { min-height: 6px; background-color: $accent; border-radius: 3px; }
-.temperature { border-top: 1px solid rgba($border, 0.30); padding-top: 24px; }
-.online { color: $accent; }
-.offline { color: $muted; }
-.status-dot { font-size: 25px; }
-.micro { font-size: 16px; color: $muted; letter-spacing: 1px; }
-.connection { font-size: 18px; letter-spacing: 1px; }
-.network-interface { color: $secondary; }
-.network-address { font-size: 26px; font-weight: 600; }
-.calendar-month { font-size: 20px; }
-.calendar-text { font-size: 25px; }
-.current .stat-value { color: $accent; }
-.pending .stat-value { color: #e6b86a; }
+.power-strip, .shares { border-top: 1px solid rgba($border, 0.30); padding-top: 15px; }
+.process-row, .share-row { font-size: 14px; color: $secondary; }
+.process-row { padding: 7px 0; border-bottom: 1px solid rgba($border, 0.18); }
+.info-key { color: $muted; font-size: 12px; letter-spacing: 0.8px; }
+.info-value { color: $secondary; font-size: 14px; }
+.calendar-month { color: $secondary; font-size: 15px; }
+.calendar-text { font-size: 18px; }
+.current .stat-value { color: #8dd5a0; }
+.pending .stat-value { color: #e6a85c; }
+.critical .stat-value { color: #ff5c68; font-weight: 800; }
 .unknown .stat-value { color: $muted; }
 button:hover .card-title, button:hover .stat-name { color: $foreground; }
 button:hover progress { background-color: $foreground; }
 tooltip { background-color: $card; border: 1px solid $border; border-radius: 6px; padding: 6px; }
-
-
-/* Compact CTF control strip. Existing dashboard styles remain unchanged. */
-.quick-title { color: $accent; font-size: 12px; font-weight: 700; letter-spacing: 1.8px; }
-.launch-button, .target-field {
-  background-color: rgba($card, 0.55);
-  border: 1px solid rgba($border, 0.45);
-  border-radius: 11px;
-  padding: 7px 14px;
-}
-.quick-launch label { font-size: 13px; }
-.launch-button:hover, .target-field:hover {
-  background-color: rgba($card, 0.80);
-  border-color: rgba($accent, 0.70);
-}
-.ctf-start { border-color: rgba($accent, 0.80); background-color: rgba($accent, 0.12); }
-.ctf-start label { color: $accent; font-weight: 700; }
-.target-caption { color: $secondary; }
-.ctf-ready label { color: #8dd5a0; }
-.ctf-check label { color: #e6b86a; }

@@ -28,7 +28,8 @@ class Installation(unittest.TestCase):
         self.hypr.write_text('-- keep my compositor config\n')
         self.monitor = patch.object(poedash, 'monitor_info', return_value={'name': 'TEST-1', 'width': 1920, 'height': 1080, 'scale': 1})
         self.monitor.start()
-        self.args = argparse.Namespace(skip_deps=True, dry_run=False, no_integrate=False, hyprland_config=None)
+        self.args = argparse.Namespace(skip_deps=True, dry_run=False, no_integrate=False,
+                                       hyprland_config=None, name=None, non_interactive=True)
 
     def tearDown(self):
         self.monitor.stop()
@@ -41,7 +42,7 @@ class Installation(unittest.TestCase):
     def test_install_upgrade_uninstall_preserves_user_data(self):
         self.install()
         cfg = json.loads((self.root / 'settings.json').read_text())
-        cfg['launchers']['terminal']['workspace'] = 9
+        cfg['name'] = 'My Workstation'
         (self.root / 'settings.json').write_text(json.dumps(cfg))
         (self.root / 'colors.scss').write_text('// custom palette')
         (self.root / 'obsolete-interface-file').write_text('remove me')
@@ -49,7 +50,8 @@ class Installation(unittest.TestCase):
         self.hypr.write_text(self.hypr.read_text() + '-- later user edit\n')
         self.install()
         self.assertEqual(self.hypr.read_text().count(poedash.BEGIN), 1)
-        self.assertEqual(poedash.settings(self.root)['launchers']['terminal']['workspace'], 9)
+        self.assertEqual(poedash.settings(self.root)['name'], 'My Workstation')
+        self.assertIn('My Workstation', (self.root / 'eww.yuck').read_text())
         self.assertEqual((self.root / 'colors.scss').read_text(), '// custom palette')
         self.assertFalse((self.root / 'obsolete-interface-file').exists())
         self.assertTrue((self.root / 'disabled').exists())
@@ -72,21 +74,31 @@ class Installation(unittest.TestCase):
         self.install()
         self.assertEqual(before, sorted(str(p) for p in self.home.rglob('*')))
 
-    def test_reject_legacy_before_modifying_files(self):
-        (self.hypr.parent / 'custom.lua').write_text('hl.exec_cmd("~/.config/eww/scripts/start.sh")')
-        with self.assertRaisesRegex(RuntimeError, 'Legacy'):
-            self.install()
-        self.assertFalse(self.root.exists())
-
-    def test_bad_settings_do_not_modify_installation(self):
+    def test_recognised_legacy_dashboard_is_backed_up_and_retired(self):
+        legacy = self.home / '.config/eww'
+        legacy.mkdir(parents=True)
+        (legacy / 'eww.yuck').write_text('(label :text "MY DASHBOARD")')
+        (legacy / 'old-interface').write_text('legacy')
+        custom = self.hypr.parent / 'custom.lua'
+        custom.write_text('hl.exec_cmd("~/.config/eww/scripts/start.sh")\n-- keep me\n')
         self.install()
-        original = (self.root / 'eww.yuck').read_bytes()
+        self.assertFalse(legacy.exists())
+        backups = list((self.home / '.local/state/poedash/backups').iterdir())
+        self.assertEqual((backups[0] / 'retired-legacy-eww/old-interface').read_text(), 'legacy')
+        self.assertNotIn('.config/eww/scripts/start.sh', custom.read_text())
+        self.assertIn('-- keep me', custom.read_text())
+
+    def test_old_launcher_settings_are_migrated_to_general_dashboard(self):
+        self.install()
+        old = {'monitor': 0, 'layout': {'scale': 'auto', 'system_width': 540,
+               'network_width': 450, 'lower_height': 210}, 'launchers': {}, 'web_ctf': {}}
+        (self.root / 'settings.json').write_text(json.dumps(old))
+        self.install()
         cfg = poedash.settings(self.root)
-        cfg['launchers']['terminal']['workspace'] = 1
-        (self.root / 'settings.json').write_text(json.dumps(cfg))
-        with self.assertRaisesRegex(ValueError, 'reserved'):
-            self.install()
-        self.assertEqual(original, (self.root / 'eww.yuck').read_bytes())
+        self.assertEqual(cfg['name'], 'PoeDash')
+        yuck = (self.root / 'eww.yuck').read_text()
+        for unwanted in ('QUICK LAUNCH', 'CTF FIREFOX', 'WIRESHARK', 'START WEB CTF'):
+            self.assertNotIn(unwanted, yuck)
 
     def test_auto_scale_and_custom_dimensions(self):
         self.install()
@@ -98,7 +110,7 @@ class Installation(unittest.TestCase):
         yuck = (self.root / 'eww.yuck').read_text()
         self.assertIn(':width 400', yuck)
         self.assertIn(':monitor 0', yuck)
-        self.assertIn('font-size: 32px', (self.root / 'eww.scss').read_text())
+        self.assertIn('font-size: 22.6667px', (self.root / 'eww.scss').read_text())
         self.assertNotIn('/home/', yuck)
 
     def test_named_monitor_supports_gtk_model_names(self):
@@ -118,37 +130,18 @@ class Installation(unittest.TestCase):
         result = subprocess.run([str(self.home / '.local/bin/poedash'), 'render'], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_target_and_launcher_isolation(self):
+    def test_custom_name_and_general_monitor_collectors(self):
+        self.args.name = 'Studio PC'
         self.install()
-        sys.path.insert(0, str(self.root / 'scripts'))
-        sys.modules.pop('config', None)
-        spec = importlib.util.spec_from_file_location('ctf_test', self.root / 'scripts/ctf-control.py')
-        ctf = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(ctf)
-        sys.path.pop(0)
-        for value in ['10.10.10.123', '2001:db8::1', 'lab.example', 'https://lab.example/path?q=a&x=b', '']:
-            ctf.save_target(value)
-            self.assertEqual(ctf.read_target(), value)
-        self.assertEqual((ctf.STATE / 'target').stat().st_mode & 0o777, 0o600)
-        for value in ['x;touch /tmp/bad', '$(id)', 'two\nlines', 'https://user:password@lab.example', 'http://lab.example:abc']:
-            with self.assertRaises(ValueError):
-                ctf.save_target(value)
-        normal = {'class': 'firefox', 'pid': -1, 'workspace': {'id': 2}, 'address': 'normal'}
-        dedicated = {'class': 'firefox-ctf', 'pid': -2, 'workspace': {'id': 2}, 'address': 'dedicated'}
-        self.assertIsNone(ctf.find_window('firefox', [normal]))
-        self.assertEqual(ctf.find_window('firefox', [normal, dedicated])['address'], 'dedicated')
-        self.assertFalse(ctf.profile().exists())  # readiness queries create no browser state
-        ctf.CACHE.mkdir(parents=True)
-        window = {'class': 'kitty', 'address': '0x123', 'workspace': {'id': 3}}
-        with patch.object(ctf, 'clients', return_value=[window]), patch.object(ctf, 'dispatch') as dispatch:
-            ctf.ensure('terminal')
-            self.assertFalse(any('exec_cmd' in str(c) for c in dispatch.call_args_list))
-        # Timeout plus a second click must not launch a second process.
-        with patch.object(ctf, 'clients', return_value=[]), patch.object(ctf, 'command', return_value=['kitty']), patch.object(ctf, 'running_without_window', return_value=False), patch.object(ctf.time, 'sleep'), patch.object(ctf, 'dispatch') as dispatch:
-            for _ in range(2):
-                with self.assertRaises(RuntimeError):
-                    ctf.ensure('terminal')
-            self.assertEqual(sum('exec_cmd' in str(c) for c in dispatch.call_args_list), 1)
+        self.assertEqual(poedash.settings(self.root)['name'], 'Studio PC')
+        yuck = (self.root / 'eww.yuck').read_text()
+        for feature in ('TOP PROCESSES', 'Power draw', 'SMB / NFS SHARES', 'THIS PC'):
+            self.assertIn(feature, yuck)
+        self.assertIn('updates > 50 ? "updates critical"', yuck)
+        for script in ('system-info.py', 'processes.py', 'shares.py', 'power.py'):
+            result = subprocess.run([str(self.root / 'scripts' / script)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            json.loads(result.stdout)
 
     def test_amd_gpu_and_unavailable(self):
         spec = importlib.util.spec_from_file_location('gpu', REPO / 'assets/scripts/gpu.py')

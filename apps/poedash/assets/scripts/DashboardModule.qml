@@ -22,32 +22,36 @@ Item {
         onLoadFailed: dashboardControls.dashboardEnabled = true
         onFileChanged: reload()
     }
-    Process {
-        id: toggleProcess
-        command: ["python3", dashboardControls.dashboardRoot + "/scripts/dashboard-control.py",
-                  "--root", dashboardControls.dashboardRoot, "toggle"]
-        onExited: disabledMarker.reload()
-    }
-    Process {
-        id: updateProcess
-        command: ["python3", dashboardControls.dashboardRoot + "/scripts/dashboard-control.py",
-                  "--root", dashboardControls.dashboardRoot, "update"]
-    }
+    Timer { interval: 750; running: true; repeat: true; onTriggered: disabledMarker.reload() }
     RowLayout {
         id: controls
         anchors.centerIn: parent
         spacing: 4
-        BarButton {
+        Rectangle {
             id: toggleButton
-            iconSrc: dashboardControls.dashboardEnabled
-                ? "image://icon/view-visible-symbolic"
-                : "image://icon/view-hidden-symbolic"
-            onClicked: toggleProcess.running = true
+            property bool focused: false
+            function activate(): void {
+                Quickshell.execDetached(["python3", dashboardControls.dashboardRoot + "/scripts/dashboard-control.py",
+                                         "--root", dashboardControls.dashboardRoot, "toggle"])
+            }
+            implicitWidth: 76; implicitHeight: 28; radius: 14
+            color: dashboardControls.dashboardEnabled ? Theme.primary : Theme.background
+            border.width: 1; border.color: Theme.primary
+            Text { anchors.centerIn: parent; text: dashboardControls.dashboardEnabled ? "DASH ON" : "DASH OFF"; color: dashboardControls.dashboardEnabled ? Theme.background : Theme.primary; font.pixelSize: 11; font.bold: true }
+            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: toggleButton.activate() }
         }
-        BarButton {
+        Rectangle {
             id: updateButton
-            iconSrc: "image://icon/view-refresh-symbolic"
-            onClicked: updateProcess.running = true
+            property bool focused: false
+            function activate(): void {
+                Quickshell.execDetached(["python3", dashboardControls.dashboardRoot + "/scripts/dashboard-control.py",
+                                         "--root", dashboardControls.dashboardRoot, "update"])
+            }
+            implicitWidth: 32; implicitHeight: 28; radius: 14
+            color: updateMouse.containsMouse ? Theme.primary : "transparent"
+            border.width: 1; border.color: Theme.primary
+            Text { anchors.centerIn: parent; text: "↻"; color: updateMouse.containsMouse ? Theme.background : Theme.primary; font.pixelSize: 18; font.bold: true }
+            MouseArea { id: updateMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: updateButton.activate() }
         }
     }
 }

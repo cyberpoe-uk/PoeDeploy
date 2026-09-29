@@ -20,7 +20,7 @@ THEME_BEGIN, THEME_END = '# BEGIN POEDASH', '# END POEDASH'
 PACKAGES = ['hyprland', 'jq', 'python', 'iproute2', 'util-linux', 'procps-ng',
             'coreutils', 'gawk', 'sed', 'grep', 'bash', 'pacman-contrib', 'kitty',
             'btop', 'nvtop', 'rofi', 'libnotify', 'ttf-jetbrains-mono-nerd',
-            'firefox', 'code', 'wireshark-qt', 'matugen']
+            'matugen']
 REQUIRED = ['hyprctl', 'eww', 'jq', 'python3', 'ip', 'cal', 'flock', 'free',
             'timeout', 'checkupdates', 'kitty', 'btop', 'nvtop', 'rofi', 'notify-send', 'matugen']
 
@@ -78,14 +78,12 @@ def render(root):
                         height / monitor.get('scale', 1) / 1080)
             scale = max(.5, scale)
     yuck = (root / 'templates/eww.yuck').read_text()
-    yuck = yuck.replace(':width 540', ':width ' + str(cfg['layout']['system_width']))
-    yuck = yuck.replace(':width 450', ':width ' + str(cfg['layout']['network_width']))
-    yuck = yuck.replace(':height 210', ':height ' + str(cfg['layout']['lower_height']))
+    yuck = yuck.replace(':width 620', ':width ' + str(cfg['layout']['system_width']))
+    yuck = yuck.replace(':width 520', ':width ' + str(cfg['layout']['network_width']))
+    yuck = yuck.replace(':height 250', ':height ' + str(cfg['layout']['lower_height']))
     yuck = re.sub(r':(width|height|spacing) (\d+)', lambda m: ':' + m[1] + ' ' + str(max(1, round(int(m[2]) * scale))), yuck)
-    # JSON string escaping also escapes Yuck interpolation in user-facing labels.
-    for name, app in cfg['launchers'].items():
-        label = json.dumps(app['label'], ensure_ascii=False).replace('${', r'\${')
-        yuck = re.sub(r'(:name )"[^"]+"( :app "' + name + '")', lambda m: m[1] + label + m[2], yuck)
+    dashboard_name = json.dumps(cfg['name'], ensure_ascii=False).replace('${', r'\${')
+    yuck = yuck.replace('"@@DASHBOARD_NAME@@"', dashboard_name)
     selector = cfg['monitor']
     if isinstance(selector, str) and monitor:
         # GTK/Eww 0.6 may expose the EDID model rather than the connector name.
@@ -112,8 +110,8 @@ def dependencies(dry_run=False):
         print('Dependencies:', shlex.join(argv), flush=True)
         if not dry_run:
             run(argv)
-    for package, executable in [('eww', 'eww'), ('burpsuite', 'burpsuite')]:
-        if shutil.which(executable) or (package == 'burpsuite' and os.access(Path.home() / 'Applications/BurpSuite/BurpSuite', os.X_OK)):
+    for package, executable in [('eww', 'eww')]:
+        if shutil.which(executable):
             continue
         repo = subprocess.run(['pacman', '-Si', package], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
         helper = shutil.which('paru') or shutil.which('yay')
@@ -151,14 +149,6 @@ def doctor(root):
         cfg = settings(root)
         if not monitor_info(cfg['monitor']):
             failures.append('Configured monitor is not connected')
-        result = subprocess.run(['python3', str(root / 'scripts/ctf-control.py'), 'status'], capture_output=True, text=True)
-        print('Web CTF:', result.stdout.strip() or result.stderr.strip())
-        if result.returncode:
-            failures.append('CTF helper failed')
-        else:
-            status = json.loads(result.stdout)
-            if not status['ready']:
-                failures.append(status['detail'])
     if failures:
         print('Needs attention: ' + '; '.join(failures))
     return int(bool(failures))
@@ -172,6 +162,52 @@ def without_hook(text):
     return re.sub(r'(?m)^' + BEGIN + r'\n.*?^' + END + r'\n?', '', text, flags=re.S)
 
 
+def chosen_name(args, root):
+    current = 'PoeDash'
+    path = root / 'settings.json'
+    if path.is_file():
+        try:
+            value = json.loads(path.read_text()).get('name')
+            if isinstance(value, str) and value.strip():
+                current = value.strip()
+        except (OSError, ValueError):
+            pass
+    if args.name is not None:
+        value = args.name.strip()
+    elif args.non_interactive or not sys.stdin.isatty():
+        value = current
+    else:
+        value = input(f'Dashboard name [{current}]: ').strip() or current
+    if not 1 <= len(value) <= 32 or any(ord(char) < 32 for char in value):
+        raise ValueError('Dashboard name must contain 1–32 printable characters.')
+    return value
+
+
+def retire_legacy_dashboard(config_home, backup):
+    legacy = config_home / 'eww'
+    definition = legacy / 'eww.yuck'
+    if not definition.is_file():
+        return False
+    text = definition.read_text(errors='replace')
+    fingerprints = ('MY DASHBOARD', 'START WEB CTF', 'BlackArch home screen')
+    if not any(marker in text for marker in fingerprints):
+        return False
+    if shutil.which('eww'):
+        subprocess.run(['eww', '--config', str(legacy), 'kill'],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    shutil.copytree(legacy, backup / 'retired-legacy-eww', dirs_exist_ok=True)
+    shutil.rmtree(legacy)
+    custom = config_home / 'hypr/custom.lua'
+    if custom.is_file():
+        old = custom.read_text()
+        cleaned = re.sub(r'(?ms)^-- BEGIN PENDASH\n.*?^-- END PENDASH\n?', '', old)
+        cleaned = re.sub(r'(?m)^.*\.config/eww/scripts/start\.sh.*\n?', '', cleaned)
+        if cleaned != old:
+            shutil.copy2(custom, backup / 'retired-custom.lua')
+            atomic(custom, cleaned, custom.stat().st_mode & 0o777)
+    return True
+
+
 def install(args, root):
     assets = SOURCE / 'assets'
     if not assets.is_dir():
@@ -181,6 +217,7 @@ def install(args, root):
     binpath = Path.home() / '.local/bin/poedash'
     matugen = config_home / 'matugen/config.toml'
     matugen_text = matugen.read_text() if matugen.exists() else ''
+    name = chosen_name(args, root)
     if not args.no_integrate:
         import tomllib
         parsed = tomllib.loads(matugen_text)
@@ -189,11 +226,6 @@ def install(args, root):
     if not args.no_integrate:
         if not hypr.is_file() or hypr.suffix != '.lua':
             raise RuntimeError('An existing Hyprland Lua configuration is required. Start Hyprland once or use --hyprland-config PATH / --no-integrate.')
-        custom = hypr.parent / 'custom.lua'
-        if custom.exists() and '.config/eww/scripts/start.sh' in custom.read_text():
-            raise RuntimeError('Legacy dashboard startup detected in custom.lua. See README migration steps before integrating, or use --no-integrate to stage files.')
-    if (root / 'settings.json').exists():
-        settings(root, assets)
     if args.dry_run:
         if not args.skip_deps:
             dependencies(True)
@@ -214,24 +246,37 @@ def install(args, root):
         shutil.copy2(hypr, backup / 'hyprland.lua')
         if matugen.exists():
             shutil.copy2(matugen, backup / 'matugen.toml')
+        retire_legacy_dashboard(config_home, backup)
     preserved = {}
-    for name in ('settings.json', 'colors.scss', 'disabled'):
-        path = root / name
+    for preserved_name in ('settings.json', 'colors.scss', 'disabled'):
+        path = root / preserved_name
         if path.is_file():
-            preserved[name] = path.read_bytes()
+            preserved[preserved_name] = path.read_bytes()
     if root.exists():
         shutil.rmtree(root)
     root.mkdir(parents=True, exist_ok=True)
     for directory in ('scripts', 'templates'):
         shutil.copytree(assets / directory, root / directory, dirs_exist_ok=True)
-    for name in ('colors.scss', 'settings.example.json'):
-        shutil.copy2(assets / name, root / name)
+    for filename in ('colors.scss', 'settings.example.json'):
+        shutil.copy2(assets / filename, root / filename)
     if 'colors.scss' in preserved:
         (root / 'colors.scss').write_bytes(preserved['colors.scss'])
     if 'settings.json' in preserved:
-        (root / 'settings.json').write_bytes(preserved['settings.json'])
+        try:
+            old_settings = json.loads(preserved['settings.json'])
+        except ValueError:
+            old_settings = {}
     else:
-        shutil.copy2(assets / 'settings.example.json', root / 'settings.json')
+        old_settings = {}
+    new_settings = json.loads((assets / 'settings.example.json').read_text())
+    new_settings['name'] = name
+    if 'monitor' in old_settings:
+        new_settings['monitor'] = old_settings['monitor']
+    if isinstance(old_settings.get('layout'), dict):
+        for key in new_settings['layout']:
+            if key in old_settings['layout']:
+                new_settings['layout'][key] = old_settings['layout'][key]
+    atomic(root / 'settings.json', json.dumps(new_settings, indent=2) + '\n')
     if 'disabled' in preserved:
         (root / 'disabled').write_bytes(preserved['disabled'])
     shutil.copy2(SOURCE / 'poedash.py', root / 'poedash.py')
@@ -303,6 +348,8 @@ def main():
     ins.add_argument('--dry-run', action='store_true')
     ins.add_argument('--no-integrate', action='store_true')
     ins.add_argument('--hyprland-config')
+    ins.add_argument('--name')
+    ins.add_argument('--non-interactive', action='store_true')
     for name in ('render', 'reload', 'doctor', 'uninstall', 'start', 'stop', 'enable', 'disable', 'update'):
         sub.add_parser(name)
     sub.add_parser('theme').add_argument('wallpaper')

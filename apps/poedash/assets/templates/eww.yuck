@@ -1,4 +1,4 @@
-;; BlackArch home screen. Collectors live in scripts/; GTK styling in eww.scss.
+;; PoeDash general workstation overview. Collectors live in scripts/.
 (defpoll clock :interval "10s" :initial "--:--" `date '+%H:%M'`)
 (defpoll today :interval "30s" :initial "" `LC_ALL=C date '+%a %d %b' | tr '[:lower:]' '[:upper:]'`)
 (defpoll month :interval "1m" :initial "" `LC_ALL=C date '+%B %Y'`)
@@ -7,109 +7,100 @@
 (defpoll ram :interval "3s" :initial 0 `./scripts/arch-status.sh ram`)
 (defpoll gpu :interval "5s" :initial '{"usage":0,"label":"--","temperature":"--"}' `./scripts/gpu.sh`)
 (defpoll network :interval "5s" :initial '{"interface":"--","ip":"--","state":"Offline"}' `./scripts/network.sh`)
-(defpoll vpn :interval "5s" :initial '{"tailscale":false,"lab":false}' `./scripts/vpn.sh`)
+(defpoll vpn :interval "5s" :initial '{"summary":"No active VPN","count":"0"}' `./scripts/vpn.sh`)
 (defpoll arch :interval "1m" :initial '{"kernel":"--","uptime":"--"}' `./scripts/arch-status.sh`)
 (defpoll packages :interval "30m" :initial "--" `./scripts/arch-status.sh packages`)
 (defpoll updates :interval "30m" :initial "--" `./scripts/arch-status.sh updates`)
 (defpoll calendar_text :interval "1m" :initial "" `./scripts/calendar.sh`)
-
-(defpoll ctf_status :interval "10s" :initial '{"ready":false,"label":"CHECK","detail":"Checking workstation requirements"}' `./scripts/ctf-status.sh`)
-(defpoll ctf_target :interval "2s" :initial "NOT SET" `./scripts/target.sh`)
-
-(defwidget launch-button [name app]
-  (button :class "launch-button" :onclick "./scripts/launch-app.sh ${app}"
-    (label :show-truncated false :text name)))
-
-(defwidget quick-launch []
-  (box :class "quick-launch" :orientation "v" :space-evenly false :spacing 7
-    (label :class "quick-title" :text "QUICK LAUNCH" :halign "start" :show-truncated false)
-    (box :space-evenly true :spacing 12
-      (launch-button :name "BURP" :app "burp")
-      (launch-button :name "CTF FIREFOX" :app "firefox")
-      (launch-button :name "TERMINAL" :app "terminal")
-      (launch-button :name "CODE" :app "code")
-      (launch-button :name "WIRESHARK" :app "wireshark"))
-    (box :space-evenly false :spacing 18
-      (button :class "launch-button ctf-start" :width 260 :onclick "./scripts/launch-app.sh web-ctf"
-        (label :text "START WEB CTF" :show-truncated false))
-      (label :class "target-caption" :text "TARGET:" :show-truncated false)
-      (button :class "target-field" :hexpand true :tooltip "Click to edit target. Enter saves; Escape cancels. No connection or scan is performed." :onclick "./scripts/target.sh edit"
-        (label :text ctf_target :xalign 0 :limit-width 70))
-      (box :class {ctf_status.ready ? "ctf-ready" : "ctf-check"} :tooltip {ctf_status.detail} :space-evenly false :spacing 8
-        (label :text "●" :show-truncated false)
-        (label :text {ctf_status.label} :show-truncated false)))))
+(defpoll system_info :interval "5m" :initial '{"host":"--","os":"--","kernel":"--","cpu":"--","gpu":"--","memory":"--","disk":"--","load":"--"}' `./scripts/system-info.py`)
+(defpoll power :interval "5s" :initial '{"watts":"--","battery":"--","status":"--"}' `./scripts/power.py`)
+(defpoll processes :interval "3s" :initial '["Collecting process data"]' `./scripts/processes.py`)
+(defpoll shares :interval "15s" :initial '["Checking mounted shares"]' `./scripts/shares.py`)
 
 (defwidget section-title [text]
   (label :show-truncated false :class "card-title" :text text :halign "start"))
 
 (defwidget stat-row [name value]
-  (box :space-evenly false :spacing 22 :hexpand true
+  (box :space-evenly false :spacing 18 :hexpand true
     (label :show-truncated false :class "stat-name" :text name :halign "start" :hexpand true)
     (label :show-truncated false :class "stat-value" :text value :halign "end")))
 
 (defwidget meter [name value display action]
   (button :vexpand true :onclick action
-    (box :space-evenly false :spacing 20 :class "meter-row" :vexpand true
-      (label :show-truncated false :class "stat-name" :text name :width 48 :halign "start")
+    (box :space-evenly false :spacing 16 :class "meter-row" :vexpand true
+      (label :show-truncated false :class "stat-name" :text name :width 42 :halign "start")
       (progress :value value :hexpand true :valign "center")
-      (label :show-truncated false :class "stat-value" :text display :width 70 :xalign 1))))
+      (label :show-truncated false :class "stat-value" :text display :width 62 :xalign 1))))
 
-(defwidget vpn-row [name connected]
-  (box :space-evenly false :spacing 20 :vexpand true
-    (label :show-truncated false :class {connected ? "status-dot online" : "status-dot offline"} :text {connected ? "●" : "○"})
-    (label :show-truncated false :text name :halign "start" :hexpand true)
-    (label :show-truncated false :class "micro" :text {connected ? "UP" : "OFF"})))
+(defwidget info-row [name value]
+  (box :space-evenly false :spacing 14
+    (label :class "info-key" :text name :width 86 :halign "start")
+    (label :class "info-value" :text value :halign "start" :limit-width 42)))
 
 (defwidget dashboard-content []
-  ;; Keep an unstyled root mapped so polling continues while the panel is hidden.
   (box :space-evenly false
-    (box :class "dashboard-panel" :hexpand true :vexpand true :orientation "v" :space-evenly false :spacing 28 :visible home_visible
+    (box :class "dashboard-panel" :hexpand true :vexpand true :orientation "v" :space-evenly false :spacing 20 :visible home_visible
       (box :class "header" :space-evenly false
-        (box :orientation "v" :space-evenly false :hexpand true :spacing 10
-          (label :show-truncated false :class "title" :text "POEDASH" :halign "start")
-          (label :show-truncated false :class "subtitle" :text "PENTEST WORKSTATION" :halign "start"))
-        (box :orientation "v" :space-evenly false :spacing 10
+        (box :orientation "v" :space-evenly false :hexpand true :spacing 5
+          (label :show-truncated false :class "title" :text "@@DASHBOARD_NAME@@" :halign "start")
+          (label :show-truncated false :class "subtitle" :text "SYSTEM OVERVIEW" :halign "start"))
+        (box :orientation "v" :space-evenly false :spacing 5
           (label :show-truncated false :class "clock" :text clock :halign "end")
           (label :show-truncated false :class "date" :text today :halign "end")))
-      (box :spacing 22 :space-evenly false :vexpand true
-        (box :class "card system-card" :orientation "v" :space-evenly false :spacing 28 :width 540
-          (button :onclick "./scripts/launch.sh system" :tooltip "Open btop"
-            (section-title :text "SYSTEM"))
+
+      (box :spacing 18 :space-evenly false :vexpand true
+        (box :class "card metrics-card" :orientation "v" :space-evenly false :spacing 18 :width 620
+          (button :onclick "./scripts/launch.sh system" :tooltip "Open btop" (section-title :text "PERFORMANCE"))
           (meter :name "CPU" :value cpu :display "${cpu}%" :action "./scripts/launch.sh system")
           (meter :name "GPU" :value {gpu.usage} :display {gpu.label} :action "./scripts/launch.sh gpu")
           (meter :name "RAM" :value ram :display "${ram}%" :action "./scripts/launch.sh system")
-          (box :class "temperature" :space-evenly false :vexpand true :valign "end"
-            (stat-row :name "GPU TEMP" :value {gpu.temperature})))
-        (button :onclick "./scripts/launch.sh network" :tooltip "View addresses and routes"
-          (box :class "card network-card" :orientation "v" :space-evenly false :spacing 28 :width 450
-            (section-title :text "NETWORK")
-            (box :space-evenly false :spacing 8
-              (label :show-truncated false :class {network.state == "Connected" ? "online" : "offline"} :text "●")
-              (label :show-truncated false :class "connection" :text {network.state == "Connected" ? "CONNECTED" : "OFFLINE"}))
-            (label :show-truncated false :class "network-interface" :text {network.interface} :halign "start" :limit-width 22)
-            (label :show-truncated false :class "network-address" :text {network.ip} :halign "start")
-            (label :show-truncated false :class "micro" :text "IPv4 / ROUTE" :halign "start" :valign "end" :vexpand true)))
-        (box :class "card calendar-card" :orientation "v" :space-evenly false :spacing 20 :hexpand true
-          (section-title :text "CALENDAR")
-          (label :show-truncated false :class "calendar-month" :text month :halign "start")
-          (label :show-truncated false :class "calendar-text" :markup calendar_text :unindent false :halign "center" :valign "center" :vexpand true)))
-      (box :spacing 22 :space-evenly false :height 210
-        (box :class "card vpn-card" :orientation "v" :space-evenly false :spacing 20 :width 540
-          (section-title :text "VPN")
-          (vpn-row :name "Tailscale" :connected {vpn.tailscale})
-          (vpn-row :name "Lab VPN" :connected {vpn.lab}))
-        (box :class "card arch-card" :orientation "v" :space-evenly false :spacing 20 :hexpand true
-          (section-title :text "ARCH")
-          (box :space-evenly false :spacing 28
-            (box :orientation "v" :space-evenly false :spacing 20 :hexpand true
-              (stat-row :name "Kernel" :value {arch.kernel})
-              (stat-row :name "Uptime" :value {arch.uptime}))
-            (box :orientation "v" :space-evenly false :spacing 20 :width 310
+          (stat-row :name "GPU temperature" :value {gpu.temperature})
+          (stat-row :name "Load 1 / 5 / 15m" :value {system_info.load})
+          (box :class "power-strip" :orientation "v" :space-evenly false :spacing 10
+            (stat-row :name "Power draw" :value {power.watts})
+            (stat-row :name {power.status} :value {power.battery})))
+
+        (box :class "card processes-card" :orientation "v" :space-evenly false :spacing 16 :hexpand true
+          (button :onclick "./scripts/launch.sh system" :tooltip "Open btop" (section-title :text "TOP PROCESSES"))
+          (label :class "column-heading" :text "PROCESS                CPU       MEMORY      PID" :halign "start")
+          (for process in processes
+            (label :class "process-row" :text process :halign "start" :limit-width 58)))
+
+        (box :class "card connectivity-card" :orientation "v" :space-evenly false :spacing 16 :width 520
+          (section-title :text "CONNECTIVITY")
+          (stat-row :name "Network" :value {network.state})
+          (stat-row :name "Interface" :value {network.interface})
+          (stat-row :name "Address" :value {network.ip})
+          (stat-row :name "VPN" :value {vpn.summary})
+          (box :class "shares" :orientation "v" :space-evenly false :spacing 9 :vexpand true
+            (label :class "subheading" :text "SMB / NFS SHARES" :halign "start")
+            (for share in shares
+              (label :class "share-row" :text share :halign "start" :limit-width 48)))))
+
+      (box :spacing 18 :space-evenly false :height 250
+        (box :class "card details-card" :orientation "v" :space-evenly false :spacing 11 :hexpand true
+          (section-title :text "THIS PC")
+          (box :space-evenly false :spacing 32
+            (box :orientation "v" :space-evenly false :spacing 10 :hexpand true
+              (info-row :name "HOST" :value {system_info.host})
+              (info-row :name "OS" :value {system_info.os})
+              (info-row :name "KERNEL" :value {system_info.kernel})
+              (info-row :name "UPTIME" :value {arch.uptime}))
+            (box :orientation "v" :space-evenly false :spacing 10 :hexpand true
+              (info-row :name "CPU" :value {system_info.cpu})
+              (info-row :name "GPU" :value {system_info.gpu})
+              (info-row :name "MEMORY" :value {system_info.memory})
+              (info-row :name "HOME DISK" :value {system_info.disk}))
+            (box :orientation "v" :space-evenly false :spacing 10 :width 280
               (stat-row :name "Packages" :value packages)
-              (button :onclick "./scripts/launch.sh updates" :tooltip "Check Arch repository updates"
-                (box :class {updates == "0" ? "updates current" : updates == "--" ? "updates unknown" : "updates pending"}
-                  (stat-row :name "Updates" :value updates)))))))
-      (quick-launch))))
+              (box :class {updates == "0" ? "updates current" : updates == "--" ? "updates unknown" : updates > 50 ? "updates critical" : "updates pending"}
+                (stat-row :name "Updates" :value updates)))))
+
+        (box :class "card calendar-card" :orientation "v" :space-evenly false :spacing 10 :width 430
+          (section-title :text "CALENDAR")
+          (label :class "calendar-month" :text month :halign "start")
+          (label :class "calendar-text" :markup calendar_text :unindent false :halign "center" :valign "center" :vexpand true)))))
+  )
 
 (defwindow dashboard
   :monitor 0

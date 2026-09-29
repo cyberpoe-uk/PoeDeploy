@@ -4508,7 +4508,7 @@ main() {
         check_arch
         case "$2" in
             poedash)
-                install_bundled_dashboard_application "PoeDash update" poedash --skip-deps
+                install_bundled_dashboard_application "PoeDash update" poedash --skip-deps --non-interactive
                 ;;
             pendash)
                 install_bundled_dashboard_application "PenDash update" pendash --update-dashboard

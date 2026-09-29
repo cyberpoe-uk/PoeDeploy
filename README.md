@@ -97,7 +97,10 @@ PoeDeploy release. Their installation does not download another installer or
 source archive from a website or GitHub repository. Choose only one dashboard.
 
 PoeDash is the general dashboard without PenDash's security-tool or
-laptop-specific setup. PenDash has two choices:
+laptop-specific setup. Its installer offers `PoeDash` as the default display
+name and lets the user enter another name. It shows performance, power and
+battery data, top processes, system details, active VPN interfaces, mounted
+SMB/NFS shares, package updates, and a compact calendar. PenDash has two choices:
 
 - **PenDash (dashboard only)** installs its dashboard and dashboard packages,
   without BlackArch, Burp Suite, NVIDIA configuration, or laptop power rules.
