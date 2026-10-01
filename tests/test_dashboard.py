@@ -76,12 +76,10 @@ rm -f -- "$POEDEPLOY_LOG"
         self.assertNotIn('github.com', installer)
         self.assertNotIn('curl ', installer)
         poe_controls = (root / 'apps/poedash/assets/scripts/DashboardModule.qml').read_text()
-        self.assertIn('DASH ON', poe_controls)
-        self.assertIn('DASH OFF', poe_controls)
         pen_controls = (root / 'apps/pendash/dashboard/scripts/DashboardModule.qml').read_text()
-        self.assertIn('󰍹', pen_controls)
-        self.assertIn('󰶐', pen_controls)
         for controls in (poe_controls, pen_controls):
+            self.assertIn('󰍹', controls)
+            self.assertIn('󰶐', controls)
             self.assertIn('Quickshell.execDetached', controls)
 
     def test_live_log_switch_and_terminal_cleanup_in_a_real_pty(self):

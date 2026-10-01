@@ -34,10 +34,10 @@ Item {
                 Quickshell.execDetached(["python3", dashboardControls.dashboardRoot + "/scripts/dashboard-control.py",
                                          "--root", dashboardControls.dashboardRoot, "toggle"])
             }
-            implicitWidth: 76; implicitHeight: 28; radius: 14
+            implicitWidth: 34; implicitHeight: 28; radius: 14
             color: dashboardControls.dashboardEnabled ? Theme.primary : Theme.background
             border.width: 1; border.color: Theme.primary
-            Text { anchors.centerIn: parent; text: dashboardControls.dashboardEnabled ? "DASH ON" : "DASH OFF"; color: dashboardControls.dashboardEnabled ? Theme.background : Theme.primary; font.pixelSize: 11; font.bold: true }
+            Text { anchors.centerIn: parent; text: dashboardControls.dashboardEnabled ? "󰍹" : "󰶐"; color: dashboardControls.dashboardEnabled ? Theme.background : Theme.primary; font.pixelSize: 18; font.bold: true }
             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: toggleButton.activate() }
         }
         Rectangle {

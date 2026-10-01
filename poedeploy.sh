@@ -75,6 +75,7 @@ SELECTED_PACKAGES=()
 SELECTED_APPS=()
 
 POEDASH_NAME="PoeDash"
+PENDASH_BROWSER="firefox"
 
 ML4W_ENABLED=false
 
@@ -3269,6 +3270,23 @@ select_applications() {
         POEDASH_NAME="$requested_name"
     fi
 
+    if [[ " ${SELECTED_PACKAGES[*]} " == *" @pendash-dashboard "* ||
+          " ${SELECTED_PACKAGES[*]} " == *" @pendash-full "* ]]; then
+        local requested_browser
+        while true; do
+            if ! ui_prompt requested_browser "PenDash isolated browser [firefox/chromium] [firefox]: "; then
+                requested_browser="firefox"
+            fi
+            requested_browser=${requested_browser,,}
+            requested_browser=${requested_browser:-firefox}
+            if [[ "$requested_browser" == firefox || "$requested_browser" == chromium ]]; then
+                PENDASH_BROWSER="$requested_browser"
+                break
+            fi
+            warning "Choose firefox or chromium."
+        done
+    fi
+
     echo
 
     if [[ ${#SELECTED_PACKAGES[@]} -eq 0 ]]; then
@@ -3368,11 +3386,13 @@ install_selected_applications() {
                 continue
                 ;;
             @pendash-dashboard)
-                install_bundled_dashboard_application "PenDash dashboard" pendash --dashboard-only
+                install_bundled_dashboard_application "PenDash dashboard" pendash \
+                    --dashboard-only --non-interactive --browser "$PENDASH_BROWSER"
                 continue
                 ;;
             @pendash-full)
-                install_bundled_dashboard_application "PenDash full laptop setup" pendash
+                install_bundled_dashboard_application "PenDash full laptop setup" pendash \
+                    --non-interactive --browser "$PENDASH_BROWSER"
                 continue
                 ;;
         esac
@@ -4404,7 +4424,7 @@ run_setup_module() {
 
 PD_PERSIST_VARIABLES=(
     FAILED_PACKAGES SKIPPED_PACKAGES INSTALLED_PACKAGES SELECTED_PACKAGES SELECTED_APPS
-    POEDASH_NAME ML4W_ENABLED CONFIGURE_ML4W_SDDM DEFAULT_BROWSER_ACTION SECURE_BOOT_ACTION
+    POEDASH_NAME PENDASH_BROWSER ML4W_ENABLED CONFIGURE_ML4W_SDDM DEFAULT_BROWSER_ACTION SECURE_BOOT_ACTION
     SECURE_BOOT_VERIFY_STATUS SECURE_BOOT_OTHER_FILES_WARNING SECURE_BOOT_AUTOMATIC_ACTION
     BOOT_IMAGE_ACTION VERIFIED_PLYMOUTH_UKIS UKI_ACTION GPU_VENDOR GPU_MODEL BOOTLOADER
     UKI_ENABLED UKI_BOOTED UKI_STATUS UKI_BOOT_ROOT UKI_SPLASH_PATH UKI_CMDLINE_WRITE_ATTEMPTED

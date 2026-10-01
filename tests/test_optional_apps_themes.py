@@ -87,6 +87,19 @@ install_bundled_dashboard_application() {
 install_selected_applications
 ''')
 
+    def test_pendash_browser_is_collected_before_background_installation(self):
+        self.check(r'''
+gum() { :; }
+choose_checklist() { cat >/dev/null; echo 'PenDash (dashboard only)'; }
+ui_prompt() { printf -v "$1" '%s' chromium; }
+select_applications
+[[ "$PENDASH_BROWSER" == chromium ]]
+install_bundled_dashboard_application() {
+    [[ "$*" == 'PenDash dashboard pendash --dashboard-only --non-interactive --browser chromium' ]]
+}
+install_selected_applications
+''')
+
     def test_noninteractive_dashboard_refresh_dispatches_without_setup_menu(self):
         output = self.check(r'''
 load_version() { :; }

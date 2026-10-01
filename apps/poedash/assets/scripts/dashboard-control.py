@@ -129,16 +129,22 @@ def _add_quickshell_module(text):
         if anchor not in text:
             raise RuntimeError('Unsupported QuickShell module map.')
         text = text.replace(anchor, '        "dashboard":  cDashboard,\n' + anchor, 1)
-    right = re.compile(r'("right"\s*:\s*\[)([^\]]*)(\])')
-    match = right.search(text)
-    if not match:
-        raise RuntimeError('QuickShell status bar has no modules.right list.')
-    if '"dashboard"' not in match.group(2):
-        existing = match.group(2).rstrip()
-        separator = ', ' if existing and not existing.rstrip().endswith(',') else ' '
-        replacement = match.group(1) + existing + separator + '"dashboard"' + match.group(3)
-        text = text[:match.start()] + replacement + text[match.end():]
-    return text
+    return _place_dashboard_before_launcher(text)
+
+
+def _place_dashboard_before_launcher(text):
+    pattern = re.compile(r'("(left|center|right)"\s*:\s*\[)([^\]]*)(\])')
+    groups = list(pattern.finditer(text))
+    if not groups:
+        raise RuntimeError('QuickShell status bar has no module placement lists.')
+    modules = {match.group(2): re.findall(r'"([^"\\]+)"', match.group(3)) for match in groups}
+    for names in modules.values():
+        names[:] = [name for name in names if name != 'dashboard']
+    if 'launcher' in modules.get('center', []):
+        modules['center'].insert(modules['center'].index('launcher'), 'dashboard')
+    else:
+        modules.setdefault('right', []).insert(0, 'dashboard')
+    return pattern.sub(lambda match: match.group(1) + ', '.join(json.dumps(name) for name in modules[match.group(2)]) + match.group(4), text)
 
 
 def install_quickshell(root, statusbar=None):
@@ -168,11 +174,10 @@ def install_quickshell(root, statusbar=None):
             changed = _add_quickshell_module(text)
         except RuntimeError:
             # Settings files only contain the module list, not QML components.
-            match = re.search(r'("right"\s*:\s*\[)([^\]]*)(\])', text)
-            if not match or '"dashboard"' in match.group(2):
+            try:
+                changed = _place_dashboard_before_launcher(text)
+            except RuntimeError:
                 continue
-            existing = match.group(2).rstrip()
-            changed = text[:match.start()] + match.group(1) + existing + (', ' if existing else '') + '"dashboard"' + match.group(3) + text[match.end():]
         if changed != text:
             config_backup = config.with_name(config.name + '.before-dashboard-controls')
             if not config_backup.exists():
