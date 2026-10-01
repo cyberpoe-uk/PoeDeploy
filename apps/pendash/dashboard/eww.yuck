@@ -31,6 +31,9 @@
       (launch-button :name "TERMINAL" :app "terminal")
       (launch-button :name "CODE" :app "code")
       (launch-button :name "WIRESHARK" :app "wireshark"))
+    (box :space-evenly true :spacing 12
+      (launch-button :name "Tailscale · ${vpn.tailscale_state}" :app "tailscale")
+      (launch-button :name "Proton VPN · ${vpn.proton_state}" :app "proton"))
     (box :space-evenly false :spacing 18
       (button :class "launch-button ctf-start" :width 260 :onclick "~/.config/eww/scripts/launch-app.sh web-ctf"
         (label :text "START WEB CTF" :show-truncated false))
