@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" != setup-burp-ca ]]; then
+    printf 'Usage: pendash setup-burp-ca [--action import|status|remove] [--certificate PATH]\n' >&2
+    exit 2
+fi
+shift
+exec python3 "$HOME/.local/lib/pendash/burp_ca.py" "$@"

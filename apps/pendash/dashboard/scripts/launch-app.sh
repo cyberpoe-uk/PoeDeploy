@@ -14,7 +14,7 @@ case "${1:-}" in
     notify-send "PenDash" "Proton VPN: Not installed. Install it through PoeDeploy."
     exit 1
     ;;
-  burp|firefox|terminal|code|wireshark|web-ctf) ;;
+  burp|chromium|terminal|code|wireshark|web-ctf) ;;
   *) exit 2 ;;
 esac
 mkdir -p "$HOME/.cache/eww"

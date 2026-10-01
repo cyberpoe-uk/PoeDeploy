@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if ! python3 - <<'PY'
+import socket
+import sys
+try:
+    with socket.create_connection(('127.0.0.1', 8080), timeout=1):
+        pass
+except OSError:
+    sys.exit(1)
+PY
+then
+    message=$'[PENDASH] Burp Suite proxy is unavailable.\n[PENDASH] Start Burp Suite and enable the listener on 127.0.0.1:8080.'
+    printf '%s\n' "$message" >&2
+    if command -v notify-send >/dev/null; then notify-send 'PenDash' "$message" || true; fi
+    exit 1
+fi
+# Reusing a Chromium process is safe only when it already uses this proxy.
+if ! python3 - <<'PYTHON'
+import os
+from pathlib import Path
+import sys
+for process in Path('/proc').glob('[0-9]*'):
+    try:
+        if process.stat().st_uid != os.getuid():
+            continue
+        args = (process / 'cmdline').read_bytes().split(b'\0')
+        if not args or Path(os.fsdecode(args[0])).name != 'chromium' or any(a.startswith(b'--type=') for a in args):
+            continue
+        if b'--proxy-server=http://127.0.0.1:8080' not in args or b'--proxy-bypass-list=<-loopback>' not in args:
+            sys.exit(1)
+    except (OSError, ValueError):
+        continue
+PYTHON
+then
+    message='[PENDASH] Restart Chromium so the saved Burp proxy settings take effect.'
+    printf '%s\n' "$message" >&2
+    if command -v notify-send >/dev/null; then notify-send 'PenDash' "$message" || true; fi
+    exit 1
+fi
+# URLs only: prevent arguments from overriding the proxy or security flags.
+for url in "$@"; do
+    case "$url" in http://*|https://*) ;; *) printf '[PENDASH] Expected an HTTP(S) URL.\n' >&2; exit 2 ;; esac
+done
+exec chromium \
+  --proxy-server="http://127.0.0.1:8080" \
+  --proxy-bypass-list="<-loopback>" \
+  --class=chromium-ctf \
+  --new-window "$@"

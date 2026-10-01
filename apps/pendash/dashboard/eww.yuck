@@ -27,7 +27,7 @@
     (label :class "quick-title" :text "QUICK LAUNCH" :halign "start" :show-truncated false)
     (box :space-evenly true :spacing 12
       (launch-button :name "BURP" :app "burp")
-      (launch-button :name "CTF BROWSER" :app "firefox")
+      (launch-button :name "CTF CHROMIUM" :app "chromium")
       (launch-button :name "TERMINAL" :app "terminal")
       (launch-button :name "CODE" :app "code")
       (launch-button :name "WIRESHARK" :app "wireshark"))

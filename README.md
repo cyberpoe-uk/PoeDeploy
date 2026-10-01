@@ -110,7 +110,7 @@ they cannot stall behind the static progress screen.
 - **PenDash (dashboard only)** installs its dashboard and dashboard packages,
   without BlackArch, Burp Suite, NVIDIA configuration, or laptop power rules.
 - **PenDash (full laptop setup)** runs the complete interactive laptop workflow,
-  including its browser and tool choices, Burp, NVIDIA, and power configuration.
+  including Chromium, tool choices, Burp, NVIDIA, and power configuration.
 
 Both dashboards add enable/disable and update controls to a supported ML4W
 QuickShell status bar. The update control downloads the latest stable PoeDeploy

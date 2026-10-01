@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Local CTF launch controls. Target data is never executed or connected to."""
-import configparser
+"""Local CTF launch controls. Saved targets open in Chromium through the local Burp proxy."""
 import fcntl
 import ipaddress
 import json
@@ -20,24 +19,17 @@ ROOT = HOME / '.config/eww'
 STATE = ROOT / 'state'
 CACHE = HOME / '.cache/eww'
 BURP = HOME / 'Applications/BurpSuite/BurpSuite'
-BROWSER_FILE = ROOT / 'browser.json'
-
-
 def browser():
-    try:
-        value = json.loads(BROWSER_FILE.read_text())['browser']
-    except (OSError, ValueError, KeyError, TypeError):
-        value = 'firefox'
-    return value if value in ('firefox', 'chromium') else 'firefox'
+    return 'chromium'
 
 
 def browser_classes():
-    return ['firefox-ctf', 'firefox'] if browser() == 'firefox' else ['chromium-ctf', 'Chromium', 'chromium']
+    return ['chromium-ctf']
 
 
 APPS = {
     'burp': (2, ['install4j-burp-StartBurp']),
-    'firefox': (2, browser_classes()),
+    'chromium': (2, browser_classes()),
     'terminal': (3, ['dashboard-ctf-terminal', 'kitty']),
     'code': (4, ['com.microsoft.VSCode', 'Code', 'VSCodium', 'codium']),
     'wireshark': (5, ['org.wireshark.Wireshark']),
@@ -48,32 +40,16 @@ def run(argv, timeout=5):
     return subprocess.run(argv, text=True, capture_output=True, timeout=timeout)
 
 
-def profile():
-    if browser() == 'chromium':
-        return STATE / 'chromium-ctf'
-    for base in [HOME / '.config/mozilla/firefox', HOME / '.mozilla/firefox']:
-        cfg = configparser.ConfigParser(interpolation=None)
-        cfg.read(base / 'profiles.ini')
-        for name in cfg.sections():
-            if cfg.get(name, 'Name', fallback='') == 'CTF':
-                path = Path(cfg.get(name, 'Path'))
-                if cfg.get(name, 'IsRelative', fallback='1') == '1':
-                    path = base / path
-                if path.is_dir():
-                    return path.resolve()
-    return STATE / 'firefox-ctf'
 
 
 def command(app):
     if app == 'burp':
-        executable = str(BURP) if os.access(BURP, os.X_OK) else shutil.which('BurpSuite')
+        candidates = [HOME / 'BurpSuite/BurpSuite', BURP, Path('/opt/BurpSuite/BurpSuite'), Path('/usr/local/BurpSuite/BurpSuite')]
+        executable = next((str(p) for p in candidates if os.access(p, os.X_OK)), None) or shutil.which('BurpSuite')
         return [executable] if executable else None
-    if app == 'firefox':
-        p = profile()
-        if browser() == 'chromium':
-            exe = shutil.which('chromium')
-            return [exe, '--user-data-dir=' + str(p), '--class=chromium-ctf'] if exe else None
-        return [shutil.which('firefox'), '--no-remote', '--profile', str(p)] if p and shutil.which('firefox') else None
+    if app == 'chromium':
+        executable = HOME / '.local/bin/ctf-chromium'
+        return [str(executable)] if os.access(executable, os.X_OK) else None
     exe = shutil.which({'terminal': 'kitty', 'wireshark': 'wireshark', 'code': 'code'}[app])
     if app == 'code':
         exe = exe or shutil.which('codium')
@@ -107,24 +83,13 @@ def is_ctf_process(pid):
     expected = browser()
     if not args or expected not in Path(args[0]).name:
         return False
-    p = profile()
-    for i, arg in enumerate(args[:-1]):
-        if arg in ('-P', '-p') and args[i+1] == 'CTF':
-            return True
-        if p and arg in ('--profile', '-profile') and Path(args[i+1]).resolve() == p:
-            return True
-    if expected == 'chromium':
-        return any(arg.startswith('--user-data-dir=') and Path(arg.split('=', 1)[1]).resolve() == p for arg in args)
-    try:
-        return b'MOZ_APP_REMOTINGNAME=firefox-ctf' in Path(f'/proc/{pid}/environ').read_bytes().split(b'\0')
-    except OSError:
-        return False
+    return '--proxy-server=http://127.0.0.1:8080' in args
 
 
 def find_window(app, windows):
     matches = [w for w in windows if w.get('class') in APPS[app][1]]
-    if app == 'firefox':
-        matches += [w for w in windows if w.get('class') == 'firefox' and is_ctf_process(w['pid'])]
+    if app == 'chromium':
+        matches += [w for w in windows if w.get('class') in ('Chromium', 'chromium') and is_ctf_process(w['pid'])]
     # Prefer a window already on the intended workspace, then the dedicated class.
     matches.sort(key=lambda w: (w['workspace']['id'] != APPS[app][0], w['class'] != APPS[app][1][0]))
     return matches[0] if matches else None
@@ -136,7 +101,7 @@ def running_without_window(app):
         args = process_args(p.name)
         if not args:
             continue
-        if app == 'firefox' and is_ctf_process(p.name):
+        if app == 'chromium' and is_ctf_process(p.name):
             return True
         if app == 'burp' and (args[0] == str(BURP) or any(str(BURP.parent / 'burpsuite.jar') in a for a in args)):
             return True
@@ -147,19 +112,25 @@ def running_without_window(app):
     return False
 
 
-def ensure(app, focus=True):
+def ensure(app, focus=True, target=None):
     workspace = APPS[app][0]
-    window = find_window(app, clients())
+    if app == 'chromium':
+        import socket
+        try:
+            with socket.create_connection(('127.0.0.1', 8080), timeout=1):
+                pass
+        except OSError:
+            raise RuntimeError('Burp Suite proxy unavailable. Start Burp and enable 127.0.0.1:8080.')
+    window = None if target else find_window(app, clients())
     if not window:
         argv = command(app)
         if not argv:
             raise RuntimeError(f'{app}: executable or CTF profile is missing')
-        if not running_without_window(app):
+        if target or not running_without_window(app):
+            if target:
+                argv.append(target)
             # Hyprland applies this workspace rule only to the spawned application.
-            # shlex.join quotes argv for the compositor's exec command; no target is used.
-            profile().mkdir(mode=0o700, parents=True, exist_ok=True)
-            if app == 'firefox' and browser() == 'firefox':
-                argv = ['env', 'MOZ_APP_REMOTINGNAME=firefox-ctf', *argv]
+            # shlex.join quotes argv for the compositor's exec command; target arguments remain shell-quoted.
             cmd = shlex.join(argv)
             dispatch('hl.dsp.exec_cmd(' + json.dumps(cmd) + ', { workspace = ' + json.dumps(f'{workspace} silent') + ' })')
         for _ in range(100):
@@ -192,9 +163,22 @@ def launch(app):
         fcntl.flock(lock, fcntl.LOCK_EX)
         if app == 'web-ctf':
             errors = []
-            for name in ('burp', 'firefox', 'terminal'):
+            for name in ('burp', 'chromium', 'terminal'):
                 try:
-                    ensure(name, focus=False)
+                    if name == 'chromium':
+                        import socket
+                        for attempt in range(60):
+                            try:
+                                with socket.create_connection(('127.0.0.1', 8080), timeout=.5):
+                                    break
+                            except OSError:
+                                time.sleep(.5)
+                        else:
+                            raise RuntimeError('Burp listener unavailable after waiting 30 seconds.')
+                    target = validate_target(read_target()) if name == 'chromium' else ''
+                    if target and '://' not in target:
+                        target = 'http://' + target
+                    ensure(name, focus=False, target=target)
                 except RuntimeError as exc:
                     errors.append(str(exc))
             dispatch('hl.dsp.focus({ workspace = "2" })')
@@ -208,9 +192,9 @@ def launch(app):
 
 def status():
     missing = []
-    for app in ('burp', 'firefox', 'terminal'):
+    for app in ('burp', 'chromium', 'terminal'):
         if not command(app):
-            missing.append(app if app != 'firefox' else browser().title() + ' / CTF profile')
+            missing.append(app if app != 'chromium' else browser().title() + ' / CTF profile')
     try:
         route = json.loads(run(['ip', '-j', '-4', 'route', 'get', '1.1.1.1']).stdout)
         if not route or not route[0].get('dev') or not (route[0].get('prefsrc') or route[0].get('src')):
