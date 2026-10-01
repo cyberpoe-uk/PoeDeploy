@@ -75,11 +75,13 @@ rm -f -- "$POEDEPLOY_LOG"
         self.assertNotIn('cyberpoe.uk', installer)
         self.assertNotIn('github.com', installer)
         self.assertNotIn('curl ', installer)
-        for relative in ('apps/poedash/assets/scripts/DashboardModule.qml',
-                         'apps/pendash/dashboard/scripts/DashboardModule.qml'):
-            controls = (root / relative).read_text()
-            self.assertIn('DASH ON', controls)
-            self.assertIn('DASH OFF', controls)
+        poe_controls = (root / 'apps/poedash/assets/scripts/DashboardModule.qml').read_text()
+        self.assertIn('DASH ON', poe_controls)
+        self.assertIn('DASH OFF', poe_controls)
+        pen_controls = (root / 'apps/pendash/dashboard/scripts/DashboardModule.qml').read_text()
+        self.assertIn('󰍹', pen_controls)
+        self.assertIn('󰶐', pen_controls)
+        for controls in (poe_controls, pen_controls):
             self.assertIn('Quickshell.execDetached', controls)
 
     def test_live_log_switch_and_terminal_cleanup_in_a_real_pty(self):

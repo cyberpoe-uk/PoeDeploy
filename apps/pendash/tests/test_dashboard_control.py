@@ -111,7 +111,7 @@ class DashboardControl(unittest.TestCase):
     readonly property var moduleComponents: ({
         "terminal":   cTerminal
     })
-    property var settings: ({"modules": {"right": ["clock"]}})
+    property var settings: ({"modules": {"left": ["terminal"], "center": ["launcher", "clock"], "right": ["updates"]}})
 }
 ''')
             self.assertTrue(c.install_quickshell(root, statusbar))
@@ -121,7 +121,10 @@ class DashboardControl(unittest.TestCase):
             self.assertEqual(first.count('id: cDashboard'), 1)
             self.assertEqual(first.count('"dashboard":'), 1)
             self.assertIn('"dashboard"', first)
+            self.assertIn('"center": ["dashboard", "launcher", "clock"]', first)
+            self.assertIn('"right": ["updates"]', first)
             module = (statusbar / 'DashboardModule.qml').read_text()
             self.assertIn(str(root), module)
             self.assertIn('toggleButton', module)
             self.assertIn('updateButton', module)
+            self.assertIn('󰍹', (REPO / 'dashboard/scripts/DashboardModule.qml').read_text())
