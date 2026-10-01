@@ -7,7 +7,7 @@
 (defpoll ram :interval "3s" :initial 0 `./scripts/arch-status.sh ram`)
 (defpoll gpu :interval "5s" :initial '{"usage":0,"label":"--","temperature":"--"}' `./scripts/gpu.sh`)
 (defpoll network :interval "5s" :initial '{"interface":"--","ip":"--","tailscale":"--","state":"Offline"}' `./scripts/network.sh`)
-(defpoll vpn :interval "5s" :initial '{"summary":"No active VPN","count":"0"}' `./scripts/vpn.sh`)
+(defpoll vpn :interval "5s" :initial '{"summary":"Checking VPNs","count":"0","tailscale_state":"Checking","proton_state":"Checking"}' `./scripts/vpn.sh`)
 (defpoll arch :interval "1m" :initial '{"kernel":"--","uptime":"--"}' `./scripts/arch-status.sh`)
 (defpoll packages :interval "30m" :initial "--" `./scripts/arch-status.sh packages`)
 (defpoll updates :interval "30m" :initial "--" `./scripts/arch-status.sh updates`)
@@ -101,6 +101,8 @@
             (stat-row :name "Interface" :value {network.interface})
             (stat-row :name "Address" :value {network.ip})
             (stat-row :name "Tailscale IP" :value {network.tailscale})
+            (stat-row :name "Tailscale" :value {vpn.tailscale_state})
+            (stat-row :name "Proton VPN" :value {vpn.proton_state})
             (stat-row :name "VPN" :value {vpn.summary})
             (box :class "shares" :orientation "v" :space-evenly false :spacing 7 :vexpand true
               (label :class "subheading" :text "SMB / NFS SHARES" :halign "start")

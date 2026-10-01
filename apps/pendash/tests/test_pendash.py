@@ -60,10 +60,12 @@ class InstallerTests(unittest.TestCase):
         args = SimpleNamespace(tool_mode='all', non_interactive=True, dry_run=False,
             browser='firefox', categories=None, yes_all_tools=True)
         with patch.object(p, 'ensure_blackarch'), \
-             patch.object(p, 'group_packages', return_value=['burpsuite', 'ffuf']), \
+             patch.object(p, 'group_packages', return_value=['burpsuite', 'ffuf', 'tailscale', 'proton-vpn-gtk-app']), \
              patch.object(p, 'package_sizes', return_value=(1, 10, 20)):
             packages = p.package_plan(args, args.browser)
         self.assertNotIn('burpsuite', packages)
+        self.assertNotIn('tailscale', packages)
+        self.assertNotIn('proton-vpn-gtk-app', packages)
         self.assertIn('ffuf', packages)
 
     def test_interactive_browser_is_used_by_curated_package_plan(self):
@@ -74,6 +76,7 @@ class InstallerTests(unittest.TestCase):
             packages = p.package_plan(args, 'firefox')
         self.assertIn('firefox', packages)
         self.assertNotIn(None, packages)
+        self.assertNotIn('tailscale', packages)
 
     def test_dashboard_only_skips_full_laptop_setup(self):
         argv = ['pendash.py', '--dashboard-only', '--browser', 'firefox']

@@ -911,6 +911,20 @@ configure_tailscale
         self.assertNotIn("MUST_NOT_QUERY", output)
         self.assertIn("cancelled", output)
 
+    def test_full_setup_installs_and_enables_tailscale_without_login(self):
+        output = self.check_run(r'''
+RUN_MODE=full
+SELECTED_PACKAGES=()
+pacman() { return 1; }
+systemctl() { return 1; }
+sudo() { printf 'ACTION:%s\n' "$*"; }
+configure_tailscale
+''')
+        self.assertIn('ACTION:pacman -S --needed --noconfirm tailscale', output)
+        self.assertIn('ACTION:systemctl enable tailscaled', output)
+        self.assertIn('ACTION:systemctl start tailscaled', output)
+        self.assertNotIn('ACTION:tailscale up', output)
+
     def test_failure_and_skip_accounting_are_separate(self):
         self.check_run(r'''
 install_optional_package failed bash -c 'exit 1'

@@ -21,7 +21,7 @@ STATE = Path(os.environ.get('XDG_STATE_HOME', HOME / '.local/state')) / 'pendash
 STAMP = datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
 BACKUP = STATE / 'backups' / STAMP
 REPORTS = STATE / 'reports'
-CURATED = ['ffuf', 'gobuster', 'nmap', 'sqlmap', 'tailscale', 'wfuzz',
+CURATED = ['ffuf', 'gobuster', 'nmap', 'sqlmap', 'wfuzz',
            'wireshark-qt', 'jwt-tool']
 DESKTOP = ['hyprland', 'hypridle', 'hyprlock', 'jq', 'python', 'kitty', 'btop',
            'nvtop', 'rofi', 'powertop', 'power-profiles-daemon', 'brightnessctl',
@@ -200,7 +200,8 @@ def package_plan(args, browser):
         packages = sorted(set(DESKTOP + [browser] + group_packages(['blackarch'])))
     # Burp is always supplied by PortSwigger's native installer, even when a
     # selected BlackArch group also contains a package named burpsuite.
-    packages = [package for package in packages if package != 'burpsuite']
+    packages = [package for package in packages if package not in
+                ('burpsuite', 'tailscale') and not package.startswith('proton-vpn')]
     count, download, disk = package_sizes(packages)
     print(f'Package plan: {len(packages)} packages; repository metadata found for {count}.')
     print(f'Estimated download: {size_text(download)}; installed files: {size_text(disk)}.')

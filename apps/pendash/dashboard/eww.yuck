@@ -13,7 +13,7 @@
 (defpoll ram :run-while home_visible :interval "2s" :initial 0 `~/.config/eww/scripts/adaptive-run.py ram 2 15 ~/.config/eww/scripts/arch-status.sh ram`)
 (defpoll gpu :run-while home_visible :interval "5s" :initial '{"usage":0,"label":"--","temperature":"--"}' `~/.config/eww/scripts/adaptive-run.py gpu 5 30 ~/.config/eww/scripts/gpu.sh`)
 (defpoll network :run-while home_visible :interval "5s" :initial '{"interface":"--","ip":"--","state":"Offline"}' `~/.config/eww/scripts/adaptive-run.py network 5 30 ~/.config/eww/scripts/network.sh`)
-(defpoll vpn :run-while home_visible :interval "5s" :initial '{"tailscale":false,"lab":false}' `~/.config/eww/scripts/adaptive-run.py vpn 5 30 ~/.config/eww/scripts/vpn.sh`)
+(defpoll vpn :run-while home_visible :interval "5s" :initial '{"tailscale":false,"lab":false,"tailscale_state":"Checking","proton_state":"Checking"}' `~/.config/eww/scripts/adaptive-run.py vpn 5 30 ~/.config/eww/scripts/vpn.sh`)
 (defpoll ctf_status :run-while home_visible :interval "10s" :initial '{"ready":false,"label":"CHECK","detail":"Checking workstation requirements"}' `~/.config/eww/scripts/adaptive-run.py ctf-status 10 60 ~/.config/eww/scripts/ctf-status.sh`)
 (defpoll ctf_target :run-while home_visible :interval "10s" :initial "NOT SET" `~/.config/eww/scripts/adaptive-run.py ctf-target 10 60 ~/.config/eww/scripts/target.sh`)
 (defpoll power :run-while home_visible :interval "2s" :initial '{"laptop":false,"battery":"--","draw":"--","remaining":"--","status":"--","profile":"--","effects":"--","top1":"","top2":"","top3":"","pt_label":"PowerTOP scan","pt_detail":""}' `~/.config/eww/scripts/adaptive-run.py power 2 15 ~/.config/eww/scripts/power-status.py`)
@@ -98,7 +98,8 @@
       (box :spacing 22 :space-evenly false :height 260
         (box :class "card vpn-card" :orientation "v" :space-evenly false :spacing 20 :width 280
           (section-title :text "VPN")
-          (vpn-row :name "Tailscale" :connected {vpn.tailscale})
+          (stat-row :name "Tailscale" :value {vpn.tailscale_state})
+          (stat-row :name "Proton VPN" :value {vpn.proton_state})
           (vpn-row :name "Lab VPN" :connected {vpn.lab}))
         (box :class "card arch-card" :orientation "v" :space-evenly false :spacing 20 :hexpand true
           (section-title :text "ARCH")

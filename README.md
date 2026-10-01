@@ -123,6 +123,13 @@ PoeDeploy prefers packages from the official Arch repositories. It uses `yay`
 when an application is only available from the Arch User Repository, usually
 called the AUR.
 
+PoeDeploy's full setup installs Tailscale and enables `tailscaled` at boot.
+Selecting Tailscale in Optional applications also enables and starts its service.
+For a selected-section run, choose Tailscale service to install and enable it.
+The user completes authentication with `sudo tailscale up`.
+PoeDash and PenDash do not install Tailscale or Proton VPN. They display
+`Not installed` when a client is absent, and its connection state when present.
+
 [Proton VPN's Arch installation](https://protonvpn.com/support/linux-vpn-arch)
 uses `proton-vpn-gtk-app`. Selecting it also installs NetworkManager and
 GNOME Keyring. Start NetworkManager (the **NetworkManager** setup section can

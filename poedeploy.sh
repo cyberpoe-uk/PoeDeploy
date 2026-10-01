@@ -3422,6 +3422,9 @@ install_selected_applications() {
             fi
         fi
     done
+    if [[ " ${SELECTED_PACKAGES[*]} " == *" tailscale "* ]] && pacman -Q tailscale &>/dev/null; then
+        configure_tailscale
+    fi
     APPLICATIONS_ACTION="${#INSTALLED_PACKAGES[@]} installed or already present, ${#SKIPPED_PACKAGES[@]} skipped, ${#FAILED_PACKAGES[@]} failed"
 }
 
@@ -3930,9 +3933,6 @@ configure_tailscale() {
         info "Tailscale service setup skipped because its app installation was cancelled."
         return 0
     fi
-    if [[ "$RUN_MODE" == full && ! " ${SELECTED_PACKAGES[*]} " =~ " tailscale " ]]; then
-        return 0
-    fi
 
     echo
 
@@ -4018,7 +4018,7 @@ configure_tailscale() {
 
     info "Tailscale is installed and running."
 
-    warning "This machine has not been authenticated with Tailscale."
+    info "Login is managed by the user. If this machine is not authenticated, run:"
 
     echo
 
