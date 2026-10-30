@@ -135,7 +135,7 @@ select_applications
 pacman() { return 1; }
 yay() { [[ "$*" == '-Si hyprmod' ]]; }
 install_optional_package() {
-    [[ "$*" == 'hyprmod yay -S --needed --noconfirm hyprmod' ]] || exit 93
+    [[ "$*" == 'hyprmod ui_run_interactive yay -S --needed --noconfirm hyprmod' ]] || exit 93
     echo HYPRMOD_INSTALL
 }
 hyprmod() { exit 94; }

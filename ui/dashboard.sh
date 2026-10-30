@@ -5,7 +5,15 @@
 
 _pd_repeat() { local text="$1" count="$2" out=""; while ((count-- > 0)); do out+="$text"; done; printf '%s' "$out"; }
 _pd_clip() { local text="$1" width="$2"; ((${#text} <= width)) && printf '%s' "$text" || printf '%s' "${text:0:$((width - 1))}."; }
-_pd_row() { local text="$1" inner="$2" clipped; clipped=$(_pd_clip "$text" "$inner"); printf '%s %-*s %s\n' "$PD_BORDER_SIDE" "$inner" "$clipped" "$PD_BORDER_SIDE"; }
+_pd_row() {
+    local text="$1" inner="$2" colour="${3:-}" clipped reset=""
+    clipped=$(_pd_clip "$text" "$inner")
+    [[ -z "$colour" ]] || reset="${NC:-}"
+    # Bash printf pads strings by bytes; UTF-8 bars and markers use several
+    # bytes per character. Compute padding before adding colour escapes.
+    printf '%s %s%s%s%*s %s\n' "$PD_BORDER_SIDE" "$colour" "$clipped" \
+        "$reset" "$((inner - ${#clipped}))" '' "$PD_BORDER_SIDE"
+}
 
 _pd_set_glyphs() {
     if [[ "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" == *UTF-8* || "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" == *utf8* ]]; then
@@ -67,9 +75,9 @@ _pd_dashboard_draw() {
 
     tput cup 0 0 2>/dev/null || printf '\033[H'
     printf '%s%s%s\n' "$PD_BORDER_TOP_LEFT" "$(_pd_repeat "$PD_BORDER_HORIZONTAL" "$((width - 2))")" "$PD_BORDER_TOP_RIGHT"
-    _pd_row "POEDEPLOY  $PD_SEPARATOR  Arch Linux installer" "$inner"
+    _pd_row "POEDEPLOY  $PD_SEPARATOR  Arch Linux installer" "$inner" "${BLUE:-}${UI_BOLD:-}"
     _pd_row "" "$inner"
-    _pd_row "$bar" "$inner"
+    _pd_row "$bar" "$inner" "${BLUE:-}"
     _pd_row "Step ${PD_VIEW_CURRENT:-0} of ${PD_VIEW_TOTAL:-0}  $PD_SEPARATOR  ${PD_VIEW_COMPLETED:-0} completed" "$inner"
     _pd_row "Stage:   ${PD_VIEW_STAGE:-Preparing}" "$inner"
     _pd_row "Current: ${PD_VIEW_OPERATION:-Preparing installation}" "$inner"
@@ -81,7 +89,9 @@ _pd_dashboard_draw() {
     for ((i = start; i < ${#PD_VIEW_ITEMS[@]} && i < start + available; i++)); do
         item=${PD_VIEW_ITEMS[$i]}; status=${item%%|*}; label=${item#*|}
         case "$status" in complete) marker="$PD_GLYPH_COMPLETE" ;; running) marker="$PD_GLYPH_RUNNING" ;; warning) marker='[!]' ;; failed) marker="$PD_GLYPH_FAILED" ;; *) marker="$PD_GLYPH_PENDING" ;; esac
-        _pd_row "$marker $label" "$inner"
+        local colour="${UI_DIM:-}"
+        case "$status" in complete) colour="${GREEN:-}" ;; running) colour="${BLUE:-}" ;; warning) colour="${YELLOW:-}" ;; failed) colour="${RED:-}" ;; esac
+        _pd_row "$marker $label" "$inner" "$colour"
     done
     _pd_row "" "$inner"
     _pd_row "Warnings: ${PD_VIEW_WARNINGS:-0}  Errors: ${PD_VIEW_ERRORS:-0}" "$inner"
@@ -220,13 +230,30 @@ ui_prompt() {
     fi
     ui_dashboard_pause
     if [[ "$silent" == true ]]; then
-        IFS= read -rsp "$prompt" response </dev/tty
+        IFS= read -rsp "$prompt" response </dev/tty 2>/dev/tty
         printf '\n' >/dev/tty
     else
-        IFS= read -rp "$prompt" response </dev/tty
+        IFS= read -rp "$prompt" response </dev/tty 2>/dev/tty
     fi
     local status=$?
     printf -v "$output_name" '%s' "$response"
+    ui_dashboard_resume
+    return "$status"
+}
+
+# External installers and AUR tools invoke their own sudo and input readers.
+# Give them the terminal for their entire run, including password retries.
+ui_run_interactive() {
+    if [[ "$PD_UI_ACTIVE" != true ]]; then
+        "$@"
+        return $?
+    fi
+    ui_dashboard_pause
+    local status
+    if (
+        PD_UI_ACTIVE=false
+        if "$@" </dev/tty >/dev/tty 2>&1; then exit 0; else exit $?; fi
+    ); then status=0; else status=$?; fi
     ui_dashboard_resume
     return "$status"
 }

@@ -16,7 +16,7 @@ install_bundled_dashboard_application() {
         FAILED_PACKAGES+=("$name")
         return 0
     fi
-    if bash "$source_dir/install.sh" "$@"; then
+    if ui_run_interactive bash "$source_dir/install.sh" "$@"; then
         INSTALLED_PACKAGES+=("$name")
         success "$name installed successfully from the PoeDeploy bundle."
     else

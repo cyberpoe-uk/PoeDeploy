@@ -337,11 +337,18 @@ confirm_start() {
 POEDEPLOY_IN_CHROOT=false
 
 detect_chroot() {
-    if command -v systemd-detect-virt >/dev/null 2>&1 && systemd-detect-virt --quiet --chroot; then
+    POEDEPLOY_IN_CHROOT=false
+    # An unprivileged process may not inspect /proc/1/root. This probe is
+    # optional; permission errors must not be presented as installer failures.
+    if command -v systemd-detect-virt >/dev/null 2>&1 && systemd-detect-virt --quiet --chroot 2>/dev/null; then
         POEDEPLOY_IN_CHROOT=true
-    elif [[ -r /proc/1/root/. && -r /. ]] &&
-         [[ "$(stat -Lc '%d:%i' /proc/1/root/. 2>/dev/null || true)" != "$(stat -Lc '%d:%i' /. 2>/dev/null || true)" ]]; then
-        POEDEPLOY_IN_CHROOT=true
+    else
+        local init_root current_root
+        init_root=$(stat -Lc '%d:%i' /proc/1/root/. 2>/dev/null) || return 0
+        current_root=$(stat -Lc '%d:%i' /. 2>/dev/null) || return 0
+        if [[ -n "$init_root" && -n "$current_root" && "$init_root" != "$current_root" ]]; then
+            POEDEPLOY_IN_CHROOT=true
+        fi
     fi
 }
 
@@ -366,13 +373,22 @@ check_not_root() {
         if [[ "${PD_UI_ACTIVE:-false}" == true ]] &&
            ! command "$POEDEPLOY_SUDO_BIN" -n true 2>/dev/null; then
             ui_dashboard_pause
-            if command "$POEDEPLOY_SUDO_BIN" -v </dev/tty >/dev/tty; then
+            if command "$POEDEPLOY_SUDO_BIN" -v </dev/tty >/dev/tty 2>&1; then
                 authentication_status=0
             else
                 authentication_status=$?
             fi
+            if ((authentication_status == 0)); then
+                # Keep keyboard ownership through the command too: sudo policy
+                # may require another prompt even immediately after validation.
+                if command "$POEDEPLOY_SUDO_BIN" "$@"; then
+                    authentication_status=0
+                else
+                    authentication_status=$?
+                fi
+            fi
             ui_dashboard_resume
-            ((authentication_status == 0)) || return "$authentication_status"
+            return "$authentication_status"
         fi
         command "$POEDEPLOY_SUDO_BIN" "$@"
     }
@@ -782,7 +798,7 @@ install_yay() {
 
         cd "$temp_dir/yay"
 
-        makepkg -si --noconfirm
+        ui_run_interactive makepkg -si --noconfirm
 
     )
 
@@ -2981,7 +2997,7 @@ install_ml4w() {
             warning "ML4W download is empty or has invalid Bash syntax. It was not run."
             ML4W_ENABLED=false
             ML4W_ACTION="invalid download"
-        elif ! bash "$installer_file"; then
+        elif ! ui_run_interactive bash "$installer_file"; then
             warning "ML4W installer returned a failure."
             warning "Continuing with the rest of the Arch setup."
             ML4W_ACTION="installation failed"
@@ -3398,7 +3414,7 @@ install_selected_applications() {
                 install_yay
             fi
             if yay -Si "$package" &>/dev/null; then
-                install_optional_package "$package" yay -S --needed --noconfirm "$package"
+                install_optional_package "$package" ui_run_interactive yay -S --needed --noconfirm "$package"
             else
                 warning "Package not found: $package"
                 FAILED_PACKAGES+=("$package")

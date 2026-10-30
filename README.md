@@ -61,6 +61,11 @@ and the log path. Press `L` to switch to the live log and `Q` or Esc to return.
 On the main dashboard, `Q` aborts the active task. Normal command output is kept
 out of the dashboard and written to the log instead.
 
+Password prompts temporarily restore the normal terminal. AUR builds and external
+installers also use the normal terminal for their entire run so their own sudo
+prompts can read every keystroke. Their output appears directly in the terminal,
+then the progress dashboard returns when they finish.
+
 The preferred log is `/var/log/poedeploy.log`. When that location is not
 writable, PoeDeploy uses `~/.local/state/poedeploy/poedeploy.log`. The normal
 terminal screen and cursor are restored after completion, failure, or Ctrl+C.
@@ -220,7 +225,9 @@ dashboard itself.
 
 Each selected stage runs as a background task while the dashboard owns the TTY.
 Interactive questions temporarily restore the normal screen, then redraw the
-dashboard. A failed critical stage offers retry, log, or abort. Explicitly safe
+dashboard. External installers run through `ui_run_interactive`, which suspends
+dashboard keyboard input until the installer exits, including on failure.
+A failed critical stage offers retry, log, or abort. Explicitly safe
 optional stages also offer skip.
 
 Inside an Arch chroot, PoeDeploy allows the chroot's root user, runs privileged
