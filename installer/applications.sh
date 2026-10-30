@@ -16,6 +16,13 @@ install_bundled_dashboard_application() {
         FAILED_PACKAGES+=("$name")
         return 0
     fi
+    ensure_command_dependencies python3:python
+    if [[ "$relative_source" == pendash ]] &&
+       ! command -v eww >/dev/null 2>&1 &&
+       ! command -v paru >/dev/null 2>&1 &&
+       ! command -v yay >/dev/null 2>&1; then
+        install_yay
+    fi
     if ui_run_interactive bash "$source_dir/install.sh" "$@"; then
         INSTALLED_PACKAGES+=("$name")
         success "$name installed successfully from the PoeDeploy bundle."

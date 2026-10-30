@@ -106,8 +106,7 @@ PenDash, PoeDash, PowerTOP, Proton VPN, Spotify, Tailscale, Thunderbird,
 Visual Studio Code, and VLC.
 
 PoeDash and PenDash are bundled under `apps/` and install directly from the
-PoeDeploy release. Their installation does not download another installer or
-source archive from a website or GitHub repository. Choose only one dashboard.
+PoeDeploy release. Choose only one dashboard.
 
 PoeDash is the general dashboard. Its installer offers `PoeDash` as the default
 display name and lets the user enter another name. It shows performance, laptop power
@@ -119,16 +118,24 @@ PoeDeploy asks for the PoeDash name during the visible application-planning
 step. The background installation and dashboard updates are non-interactive, so
 they cannot stall behind the static progress screen.
 
-**PenDash (dashboard)** installs its dashboard, dashboard packages, and Chromium
-integration. Burp Suite can be installed separately for its CTF tools. PenDash
-does not install BlackArch, configure NVIDIA, or apply laptop power rules.
+**PenDash (dashboard + security tools)** adds the BlackArch repository using
+its [official, checksum-verified bootstrapper](https://blackarch.org/downloads.html)
+and installs Burp Suite Community (`burpsuite`), ffuf, Gobuster, Nmap, sqlmap,
+Wfuzz, Wireshark, and jwt-tool alongside the dashboard and Chromium.
+Chromium launches normally. Configure its Burp proxy and certificates manually.
+PenDash does not configure NVIDIA or apply laptop power rules.
+
+When updating an older PenDash setup, the installer backs up and removes known,
+unmodified proxy/certificate helper scripts and their exact managed Chromium
+flags. Custom flags, browser profiles, and certificate stores are retained.
 
 Both dashboards add enable/disable and update controls to a supported ML4W
 QuickShell status bar. The update control downloads the latest stable PoeDeploy
 release and refreshes the selected dashboard from its bundled copy. Selecting
 the same dashboard in PoeDeploy performs the same clean refresh: managed
 interface files are replaced while Eww itself, dashboard preferences, the
-enabled state, colour palette, and browser state are retained.
+enabled state, colour palette, and browser state are retained. PenDash updates
+also ensure the BlackArch repository and install any missing curated tools.
 
 PoeDeploy prefers packages from the official Arch repositories. It uses `yay`
 when an application is only available from the Arch User Repository, usually

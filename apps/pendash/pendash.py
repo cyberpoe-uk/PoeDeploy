@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Install and manage the PenDash dashboard and Chromium integration."""
-import burp_ca
+"""Install and manage PenDash with Chromium and curated BlackArch security tools."""
 import argparse
 import datetime
-import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -11,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.request
 
 SOURCE = Path(__file__).resolve().parent
 HOME = Path.home()
@@ -19,18 +19,22 @@ STAMP = datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
 BACKUP = STATE / 'backups' / STAMP
 DASHBOARD = ['hyprland', 'jq', 'python', 'kitty', 'btop', 'nvtop', 'rofi',
              'powertop', 'brightnessctl', 'libnotify']
+CURATED = ['burpsuite', 'ffuf', 'gobuster', 'nmap', 'sqlmap', 'wfuzz',
+           'wireshark-qt', 'jwt-tool']
+PACMAN_CONFIG = Path('/etc/pacman.conf')
+BLACKARCH_MIRRORLIST = Path('/etc/pacman.d/blackarch-mirrorlist')
+# Exact versions previously installed by PoeDeploy. Customised files are retained.
+LEGACY_BROWSER_FILES = {
+    '.local/bin/ctf-chromium': 'ccf8c5c1b359149f36ed7ed2a48a21346161f9ce0647cf62e4933a639df46969',
+    '.local/bin/pendash': '7df42aa9fe0f9550e11de5487c70ed49f2f19da50d877b2aee021d85bbca3706',
+    '.local/lib/pendash/burp_ca.py': 'ae34f12ca2c569731e2e545ee46ed08d38ef07a4a55ee7ff552709afbd13c1b5',
+}
 BEGIN, END = '-- BEGIN PENDASH', '-- END PENDASH'
 
 
 def run(argv, check=True, **kwargs):
     print('+ ' + ' '.join(map(str, argv)), flush=True)
     return subprocess.run([str(x) for x in argv], check=check, **kwargs)
-
-
-def yes(prompt, default=False):
-    suffix = ' [Y/n] ' if default else ' [y/N] '
-    answer = input(prompt + suffix).strip().lower()
-    return default if not answer else answer in ('y', 'yes')
 
 
 def backup(path):
@@ -67,11 +71,68 @@ def replace_block(old, block):
     return clean.rstrip() + '\n\n' + block.strip() + '\n'
 
 
+def ensure_blackarch(dry_run):
+    if BLACKARCH_MIRRORLIST.is_file() and PACMAN_CONFIG.is_file() and re.search(
+            r'(?m)^\s*\[blackarch\]\s*(?:#.*)?$', PACMAN_CONFIG.read_text()):
+        return
+    if dry_run:
+        print('Would add the BlackArch repository using its official, checksum-verified strap.sh.')
+        return
+    with urllib.request.urlopen('https://blackarch.org/downloads.html', timeout=30) as response:
+        page = response.read(2 * 1024 * 1024).decode(errors='replace')
+    checksum = re.search(r'echo\s+([0-9a-f]{40})\s+strap\.sh', page)
+    if not checksum:
+        raise RuntimeError('Could not find the strap.sh checksum on the official BlackArch download page.')
+    with urllib.request.urlopen('https://blackarch.org/strap.sh', timeout=30) as response:
+        script = response.read(2 * 1024 * 1024)
+    if hashlib.sha1(script).hexdigest() != checksum.group(1):
+        raise RuntimeError('BlackArch strap.sh checksum mismatch. Repository setup was not run.')
+    with tempfile.NamedTemporaryFile(prefix='pendash-blackarch-', delete=False) as stream:
+        stream.write(script)
+        path = Path(stream.name)
+    try:
+        run(['sudo', 'bash', path])
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def cleanup_legacy_browser_setup():
+    owned = []
+    for relative, digest in LEGACY_BROWSER_FILES.items():
+        path = HOME / relative
+        if not path.is_symlink() and path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == digest:
+            owned.append(path)
+    # Only retire the old exact flags when the unmodified managed launcher
+    # proves they came from our previous setup. Other browser settings stay put.
+    if HOME / '.local/bin/ctf-chromium' in owned:
+        flags = HOME / '.config/chromium-flags.conf'
+        if flags.is_file() and not flags.is_symlink():
+            original = flags.read_text()
+            legacy = {'--proxy-server=http://127.0.0.1:8080', '--proxy-bypass-list=<-loopback>'}
+            kept = [line for line in original.splitlines(keepends=True) if line.strip() not in legacy]
+            cleaned = ''.join(kept)
+            if cleaned != original:
+                write(flags, cleaned, flags.stat().st_mode & 0o777)
+    for path in owned:
+        backup(path)
+        path.unlink()
+
+
+def installation_checks():
+    installed = set(subprocess.check_output(['pacman', '-Qq'], text=True).splitlines())
+    missing = sorted(set(CURATED + ['chromium']) - installed)
+    for package in missing:
+        print('[MISSING] ' + package)
+    dashboard_ready = (HOME / '.config/eww/eww.yuck').is_file()
+    print('[PASS] Dashboard installed' if dashboard_ready else '[MISSING] PenDash dashboard')
+    return dashboard_ready and not missing
+
+
 def install_packages(packages, dry_run):
     installed = set(subprocess.check_output(['pacman', '-Qq'], text=True).splitlines())
     missing = [p for p in packages if p not in installed]
     if missing:
-        argv = ['sudo', 'pacman', '-S', '--needed', *missing]
+        argv = ['sudo', 'pacman', '-Syu', '--needed', *missing]
         if dry_run:
             if len(missing) > 30:
                 print(f'Would install {len(missing)} missing packages with sudo pacman -S --needed.')
@@ -89,75 +150,13 @@ def install_packages(packages, dry_run):
             run([helper, '-S', '--needed', 'eww'])
 
 
-def burp_executable():
-    candidates = [
-        HOME / 'Applications/BurpSuite/BurpSuite',
-        HOME / 'BurpSuite/BurpSuite',
-        Path('/opt/BurpSuite/BurpSuite'),
-        Path('/usr/local/BurpSuite/BurpSuite'),
-    ]
-    command = shutil.which('BurpSuite') or shutil.which('burpsuite')
-    if command:
-        owner = subprocess.run(['pacman', '-Qo', command], text=True, capture_output=True)
-        # Do not mistake a pre-existing BlackArch package for the native install.
-        if owner.returncode or not re.search(r'\bis owned by burpsuite\b', owner.stdout):
-            candidates.insert(0, Path(command))
-    return next((path for path in candidates if path.is_file() and os.access(path, os.X_OK)), None)
-
-
-def install_browser(dry_run):
-    print('[BROWSER] Chromium selected (PenDash default)')
-    if dry_run:
-        print('Would install CTF Chromium launcher and certificate command.')
-        return
-    write(HOME / '.local/bin/ctf-chromium', (SOURCE / 'assets/ctf-chromium').read_text(), 0o755)
-    write(HOME / '.local/lib/pendash/burp_ca.py', (SOURCE / 'burp_ca.py').read_text(), 0o755)
-    write(HOME / '.local/bin/pendash', (SOURCE / 'assets/pendash').read_text(), 0o755)
-    flags = HOME / '.config/chromium-flags.conf'
-    old = flags.read_text() if flags.exists() else ''
-    lines = [line for line in old.splitlines() if not line.strip().startswith(
-        ('--proxy-server', '--proxy-bypass-list', '--no-proxy-server', '--proxy-pac-url', '--proxy-auto-detect'))]
-    lines += ['--proxy-server=http://127.0.0.1:8080', '--proxy-bypass-list=<-loopback>']
-    write(flags, '\n'.join(lines) + '\n')
-    print('[PASS] Persistent Chromium HTTP/HTTPS Burp proxy configured')
-    print('[PASS] CTF Chromium launcher installed')
-
-
-def browser_checks():
-    launcher = HOME / '.local/bin/ctf-chromium'
-    values = [('Chromium installed', shutil.which('chromium')),
-              ('NSS certificate utilities available', shutil.which('certutil')),
-              ('Chromium launcher executable', os.access(launcher, os.X_OK)),
-              ('Proxy configuration present', launcher.exists() and '--proxy-server="http://127.0.0.1:8080"' in launcher.read_text())]
-    for label, value in values:
-        print(('[PASS] ' if value else '[FAIL] ') + label)
-    print('[PASS] Burp native executable detected' if burp_executable() else '[INFO] Burp native installation unavailable')
-    if not burp_ca.proxy_available():
-        print('[INFO] Burp proxy currently unavailable\n[INFO] Start Burp to configure or test HTTPS interception')
-    try:
-        burp_ca.main('status')
-    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
-        print('[INFO] Burp CA status unavailable: ' + str(exc))
-    return all(value for _, value in values)
-
-
-def offer_ca(args):
-    if args.dry_run:
-        return
-    browser_checks()
-    if not args.non_interactive and yes('Configure Burp CA now?'):
-        burp_ca.main('import', args.certificate)
-    else:
-        print('[INFO] Burp CA setup pending.\n[INFO] Run: pendash setup-burp-ca')
-
-
-def install_dashboard(browser, dry_run, preserve_colors=False):
+def install_dashboard(dry_run, preserve_colors=False):
     destination = HOME / '.config/eww'
     if dry_run:
         print(f'Would back up and install the PenDash dashboard into {destination}.')
         return
     preserved = {}
-    for name in ('colors.scss', 'browser.json', 'disabled'):
+    for name in ('colors.scss', 'disabled'):
         path = destination / name
         if path.is_file():
             preserved[name] = path.read_bytes()
@@ -184,8 +183,7 @@ def install_dashboard(browser, dry_run, preserve_colors=False):
     if state_copy:
         shutil.copytree(state_copy, destination / 'state', dirs_exist_ok=True)
         shutil.rmtree(state_copy.parent)
-    write(destination / 'browser.json', json.dumps({'browser': browser}, indent=2) + '\n')
-    install_browser(False)
+    cleanup_legacy_browser_setup()
     user_env = dict(os.environ, HOME=str(HOME))
     run([sys.executable, destination / 'scripts/dashboard-control.py', '--root', destination, 'prepare'], env=user_env)
     run([sys.executable, destination / 'scripts/dashboard-control.py', '--root', destination, 'quickshell'], env=user_env)
@@ -208,53 +206,45 @@ def dashboard_enabled(root, enabled):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     action = parser.add_mutually_exclusive_group()
-    action.add_argument('--update-dashboard', action='store_true', help='refresh dashboard and Chromium integration')
+    action.add_argument('--update-dashboard', action='store_true', help='refresh the dashboard and install missing security tools')
     action.add_argument('--disable-dashboard', action='store_true', help='stop dashboard and disable autostart')
     action.add_argument('--enable-dashboard', action='store_true', help='restore dashboard and autostart')
-    action.add_argument('--check', action='store_true', help='check the dashboard and Chromium integration')
+    action.add_argument('--check', action='store_true', help='check the dashboard, Chromium, and security tools')
     action.add_argument('--dry-run', action='store_true')
     parser.add_argument('--waybar-config', type=Path, help='add a toggle to this Waybar config')
     parser.add_argument('--non-interactive', action='store_true')
-    # Accept existing dashboard launch commands. Dashboard installation is now
-    # the only installation mode, including when no flag is supplied.
-    parser.add_argument('--dashboard-only', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--skip-packages', action='store_true')
-    parser.add_argument('command', nargs='?', choices=['setup-burp-ca'])
-    parser.add_argument('--certificate', type=Path)
-    parser.add_argument('--ca-action', choices=['import', 'status', 'remove'], default='import')
     args = parser.parse_args()
-    if args.command:
-        return burp_ca.main(args.ca_action, args.certificate)
     if os.geteuid() == 0:
-        parser.error('Run as the desktop user; the installer requests sudo for package installation.')
-    browser = 'chromium'
+        parser.error('Run as the desktop user; the installer requests sudo for repository and package installation.')
     if args.update_dashboard:
         root = HOME / '.config/eww'
         if not (root / 'eww.yuck').is_file():
             raise RuntimeError('Install PenDash before updating it.')
-        if any(not shutil.which(command) for command in ('chromium', 'certutil', 'openssl')):
-            install_packages(['chromium', 'nss', 'openssl'], False)
-        install_dashboard(browser, False, preserve_colors=True)
+        if not args.skip_packages:
+            ensure_blackarch(False)
+            install_packages(sorted(set(DASHBOARD + CURATED + ['chromium'])), False)
+        install_dashboard(False, preserve_colors=True)
         if args.waybar_config:
             run([sys.executable, root / 'scripts/dashboard-control.py', '--root', root, 'waybar', '--config', args.waybar_config])
         if not (root / 'disabled').exists():
             dashboard_enabled(root, True)
-        print('Dashboard and Chromium integration updated.')
+        print('PenDash dashboard updated. Configure Chromium and Burp manually.')
         return 0
     if args.disable_dashboard or args.enable_dashboard:
         dashboard_enabled(HOME / '.config/eww', args.enable_dashboard)
         return 0
     if args.check:
-        return 0 if browser_checks() and (HOME / '.config/eww/eww.yuck').is_file() else 2
+        return 0 if installation_checks() else 2
     if not args.skip_packages:
-        install_packages(sorted(set(DASHBOARD + ['chromium', 'nss', 'openssl'])), args.dry_run)
-    install_dashboard(browser, args.dry_run)
-    offer_ca(args)
+        ensure_blackarch(args.dry_run)
+        install_packages(sorted(set(DASHBOARD + CURATED + ['chromium'])), args.dry_run)
+    install_dashboard(args.dry_run)
     if args.waybar_config and not args.dry_run:
         root = HOME / '.config/eww'
         run([sys.executable, root / 'scripts/dashboard-control.py', '--root', root,
              'waybar', '--config', args.waybar_config])
-    print('PenDash dashboard installation finished.')
+    print('PenDash installation finished. Configure Chromium and Burp manually.')
     return 0
 
 

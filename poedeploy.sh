@@ -3181,7 +3181,7 @@ declare -A APPLICATIONS=(
 
     ["PowerTOP"]="powertop"
 
-    ["PenDash (dashboard)"]="@pendash-dashboard"
+    ["PenDash (dashboard + security tools)"]="@pendash-dashboard"
 
     ["PoeDash (dashboard)"]="@poedash"
 

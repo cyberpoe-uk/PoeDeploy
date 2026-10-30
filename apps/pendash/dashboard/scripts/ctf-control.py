@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local CTF launch controls. Saved targets open in Chromium through the local Burp proxy."""
+"""Local CTF launch controls. Chromium proxy and certificates are configured manually."""
 import fcntl
 import ipaddress
 import json
@@ -24,11 +24,11 @@ def browser():
 
 
 def browser_classes():
-    return ['chromium-ctf']
+    return ['chromium', 'Chromium']
 
 
 APPS = {
-    'burp': (2, ['install4j-burp-StartBurp']),
+    'burp': (2, ['install4j-burp-StartBurp', 'burp-StartBurp', 'burpsuite']),
     'chromium': (2, browser_classes()),
     'terminal': (3, ['dashboard-ctf-terminal', 'kitty']),
     'code': (4, ['com.microsoft.VSCode', 'Code', 'VSCodium', 'codium']),
@@ -45,11 +45,12 @@ def run(argv, timeout=5):
 def command(app):
     if app == 'burp':
         candidates = [HOME / 'BurpSuite/BurpSuite', BURP, Path('/opt/BurpSuite/BurpSuite'), Path('/usr/local/BurpSuite/BurpSuite')]
-        executable = next((str(p) for p in candidates if os.access(p, os.X_OK)), None) or shutil.which('BurpSuite')
+        executable = shutil.which('burpsuite') or shutil.which('BurpSuite') or next(
+            (str(p) for p in candidates if os.access(p, os.X_OK)), None)
         return [executable] if executable else None
     if app == 'chromium':
-        executable = HOME / '.local/bin/ctf-chromium'
-        return [str(executable)] if os.access(executable, os.X_OK) else None
+        executable = shutil.which('chromium')
+        return [executable, '--new-window'] if executable else None
     exe = shutil.which({'terminal': 'kitty', 'wireshark': 'wireshark', 'code': 'code'}[app])
     if app == 'code':
         exe = exe or shutil.which('codium')
@@ -78,18 +79,16 @@ def process_args(pid):
         return []
 
 
-def is_ctf_process(pid):
+def is_browser_process(pid):
     args = process_args(pid)
     expected = browser()
     if not args or expected not in Path(args[0]).name:
         return False
-    return '--proxy-server=http://127.0.0.1:8080' in args
+    return not any(value.startswith('--type=') for value in args[1:])
 
 
 def find_window(app, windows):
     matches = [w for w in windows if w.get('class') in APPS[app][1]]
-    if app == 'chromium':
-        matches += [w for w in windows if w.get('class') in ('Chromium', 'chromium') and is_ctf_process(w['pid'])]
     # Prefer a window already on the intended workspace, then the dedicated class.
     matches.sort(key=lambda w: (w['workspace']['id'] != APPS[app][0], w['class'] != APPS[app][1][0]))
     return matches[0] if matches else None
@@ -101,9 +100,11 @@ def running_without_window(app):
         args = process_args(p.name)
         if not args:
             continue
-        if app == 'chromium' and is_ctf_process(p.name):
+        if app == 'chromium' and is_browser_process(p.name):
             return True
-        if app == 'burp' and (args[0] == str(BURP) or any(str(BURP.parent / 'burpsuite.jar') in a for a in args)):
+        if app == 'burp' and (Path(args[0]).name in ('BurpSuite', 'burpsuite') or
+                              any(value == '/usr/share/burpsuite/burpsuite.jar' or
+                                  str(BURP.parent / 'burpsuite.jar') in value for value in args)):
             return True
         if app == 'terminal' and 'dashboard-ctf-terminal' in args and Path(args[0]).name == 'kitty':
             return True
@@ -114,18 +115,11 @@ def running_without_window(app):
 
 def ensure(app, focus=True, target=None):
     workspace = APPS[app][0]
-    if app == 'chromium':
-        import socket
-        try:
-            with socket.create_connection(('127.0.0.1', 8080), timeout=1):
-                pass
-        except OSError:
-            raise RuntimeError('Burp Suite proxy unavailable. Start Burp and enable 127.0.0.1:8080.')
     window = None if target else find_window(app, clients())
     if not window:
         argv = command(app)
         if not argv:
-            raise RuntimeError(f'{app}: executable or CTF profile is missing')
+            raise RuntimeError(f'{app}: executable is missing')
         if target or not running_without_window(app):
             if target:
                 argv.append(target)
@@ -165,16 +159,6 @@ def launch(app):
             errors = []
             for name in ('burp', 'chromium', 'terminal'):
                 try:
-                    if name == 'chromium':
-                        import socket
-                        for attempt in range(60):
-                            try:
-                                with socket.create_connection(('127.0.0.1', 8080), timeout=.5):
-                                    break
-                            except OSError:
-                                time.sleep(.5)
-                        else:
-                            raise RuntimeError('Burp listener unavailable after waiting 30 seconds.')
                     target = validate_target(read_target()) if name == 'chromium' else ''
                     if target and '://' not in target:
                         target = 'http://' + target
@@ -194,7 +178,7 @@ def status():
     missing = []
     for app in ('burp', 'chromium', 'terminal'):
         if not command(app):
-            missing.append(app if app != 'chromium' else browser().title() + ' / CTF profile')
+            missing.append(app if app != 'chromium' else browser().title())
     try:
         route = json.loads(run(['ip', '-j', '-4', 'route', 'get', '1.1.1.1']).stdout)
         if not route or not route[0].get('dev') or not (route[0].get('prefsrc') or route[0].get('src')):
@@ -202,7 +186,7 @@ def status():
     except (OSError, ValueError, subprocess.TimeoutExpired):
         missing.append('network')
     return {'ready': not missing, 'label': 'CHECK' if missing else 'READY',
-            'detail': 'Missing: ' + ', '.join(missing) if missing else f'Burp, {browser().title()} CTF, Kitty and an IPv4 route are available. No target connectivity test performed.'}
+            'detail': 'Missing: ' + ', '.join(missing) if missing else f'Burp, {browser().title()}, Kitty and an IPv4 route are available. Configure the browser proxy manually.'}
 
 
 def read_target():

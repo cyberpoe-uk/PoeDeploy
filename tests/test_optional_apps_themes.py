@@ -56,16 +56,16 @@ printf '0\n' >"$attempt_file"
 choose_checklist() {
     options=$(cat)
     [[ "$options" == *'PoeDash (dashboard)'* ]] || exit 91
-    [[ "$options" == *'PenDash (dashboard)'* ]] || exit 92
+    [[ "$options" == *'PenDash (dashboard + security tools)'* ]] || exit 92
     [[ "$options" != *'PenDash (full laptop setup)'* ]] || exit 93
     [[ ${#APPLICATIONS[@]} -gt 2 && $(dashboard_application_selection_count "${!APPLICATIONS[@]}") == 2 ]] || exit 94
     calls=$(<"$attempt_file")
     calls=$((calls + 1))
     printf '%s\n' "$calls" >"$attempt_file"
     if ((calls == 1)); then
-        printf '%s\n' 'PoeDash (dashboard)' 'PenDash (dashboard)'
+        printf '%s\n' 'PoeDash (dashboard)' 'PenDash (dashboard + security tools)'
     else
-        printf '%s\n' 'PenDash (dashboard)'
+        printf '%s\n' 'PenDash (dashboard + security tools)'
     fi
 }
 select_applications
@@ -90,7 +90,7 @@ install_selected_applications
     def test_pendash_needs_no_browser_selection(self):
         self.check(r'''
 gum() { :; }
-choose_checklist() { cat >/dev/null; echo 'PenDash (dashboard)'; }
+choose_checklist() { cat >/dev/null; echo 'PenDash (dashboard + security tools)'; }
 ui_prompt() { return 99; }
 select_applications
 [[ -z "${PENDASH_BROWSER:-}" ]]
@@ -98,6 +98,22 @@ install_bundled_dashboard_application() {
     [[ "$*" == 'PenDash dashboard pendash --non-interactive' ]]
 }
 install_selected_applications
+''')
+
+    def test_pendash_installer_prepares_python_and_eww_build_helper(self):
+        self.check(r'''
+ensure_command_dependencies() { [[ "$*" == python3:python ]] || exit 91; }
+command() {
+    case "$*" in '-v eww'|'-v paru'|'-v yay') return 1 ;; esac
+    builtin command "$@"
+}
+install_yay() { helper_ready=true; }
+ui_run_interactive() {
+    [[ "$helper_ready" == true ]] || exit 92
+    [[ "$*" == "bash $SCRIPT_DIR/apps/pendash/install.sh --non-interactive" ]] || exit 93
+}
+install_bundled_dashboard_application PenDash pendash --non-interactive
+[[ "${INSTALLED_PACKAGES[*]}" == PenDash ]]
 ''')
 
     def test_noninteractive_dashboard_refresh_dispatches_without_setup_menu(self):
