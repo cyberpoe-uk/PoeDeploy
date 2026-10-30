@@ -1,15 +1,18 @@
 """State and logging tests for the static installer dashboard."""
 
 from pathlib import Path
+import base64
 import errno
 import os
 import pty
+import re
 import select
 import signal
 import shutil
 import termios
 import time
 import unittest
+import unicodedata
 
 from test_workflows import PRELUDE, SCRIPT, run_bash
 
@@ -20,18 +23,18 @@ class DashboardStateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result.stdout + result.stderr
 
-    def check_pty(self, body, replies):
+    def check_pty(self, body, replies, size=(28, 100), expected_exit=0):
         pid, fd = pty.fork()
         if pid == 0:
             os.environ['TERM'] = 'xterm-256color'
             os.environ.pop('NO_COLOR', None)
-            termios.tcsetwinsize(0, (28, 100))
+            termios.tcsetwinsize(0, size)
             os.execvp('bash', ['bash', '--noprofile', '--norc', '-c',
                               PRELUDE + body, 'test', SCRIPT])
         output = b''
         done = 0
         position = 0
-        deadline = time.monotonic() + 15
+        deadline = time.monotonic() + 25
         try:
             while time.monotonic() < deadline:
                 if select.select([fd], [], [], 0.05)[0]:
@@ -50,9 +53,17 @@ class DashboardStateTests(unittest.TestCase):
                         time.sleep(0.03)
                 done, status = os.waitpid(pid, os.WNOHANG)
                 if done:
+                    while select.select([fd], [], [], 0.01)[0]:
+                        try:
+                            chunk = os.read(fd, 8192)
+                        except OSError:
+                            break
+                        if not chunk:
+                            break
+                        output += chunk
                     break
             self.assertTrue(done, output)
-            self.assertEqual(os.waitstatus_to_exitcode(status), 0, output)
+            self.assertEqual(os.waitstatus_to_exitcode(status), expected_exit, output)
             self.assertFalse(replies, output)
             self.assertIn(b'PTY_REGRESSION_DONE', output)
             return output
@@ -72,7 +83,7 @@ _pd_row '████░░  50%' 24
 _pd_row '→ Applications' 24 "$BLUE"
 ''')
         import re
-        rows = re.sub(r'\x1b\[[0-9;]*m', '', output).splitlines()
+        rows = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', output).splitlines()
         self.assertEqual([len(row) for row in rows], [28, 28])
         self.assertIn('\x1b[34m', output)
 
@@ -86,6 +97,216 @@ detect_chroot
 echo CHROOT_CHECK_DONE
 ''')
         self.assertEqual(output.strip(), 'CHROOT_CHECK_DONE')
+
+    def test_prompt_eof_is_failure_for_visible_and_secret_input(self):
+        self.check(r'''
+for silent in false true; do
+    response=old-value
+    if ui_prompt response 'Prompt: ' "$silent" </dev/null; then exit 91; fi
+    [[ -z "$response" ]]
+done
+''')
+
+    def test_command_helpers_preserve_failures(self):
+        self.check(r'''
+POEDEPLOY_LOG=$(mktemp)
+if run_cmd 'Failing command' bash -c 'exit 19'; then exit 91; else [[ $? == 19 ]]; fi
+if run_cmd_capture result 'Failing capture' bash -c 'exit 23'; then exit 92; else [[ $? == 23 ]]; fi
+grep -q 'exit code 19' "$POEDEPLOY_LOG"
+grep -q 'exit code 23' "$POEDEPLOY_LOG"
+rm -f -- "$POEDEPLOY_LOG"
+''')
+
+    def test_all_interactive_stages_keep_context_and_persist_results(self):
+        output = self.check_pty(r'''
+ensure_command_dependencies() { :; }
+curl() {
+    local output_path
+    while (($#)); do
+        if [[ "$1" == --output ]]; then output_path="$2"; shift 2; else shift; fi
+    done
+    cat >"$output_path" <<'SH'
+printf 'ML4W_EXTERNAL_CHOICE: ' >&2
+IFS= read -r value
+[[ "$value" == Lq-fixture ]] || exit 19
+# Simulate an external installer leaving changed terminal modes behind.
+stty -onlcr -echo
+SH
+}
+xdg-settings() { [[ "$*" == 'get default-web-browser' ]] || exit 97; echo fixture.desktop; }
+xdg-mime() { [[ "$1" == query ]] || exit 97; echo fixture.desktop; }
+discover_installed_browsers() { printf 'Fixture browser\tfixture.desktop\n'; }
+UKI_ENABLED=false
+POEDEPLOY_LOG=$(mktemp)
+initialise_ui
+original_tty=$(stty -g)
+ui_progress_init 'ML4W' 'SDDM' 'UKI' 'Browser' 'Shares' 'Secure Boot'
+ui_dashboard_start
+run_dashboard_stage ml4w 1 ML4W
+[[ "$ML4W_ACTION" == 'installed successfully' && "$ML4W_ENABLED" == true ]]
+ui_dashboard_pause
+[[ "$(stty -g)" == "$original_tty" ]]
+ui_dashboard_resume
+run_dashboard_stage sddm 2 SDDM
+[[ "$SDDM_ACTION" == skipped ]]
+run_dashboard_stage uki 3 UKI
+[[ "$UKI_ACTION" == skipped ]]
+run_dashboard_stage browser 4 Browser
+[[ "$DEFAULT_BROWSER_ACTION" == 'kept current default' ]]
+run_dashboard_stage shares 5 Shares
+[[ "$NETWORK_SHARES_ACTION" == skipped ]]
+run_dashboard_stage secure_boot 6 'Secure Boot'
+[[ "$SECURE_BOOT_ACTION" == skipped ]]
+ui_complete
+ui_cleanup 0
+rm -f -- "$POEDEPLOY_LOG"
+echo PTY_REGRESSION_DONE
+''', [(b'Install ML4W Hyprland? [Y/n]: ', b'y\n'),
+      (b'ML4W_EXTERNAL_CHOICE: ', b'Lq-fixture\n'),
+      (b'Install and configure SDDM graphical login? [Y/n]: ', b'n\n'),
+      (b'Create UKIs alongside the existing boot images? [y/N]: ', b'n\n'),
+      (b'Select the default browser [0-1]: ', b'0\n'),
+      (b'Select an option [0-3]: ', b'0\n'),
+      (b'Configure Secure Boot with sbctl? [y/N]: ', b'n\n')])
+        self.assertIn(b'Fixture browser (fixture.desktop)', output)
+        self.assertIn(b'[1] SMB only', output)
+        self.assertIn(b'[2] NFS only', output)
+
+    def test_interactive_stage_failure_does_not_continue_dependent_commands(self):
+        output = self.check_pty(r'''
+POEDEPLOY_LOG=$(mktemp)
+run_setup_module() {
+    echo CRITICAL_STAGE_CONTEXT
+    false
+    echo SHOULD_NEVER_EXECUTE
+}
+ui_progress_init ML4W
+ui_dashboard_start
+trap 'ui_cleanup 0; rm -f -- "$POEDEPLOY_LOG"; echo PTY_REGRESSION_DONE' EXIT
+run_dashboard_stage ml4w 1 ML4W
+''', [(b'[R]etry, [L]og, [A]bort: ', b'a')], expected_exit=1)
+        self.assertIn(b'CRITICAL_STAGE_CONTEXT', output)
+        self.assertNotIn(b'SHOULD_NEVER_EXECUTE', output)
+
+    def test_repeated_handoffs_do_not_leave_renderer_on_prompt_screen(self):
+        replies = [(f'QUESTION_{index}: '.encode(), b'Lq\n') for index in range(12)]
+        output = self.check_pty(r'''
+POEDEPLOY_LOG=$(mktemp)
+run_setup_module() {
+    for ((i = 0; i < 12; i++)); do
+        ui_prompt answer "QUESTION_$i: "
+        [[ "$answer" == Lq ]]
+    done
+}
+ui_progress_init Fixture
+ui_dashboard_start
+run_dashboard_stage fixture 1 Fixture
+ui_complete
+ui_cleanup 0
+rm -f -- "$POEDEPLOY_LOG"
+echo PTY_REGRESSION_DONE
+''', replies)
+        for index in range(12):
+            prompt = f'QUESTION_{index}: '.encode()
+            start = output.index(prompt) + len(prompt)
+            # No alternate-screen entry or redraw may occur before the answer.
+            self.assertNotIn(b'\x1b', output[start:output.index(b'\n', start)])
+
+    def test_resize_switches_to_compact_view_and_back(self):
+        output = self.check_pty(r'''
+POEDEPLOY_LOG=$(mktemp)
+ui_progress_init Fixture
+ui_dashboard_start
+sleep 0.5
+stty rows 10 cols 35
+sleep 0.5
+stty rows 28 cols 100
+sleep 0.5
+ui_complete
+ui_cleanup 0
+rm -f -- "$POEDEPLOY_LOG"
+echo PTY_REGRESSION_DONE
+''', [])
+        self.assertIn(b'POEDEPLOY 0%', output)
+        self.assertGreaterEqual(output.count(b'Arch Linux installer'), 2)
+
+    def test_ctrl_c_stops_interactive_worker_and_restores_terminal(self):
+        output = self.check_pty(r'''
+POEDEPLOY_LOG=$(mktemp)
+run_setup_module() {
+    echo INTERRUPT_FIXTURE_READY
+    sleep 30
+    echo SHOULD_NEVER_EXECUTE
+}
+ui_progress_init ML4W
+ui_dashboard_start
+trap 'status=$?; ui_cleanup 0; [[ -z "$PD_TASK_PID" ]]; rm -f -- "$POEDEPLOY_LOG"; echo PTY_REGRESSION_DONE; exit "$status"' EXIT
+trap 'exit 130' INT
+run_dashboard_stage ml4w 1 ML4W
+''', [(b'INTERRUPT_FIXTURE_READY', b'\x03')], expected_exit=130)
+        self.assertNotIn(b'SHOULD_NEVER_EXECUTE', output)
+        self.assertIn(b'\x1b[?25h', output)
+
+    def test_interactive_helper_preserves_state_and_warning_counts(self):
+        self.check_pty(r'''
+POEDEPLOY_LOG=$(mktemp)
+change_state() {
+    ML4W_ACTION=fixture-action
+    warning 'Fixture warning stays visible and counted'
+}
+run_setup_module() { ui_run_interactive change_state; }
+ui_progress_init Fixture
+ui_dashboard_start
+run_dashboard_stage fixture 1 Fixture
+[[ "$ML4W_ACTION" == fixture-action && "$PD_WARNING_COUNT" == 1 ]]
+ui_complete
+ui_cleanup 0
+grep -q 'Fixture warning' "$POEDEPLOY_LOG"
+rm -f -- "$POEDEPLOY_LOG"
+echo PTY_REGRESSION_DONE
+''', [])
+
+    def test_dashboard_and_log_frames_fit_real_terminal_dimensions(self):
+        for size in ((1, 8), (8, 35), (10, 35), (15, 40), (24, 80), (28, 100)):
+            with self.subTest(size=size):
+                output = self.check_pty(r'''
+export LC_ALL=C.UTF-8 COLUMNS=200 LINES=100
+POEDEPLOY_LOG=$(mktemp)
+PD_UI_DIR=$(mktemp -d)
+PD_UI_ACTIVE=true
+initialise_ui
+ui_progress_init 'Base tools' 'Applications' 'Secure Boot'
+ui_step_start 2 Applications
+ui_set_operation $'Progress\r\033[999;999H\033]0;UNSAFE_TITLE\a\t软件安装 软件安装 软件安装'
+printf 'Package\r\033[999;999H\033[31merror\033[0m\t软件安装 软件安装 软件安装\n' >"$POEDEPLOY_LOG"
+_pd_set_glyphs
+stty -onlcr
+for draw in _pd_dashboard_draw _pd_log_draw; do
+    frame=$("$draw")
+    printf 'FRAME_DATA:'
+    printf '%s' "$frame" | base64 -w0
+    printf '\n'
+done
+rm -rf -- "$PD_UI_DIR"
+rm -f -- "$POEDEPLOY_LOG"
+echo PTY_REGRESSION_DONE
+''', [], size=size)
+                frames = re.findall(rb'FRAME_DATA:([A-Za-z0-9+/=]+)', output)
+                self.assertEqual(len(frames), 2)
+                for encoded in frames:
+                    frame = base64.b64decode(encoded).decode()
+                    self.assertNotIn('\x1b[999;999H', frame)
+                    self.assertNotIn('UNSAFE_TITLE', frame)
+                    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', frame)
+                    self.assertNotIn('\t', text)
+                    self.assertNotIn('\n', text.replace('\r\n', ''))
+                    rows = text.split('\r\n')
+                    self.assertLessEqual(len(rows), size[0])
+                    for row in rows:
+                        width = sum(0 if unicodedata.combining(c) else
+                                    2 if unicodedata.east_asian_width(c) in ('F', 'W') else 1
+                                    for c in row)
+                        self.assertLess(width, size[1])
 
     def test_sudo_retry_and_followup_prompt_keep_exclusive_keyboard_access(self):
         output = self.check_pty(r'''

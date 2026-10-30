@@ -196,7 +196,7 @@ ui_heading() {
     if [[ "${PD_UI_ACTIVE:-false}" == true ]]; then
         pd_log STAGE "$1${2:+ - $2}"
         ui_set_operation "$1"
-        return 0
+        [[ "${PD_TERMINAL_OWNED:-false}" == true ]] || return 0
     fi
     printf '\n%b%s%b\n' "${BLUE}${UI_BOLD}" "$1" "$NC"
     ui_rule
@@ -230,8 +230,9 @@ info() {
     if [[ "${PD_UI_ACTIVE:-false}" == true ]]; then
         pd_log INFO "$1"
         ui_set_operation "$1"
-    else
-        echo -e "${BLUE}[INFO]${NC} $1"
+    fi
+    if [[ "${PD_UI_ACTIVE:-false}" != true || "${PD_TERMINAL_OWNED:-false}" == true ]]; then
+        printf '%b[INFO]%b %s\n' "$BLUE" "$NC" "$1"
     fi
 
 }
@@ -240,8 +241,9 @@ success() {
     if [[ "${PD_UI_ACTIVE:-false}" == true ]]; then
         pd_log OK "$1"
         ui_set_operation "$1"
-    else
-        echo -e "${GREEN}[ OK ]${NC} $1"
+    fi
+    if [[ "${PD_UI_ACTIVE:-false}" != true || "${PD_TERMINAL_OWNED:-false}" == true ]]; then
+        printf '%b[ OK ]%b %s\n' "$GREEN" "$NC" "$1"
     fi
 
 }
@@ -250,8 +252,9 @@ warning() {
     if [[ "${PD_UI_ACTIVE:-false}" == true ]]; then
         pd_log WARN "$1"
         ui_step_warning "$1"
-    else
-        echo -e "${YELLOW}[WARN]${NC} $1"
+    fi
+    if [[ "${PD_UI_ACTIVE:-false}" != true || "${PD_TERMINAL_OWNED:-false}" == true ]]; then
+        printf '%b[WARN]%b %s\n' "$YELLOW" "$NC" "$1"
     fi
 
 }
@@ -261,8 +264,9 @@ error() {
         pd_log ERROR "$1"
         PD_ERROR_COUNT=$((PD_ERROR_COUNT + 1))
         ui_set_operation "$1"
-    else
-        echo -e "${RED}[ERROR]${NC} $1"
+    fi
+    if [[ "${PD_UI_ACTIVE:-false}" != true || "${PD_TERMINAL_OWNED:-false}" == true ]]; then
+        printf '%b[ERROR]%b %s\n' "$RED" "$NC" "$1"
     fi
 
 }
@@ -370,9 +374,9 @@ check_not_root() {
 
     sudo() {
         local authentication_status
-        if [[ "${PD_UI_ACTIVE:-false}" == true ]] &&
+        if [[ "${PD_UI_ACTIVE:-false}" == true && "${PD_TERMINAL_OWNED:-false}" != true ]] &&
            ! command "$POEDEPLOY_SUDO_BIN" -n true 2>/dev/null; then
-            ui_dashboard_pause
+            ui_dashboard_pause || return $?
             if command "$POEDEPLOY_SUDO_BIN" -v </dev/tty >/dev/tty 2>&1; then
                 authentication_status=0
             else
@@ -405,7 +409,7 @@ can_use_checklist() {
 choose_checklist() {
     local header="$1" defaults="${2:-}"
     local status
-    ui_dashboard_pause
+    ui_dashboard_pause || return $?
     if gum choose --no-limit --selected="$defaults" \
         --cursor='> ' --cursor-prefix '[ ] ' --selected-prefix '[✓] ' \
         --unselected-prefix '[ ] ' --height=15 --no-show-help \
@@ -1350,7 +1354,7 @@ setup_uki() {
     fi
 
     local answer
-    ui_prompt answer "Create UKIs alongside the existing boot images? [y/N]: "
+    ui_prompt answer "Create UKIs alongside the existing boot images? [y/N]: " || { UKI_ACTION="cancelled"; return 0; }
 
     if [[ ! "$answer" =~ ^[Yy]$ ]]; then
         info "UKI setup skipped."
@@ -2708,7 +2712,7 @@ choose_and_apply_plymouth_theme() {
         ((picker_height >= 3)) || picker_height=3
 
         echo "↑/↓ or j/k move · ←/→ or h/l page · g/G first/last · Enter apply · Esc cancel"
-        ui_dashboard_pause
+        ui_dashboard_pause || return $?
         if ! selection=$(gum choose --limit=1 --selected="" --height="$picker_height" \
             --cursor='> ' --no-show-help --cursor.foreground='#004FFE' \
             --header.foreground='#004FFE' --header='Select Plymouth theme' \
@@ -2975,7 +2979,7 @@ install_ml4w() {
     local answer installer_file
     ui_heading "ML4W desktop"
 
-    ui_prompt answer "Install ML4W Hyprland? [Y/n]: "
+    ui_prompt answer "Install ML4W Hyprland? [Y/n]: " || { ML4W_ENABLED=false; ML4W_ACTION="cancelled"; return 0; }
 
     if [[ -n "$answer" && ! "$answer" =~ ^[Yy]$ ]]; then
         info "ML4W installation skipped."
@@ -3018,7 +3022,7 @@ install_ml4w() {
 
 choose_sddm_setup() {
     local answer
-    ui_prompt answer "Install and configure SDDM graphical login? [Y/n]: "
+    ui_prompt answer "Install and configure SDDM graphical login? [Y/n]: " || { SDDM_ACTION="cancelled"; return 0; }
     if [[ -n "$answer" && ! "$answer" =~ ^[Yy]$ ]]; then
         CONFIGURE_ML4W_SDDM=false
         SDDM_ACTION="skipped"
@@ -3026,7 +3030,7 @@ choose_sddm_setup() {
     fi
 
     CONFIGURE_ML4W_SDDM=true
-    ui_prompt answer "Use the ML4W SDDM theme? [Y/n]: "
+    ui_prompt answer "Use the ML4W SDDM theme? [Y/n]: " || { CONFIGURE_ML4W_SDDM=false; SDDM_ACTION="cancelled"; return 0; }
     if [[ -z "$answer" || "$answer" =~ ^[Yy]$ ]]; then
         ML4W_ENABLED=true
         ensure_command_dependencies git:git
@@ -3280,7 +3284,7 @@ select_applications() {
 
     if [[ " ${SELECTED_PACKAGES[*]} " == *" @poedash "* ]]; then
         local requested_name
-        if ! read -rp "Dashboard name [PoeDash]: " requested_name; then
+        if ! ui_prompt requested_name "Dashboard name [PoeDash]: "; then
             requested_name=""
         fi
         requested_name=${requested_name:-PoeDash}
@@ -3892,7 +3896,7 @@ configure_network_shares() {
     NETWORK_SHARES_ACTION="not selected"
 
     while true; do
-        ui_prompt choice "Select an option [0-3]: "
+        ui_prompt choice "Select an option [0-3]: " || { NETWORK_SHARES_ACTION="cancelled"; return 0; }
 
         case "$choice" in
             0|"")
@@ -4047,7 +4051,7 @@ setup_secure_boot() {
 
     ui_heading "Secure Boot"
 
-    ui_prompt answer "Configure Secure Boot with sbctl? [y/N]: "
+    ui_prompt answer "Configure Secure Boot with sbctl? [y/N]: " || { SECURE_BOOT_ACTION="cancelled"; return 0; }
 
     if [[ -z "$answer" || ! "$answer" =~ ^[Yy]$ ]]; then
         info "Secure Boot configuration skipped."
@@ -4113,7 +4117,7 @@ setup_secure_boot() {
         echo
         warning "Creating Secure Boot keys changes the trust configuration used by this machine."
         warning "Do not continue unless you understand how to recover through the firmware setup."
-        ui_prompt create_confirmation "Type CREATE to create new Secure Boot keys: "
+        ui_prompt create_confirmation "Type CREATE to create new Secure Boot keys: " || return 0
 
         if [[ "$create_confirmation" != "CREATE" ]]; then
             info "Secure Boot key creation cancelled."
@@ -4145,7 +4149,7 @@ setup_secure_boot() {
         echo
         warning "The next step writes Secure Boot keys to firmware variables."
         warning "Microsoft certificates will be retained for Windows and signed option ROM compatibility."
-        ui_prompt enroll_confirmation "Type ENROLL to enrol the keys with Microsoft certificates: "
+        ui_prompt enroll_confirmation "Type ENROLL to enrol the keys with Microsoft certificates: " || return 0
 
         if [[ "$enroll_confirmation" != "ENROLL" ]]; then
             info "Firmware key enrollment cancelled. No EFI files will be signed."
@@ -4169,7 +4173,7 @@ setup_secure_boot() {
 
         warning "Existing key files alone do not prove that these keys are enrolled in firmware."
         local enrolled_confirmation
-        ui_prompt enrolled_confirmation "Have these exact sbctl keys already been enrolled in this machine? [y/N]: "
+        ui_prompt enrolled_confirmation "Have these exact sbctl keys already been enrolled in this machine? [y/N]: " || return 0
         if [[ ! "$enrolled_confirmation" =~ ^[Yy]$ ]]; then
             SECURE_BOOT_ACTION="keys created but not enrolled"
             return 0
@@ -4178,7 +4182,7 @@ setup_secure_boot() {
 
     echo
     warning "Signing replaces or adds signatures on the systemd-boot and UKI files listed below."
-    ui_prompt sign_confirmation "Type SIGN to build and sign the boot chain: "
+    ui_prompt sign_confirmation "Type SIGN to build and sign the boot chain: " || return 0
 
     if [[ "$sign_confirmation" != "SIGN" ]]; then
         info "Secure Boot signing cancelled."
@@ -4453,6 +4457,12 @@ pd_save_child_state() {
     mv -f -- "$temporary" "$destination"
 }
 
+setup_module_needs_terminal() {
+    # Keep every menu's context and confirmations together. Package-only stages
+    # remain on the dashboard; their sudo and external tools use the same handoff.
+    case "$1" in plymouth|uki|ml4w|sddm|browser|shares|secure_boot) return 0 ;; *) return 1 ;; esac
+}
+
 run_dashboard_stage() {
     local module="$1" index="$2" label="$3" state_file="$PD_UI_DIR/module-state" status decision safe_skip=false
     case "$module" in applications|browser|shares|tailscale) safe_skip=true ;; esac
@@ -4463,13 +4473,25 @@ run_dashboard_stage() {
         (
             trap - EXIT INT TERM
             set -Eeuo pipefail
-            run_setup_module "$module"
+            if setup_module_needs_terminal "$module"; then
+                ui_dashboard_pause
+                PD_TERMINAL_OWNED=true
+                # Do not call the stage as an if-condition: that disables Bash's
+                # errexit throughout its functions and can hide real failures.
+                run_setup_module "$module" </dev/tty >/dev/tty 2>&1
+            else
+                run_setup_module "$module"
+            fi
             pd_save_child_state "$state_file"
         ) >>"$POEDEPLOY_LOG" 2>&1 </dev/tty &
         PD_TASK_PID=$!
         printf '%s\n' "$PD_TASK_PID" >"$PD_UI_DIR/task_pid"
         if wait "$PD_TASK_PID"; then status=0; else status=$?; fi
+        PD_TASK_PID=""
         rm -f -- "$PD_UI_DIR/task_pid"
+        # The worker may exit during a question, command failure, or Ctrl+C.
+        # Its parent always completes the handoff before showing results.
+        ui_dashboard_resume
 
         if [[ -r "$state_file" ]]; then
             # Contains only declare statements generated by this PoeDeploy process.

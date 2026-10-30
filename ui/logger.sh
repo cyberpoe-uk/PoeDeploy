@@ -27,15 +27,16 @@ pd_log() {
 }
 
 run_cmd() {
-    local description="$1"
+    local description="$1" status
     shift
     ui_set_operation "$description"
     pd_log COMMAND "$description"
     if "$@" >>"$POEDEPLOY_LOG" 2>&1; then
         pd_log OK "$description"
         return 0
+    else
+        status=$?
     fi
-    local status=$?
     pd_log ERROR "$description (exit code $status)"
     return "$status"
 }
@@ -50,8 +51,9 @@ run_cmd_capture() {
         printf -v "$output_name" '%s' "$output"
         pd_log OK "$description"
         return 0
+    else
+        status=$?
     fi
-    status=$?
     pd_log ERROR "$description (exit code $status)"
     return "$status"
 }

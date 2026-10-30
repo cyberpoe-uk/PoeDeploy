@@ -66,6 +66,11 @@ installers also use the normal terminal for their entire run so their own sudo
 prompts can read every keystroke. Their output appears directly in the terminal,
 then the progress dashboard returns when they finish.
 
+Sections with menus or confirmations (Plymouth, UKI, ML4W, SDDM, browser,
+network shares, and Secure Boot) keep the normal terminal for the whole section.
+This keeps descriptions, menu choices, and questions together. The progress
+dashboard returns between sections and uses a compact view in small terminals.
+
 The preferred log is `/var/log/poedeploy.log`. When that location is not
 writable, PoeDeploy uses `~/.local/state/poedeploy/poedeploy.log`. The normal
 terminal screen and cursor are restored after completion, failure, or Ctrl+C.
@@ -226,10 +231,15 @@ dispatcher case in `run_setup_module`. Installer code reports detail with
 `info`, `success`, `warning`, or `ui_set_operation`. It never needs to draw the
 dashboard itself.
 
-Each selected stage runs as a background task while the dashboard owns the TTY.
-Interactive questions temporarily restore the normal screen, then redraw the
-dashboard. External installers run through `ui_run_interactive`, which suspends
-dashboard keyboard input until the installer exits, including on failure.
+Each selected stage runs as a worker. `setup_module_needs_terminal` marks stages
+that need the normal terminal throughout their menus and confirmations. The
+renderer acknowledges each handoff before the worker can read input and
+acknowledges the completed redraw before the next handoff. External installers
+use `ui_run_interactive`, which preserves shell state and warning counts.
+The parent restores terminal settings and resumes the dashboard even if a
+worker fails. Frames use actual TTY dimensions, explicit carriage returns,
+display-column padding, and sanitised log text so command output cannot move
+the dashboard cursor.
 A failed critical stage offers retry, log, or abort. Explicitly safe
 optional stages also offer skip.
 

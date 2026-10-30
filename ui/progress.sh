@@ -17,7 +17,7 @@ PD_STAGE_STATUS=()
 
 _pd_state_write() {
     [[ "$PD_UI_ACTIVE" == true && -n "$PD_UI_DIR" ]] || return 0
-    local target="$PD_UI_DIR/state" temporary="$PD_UI_DIR/state.new.$$" i
+    local target="$PD_UI_DIR/state" temporary="$PD_UI_DIR/state.new.$BASHPID" i
     {
         printf 'current_stage=%s\ncompleted=%s\ntotal=%s\nwarnings=%s\nerrors=%s\n' \
             "$PD_CURRENT_STAGE" "$PD_COMPLETED_STAGES" "$PD_TOTAL_STAGES" \
