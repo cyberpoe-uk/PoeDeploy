@@ -88,6 +88,9 @@ actually want.
 Plymouth themes use an interactive picker: arrows or `j/k` move, `h/l` change
 pages, `g/G` jump to the first/last entry, and Enter applies the theme.
 Esc cancels. **Keep current theme** leaves the selection unchanged.
+The progress dashboard pauses while you choose a theme. If the interactive
+picker is unavailable, the numbered theme list and prompt appear together in
+the normal terminal.
 
 ## Optional applications
 

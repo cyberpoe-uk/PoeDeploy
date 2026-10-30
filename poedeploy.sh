@@ -2637,6 +2637,12 @@ install_poedeploy_plymouth_theme() {
 }
 
 select_plymouth_theme() {
+    # Dashboard stages redirect stdout/stderr to the log. Restore the terminal
+    # before testing for gum support or printing either menu and its context.
+    ui_run_interactive choose_and_apply_plymouth_theme
+}
+
+choose_and_apply_plymouth_theme() {
     echo
 
     local themes=()

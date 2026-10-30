@@ -6,6 +6,7 @@ import os
 import pty
 import select
 import signal
+import shutil
 import termios
 import time
 import unittest
@@ -162,6 +163,56 @@ rm -f -- "$POEDEPLOY_LOG"
 echo PTY_REGRESSION_DONE
 ''', [(b'NESTED_PASSWORD: ', b'Lq-tests-123\n'),
       (b'RESTORED_QUESTION: ', b'yes\n')])
+
+    def check_plymouth_stage(self, use_gum, cancel):
+        setup = '' if use_gum else 'can_use_checklist() { return 1; }\n'
+        body = setup + r'''
+get_remote_plymouth_themes() { :; }
+plymouth-set-default-theme() {
+    if [[ "${1:-}" == -l ]]; then printf '%s\n' spinner fixture-theme; else echo spinner; fi
+}
+sudo() {
+    [[ "$*" == 'plymouth-set-default-theme spinner' ]] || exit 97
+    echo APPLIED_FIXTURE_THEME
+}
+POEDEPLOY_LOG=$(mktemp)
+run_setup_module() {
+    if select_plymouth_theme; then echo PICKER_SUCCESS; else echo PICKER_CANCELLED; fi
+    ui_prompt answer 'AFTER_PLYMOUTH: '
+    [[ "$answer" == yes ]]
+}
+initialise_ui
+ui_progress_init 'Plymouth fixture'
+ui_dashboard_start
+run_dashboard_stage fixture 1 'Plymouth fixture'
+ui_complete
+ui_cleanup 0
+grep -q PICKER_EXPECTED_RESULT "$POEDEPLOY_LOG"
+if grep -Eq 'Current theme:|Keep current theme|Select Plymouth theme' "$POEDEPLOY_LOG"; then exit 93; fi
+rm -f -- "$POEDEPLOY_LOG"
+echo PTY_REGRESSION_DONE
+'''
+        body = body.replace('PICKER_EXPECTED_RESULT',
+                            'PICKER_CANCELLED' if cancel else 'PICKER_SUCCESS')
+        marker = b'> Keep current theme' if use_gum else b'Select a theme [0-2]: '
+        answer = (b'\x1b' if cancel else b'j\r') if use_gum else b'1\n'
+        output = self.check_pty(body, [(marker, answer), (b'AFTER_PLYMOUTH: ', b'yes\n')])
+        self.assertIn(b'Current theme: spinner', output)
+        if cancel:
+            self.assertNotIn(b'APPLIED_FIXTURE_THEME', output)
+        else:
+            self.assertIn(b'APPLIED_FIXTURE_THEME', output)
+
+    def test_plymouth_numbered_menu_visible_during_dashboard_stage(self):
+        self.check_plymouth_stage(use_gum=False, cancel=False)
+
+    @unittest.skipUnless(shutil.which('gum'), 'gum required for keyboard test')
+    def test_plymouth_picker_selection_during_dashboard_stage(self):
+        self.check_plymouth_stage(use_gum=True, cancel=False)
+
+    @unittest.skipUnless(shutil.which('gum'), 'gum required for keyboard test')
+    def test_plymouth_picker_cancellation_during_dashboard_stage(self):
+        self.check_plymouth_stage(use_gum=True, cancel=True)
 
     def test_progress_is_stage_based_and_state_is_central(self):
         self.check(r'''
