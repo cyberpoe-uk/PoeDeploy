@@ -39,15 +39,14 @@ install_selected_applications
 [[ ${#INSTALLED_PACKAGES[@]} == 3 ]]
 ''')
 
-    def test_dashboards_are_bundled_and_dispatch_with_distinct_modes(self):
+    def test_both_dashboard_choices_use_bundled_installers(self):
         output = self.check(r'''
 install_bundled_dashboard_application() { printf 'DASHBOARD:%s:%s:%s\n' "$1" "$2" "${3:-}"; }
-SELECTED_PACKAGES=(@poedash @pendash-dashboard @pendash-full)
+SELECTED_PACKAGES=(@poedash @pendash-dashboard)
 install_selected_applications
 ''')
         self.assertIn('DASHBOARD:PoeDash:poedash:--skip-deps', output)
-        self.assertIn('DASHBOARD:PenDash dashboard:pendash:--dashboard-only', output)
-        self.assertIn('DASHBOARD:PenDash full laptop setup:pendash:', output)
+        self.assertIn('DASHBOARD:PenDash dashboard:pendash:--non-interactive', output)
 
     def test_dashboard_choices_are_mutually_exclusive(self):
         output = self.check(r'''
@@ -57,15 +56,16 @@ printf '0\n' >"$attempt_file"
 choose_checklist() {
     options=$(cat)
     [[ "$options" == *'PoeDash (dashboard)'* ]] || exit 91
-    [[ "$options" == *'PenDash (dashboard only)'* ]] || exit 92
-    [[ "$options" == *'PenDash (full laptop setup)'* ]] || exit 93
+    [[ "$options" == *'PenDash (dashboard)'* ]] || exit 92
+    [[ "$options" != *'PenDash (full laptop setup)'* ]] || exit 93
+    [[ ${#APPLICATIONS[@]} -gt 2 && $(dashboard_application_selection_count "${!APPLICATIONS[@]}") == 2 ]] || exit 94
     calls=$(<"$attempt_file")
     calls=$((calls + 1))
     printf '%s\n' "$calls" >"$attempt_file"
     if ((calls == 1)); then
-        printf '%s\n' 'PoeDash (dashboard)' 'PenDash (dashboard only)'
+        printf '%s\n' 'PoeDash (dashboard)' 'PenDash (dashboard)'
     else
-        printf '%s\n' 'PenDash (dashboard only)'
+        printf '%s\n' 'PenDash (dashboard)'
     fi
 }
 select_applications
@@ -90,12 +90,12 @@ install_selected_applications
     def test_pendash_needs_no_browser_selection(self):
         self.check(r'''
 gum() { :; }
-choose_checklist() { cat >/dev/null; echo 'PenDash (dashboard only)'; }
+choose_checklist() { cat >/dev/null; echo 'PenDash (dashboard)'; }
 ui_prompt() { return 99; }
 select_applications
 [[ -z "${PENDASH_BROWSER:-}" ]]
 install_bundled_dashboard_application() {
-    [[ "$*" == 'PenDash dashboard pendash --dashboard-only --non-interactive' ]]
+    [[ "$*" == 'PenDash dashboard pendash --non-interactive' ]]
 }
 install_selected_applications
 ''')

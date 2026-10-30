@@ -1,18 +1,72 @@
 import importlib.util
+import io
 import json
 from pathlib import Path
+import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
 spec = importlib.util.spec_from_file_location('pendash', REPO / 'pendash.py')
 p = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(p)
 
 
 class InstallerTests(unittest.TestCase):
+    def test_default_and_legacy_dashboard_installs_only_dashboard_dependencies(self):
+        for options in ([], ['--dashboard-only']):
+            with self.subTest(options=options), \
+                 patch.object(p.sys, 'argv', ['pendash.py', '--non-interactive', *options]), \
+                 patch.object(p.os, 'geteuid', return_value=1000), \
+                 patch.object(p, 'install_packages') as packages, \
+                 patch.object(p, 'install_dashboard') as dashboard, \
+                 patch.object(p, 'offer_ca') as certificate, \
+                 patch.object(p, 'run') as command:
+                self.assertEqual(p.main(), 0)
+                packages.assert_called_once()
+                selected = packages.call_args.args[0]
+                self.assertIn('chromium', selected)
+                self.assertIn('nss', selected)
+                self.assertFalse(set(selected).intersection({
+                    'nvidia-prime', 'hypridle', 'hyprlock', 'power-profiles-daemon',
+                    'ffuf', 'gobuster', 'burpsuite', 'tailscale',
+                }))
+                dashboard.assert_called_once_with('chromium', False)
+                certificate.assert_called_once()
+                self.assertTrue(certificate.call_args.args[0].non_interactive)
+                command.assert_not_called()
+
+    def test_retired_system_setup_flags_are_rejected_before_installation(self):
+        for options in (['--tool-mode', 'all'], ['--skip-nvidia'], ['--burp-installer', '/tmp/installer.sh']):
+            with self.subTest(options=options), \
+                 patch.object(p.sys, 'argv', ['pendash.py', *options]), \
+                 patch.object(p.sys, 'stderr', io.StringIO()), \
+                 patch.object(p, 'install_packages') as packages, \
+                 patch.object(p, 'install_dashboard') as dashboard:
+                with self.assertRaises(SystemExit) as result:
+                    p.main()
+                self.assertEqual(result.exception.code, 2)
+                packages.assert_not_called()
+                dashboard.assert_not_called()
+
+    def test_check_requires_only_dashboard_and_browser(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            dashboard = home / '.config/eww/eww.yuck'
+            dashboard.parent.mkdir(parents=True)
+            dashboard.touch()
+            with patch.object(p, 'HOME', home), \
+                 patch.object(p.os, 'geteuid', return_value=1000), \
+                 patch.object(p.sys, 'argv', ['pendash.py', '--check']), \
+                 patch.object(p, 'browser_checks', return_value=True), \
+                 patch.object(p, 'run') as command:
+                self.assertEqual(p.main(), 0)
+                dashboard.unlink()
+                self.assertEqual(p.main(), 2)
+                command.assert_not_called()
+
     def test_dashboard_update_preserves_browser_palette_and_skips_system_setup(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
@@ -26,9 +80,9 @@ class InstallerTests(unittest.TestCase):
             profile = root / 'state/chromium-ctf'
             profile.mkdir(parents=True)
             (profile / 'keep').write_text('profile data')
-            with patch.object(p.shutil, 'which', return_value='/usr/bin/mock'), patch.object(p, 'HOME', home), patch.object(p, 'BACKUP', home / 'backup'), patch.object(p.sys, 'argv', ['pendash.py', '--update-dashboard']), patch.object(p, 'install_packages') as packages, patch.object(p, 'install_power') as power, patch.object(p, 'install_burp') as burp, patch.object(p, 'nvidia') as nvidia, patch.object(p, 'dashboard_enabled') as enable:
+            with patch.object(p.shutil, 'which', return_value='/usr/bin/mock'), patch.object(p, 'HOME', home), patch.object(p, 'BACKUP', home / 'backup'), patch.object(p.sys, 'argv', ['pendash.py', '--update-dashboard']), patch.object(p, 'install_packages') as packages, patch.object(p, 'dashboard_enabled') as enable:
                 self.assertEqual(p.main(), 0)
-            for mock in (packages, power, burp, nvidia, enable):
+            for mock in (packages, enable):
                 mock.assert_not_called()
             self.assertEqual((root / 'colors.scss').read_text(), 'custom palette')
             self.assertEqual(json.loads((root / 'browser.json').read_text())['browser'], 'chromium')
@@ -45,87 +99,13 @@ class InstallerTests(unittest.TestCase):
         self.assertIn('-- user setting', first)
         self.assertEqual(first.count(p.BEGIN), 1)
 
-    def test_complete_group_size_preview_uses_repository_metadata(self):
-        records = {
-            'one': {'GROUPS': ['blackarch'], 'CSIZE': ['100'], 'ISIZE': ['250']},
-            'two': {'GROUPS': ['blackarch', 'blackarch-webapp'], 'CSIZE': ['50'], 'ISIZE': ['75']},
-            'desktop': {'GROUPS': [], 'CSIZE': ['20'], 'ISIZE': ['30']},
-        }
-        with patch.object(p, 'sync_records', return_value=records):
-            self.assertEqual(p.group_packages(['blackarch']), ['one', 'two'])
-            self.assertEqual(p.group_packages(['blackarch-webapp']), ['two'])
-            self.assertEqual(p.package_sizes(['one', 'two']), (2, 150, 325))
-
-    def test_blackarch_plan_always_excludes_burp(self):
-        args = SimpleNamespace(tool_mode='all', non_interactive=True, dry_run=False,
-            browser='chromium', categories=None, yes_all_tools=True)
-        with patch.object(p, 'ensure_blackarch'), \
-             patch.object(p, 'group_packages', return_value=['burpsuite', 'ffuf', 'tailscale', 'proton-vpn-gtk-app']), \
-             patch.object(p, 'package_sizes', return_value=(1, 10, 20)):
-            packages = p.package_plan(args, args.browser)
-        self.assertNotIn('burpsuite', packages)
-        self.assertNotIn('tailscale', packages)
-        self.assertNotIn('proton-vpn-gtk-app', packages)
-        self.assertIn('ffuf', packages)
-
-    def test_interactive_browser_is_used_by_curated_package_plan(self):
-        args = SimpleNamespace(tool_mode='curated', non_interactive=False,
-            dry_run=False, browser=None, categories=None, yes_all_tools=False)
-        with patch.object(p, 'ensure_blackarch'), \
-             patch.object(p, 'package_sizes', return_value=(1, 10, 20)):
-            packages = p.package_plan(args, 'chromium')
-        self.assertIn('chromium', packages)
-        self.assertNotIn(None, packages)
-        self.assertNotIn('tailscale', packages)
-
-    def test_dashboard_only_skips_full_laptop_setup(self):
-        argv = ['pendash.py', '--dashboard-only', '--non-interactive']
-        with patch.object(p.sys, 'argv', argv), \
-             patch.object(p.os, 'geteuid', return_value=1000), \
-             patch.object(p, 'install_packages') as packages, \
-             patch.object(p, 'offer_ca'), \
-             patch.object(p, 'install_dashboard') as dashboard, \
-             patch.object(p, 'ensure_blackarch') as blackarch, \
-             patch.object(p, 'install_burp') as burp, \
-             patch.object(p, 'install_power') as power, \
-             patch.object(p, 'nvidia') as nvidia:
-            self.assertEqual(p.main(), 0)
-        packages.assert_called_once()
-        self.assertIn('chromium', packages.call_args.args[0])
-        dashboard.assert_called_once_with('chromium', False)
-        for skipped in (blackarch, burp, power, nvidia):
-            skipped.assert_not_called()
-
-    def test_known_portswigger_installer_checksum(self):
-        self.assertIn('product=desktop', p.BURP_DOWNLOAD_URL)
-        self.assertEqual(
-            p.KNOWN_BURP_SHA256['burpsuite_linux_v2026_8.sh'],
-            'a9b71d5903e4aac00b790a7c5a0c0630fdcbfe1250aafd7bd540a3ad44b89983')
-
     def test_browser_controller_uses_single_launcher(self):
         text = (REPO / 'dashboard/scripts/ctf-control.py').read_text()
         self.assertIn("HOME / '.local/bin/ctf-chromium'", text)
         self.assertNotIn('--user-data-dir', text)
         self.assertNotIn('firefox', text)
 
-    def test_idle_policy_matches_requested_ac_and_battery_times(self):
-        text = (REPO / 'assets/hypridle.conf').read_text()
-        self.assertEqual(text.count('timeout = 60\n'), 1)
-        self.assertEqual(text.count('timeout = 300\n'), 1)
-        self.assertEqual(text.count('timeout = 600\n'), 1)
-        self.assertEqual(text.count('timeout = 3600\n'), 1)
-        action = (REPO / 'assets/pendash-idle-action').read_text()
-        self.assertIn('$on_ac || hyprctl', action)
-        self.assertIn('systemctl suspend', action)
-
-    def test_pendash_retires_visual_profile_switching(self):
-        source = (REPO / 'pendash.py').read_text()
-        self.assertIn("disable', '--now', 'hyprmod-power-watch.service'", source)
-        watcher = (REPO / 'assets/pendash-power-watch.py').read_text()
-        self.assertIn("profile = 'balanced' if online else 'power-saver'", watcher)
-        self.assertNotIn('hyprmod', watcher.lower())
-
-    def test_laptop_dashboard_keeps_adaptive_and_hidden_polling(self):
+    def test_dashboard_keeps_adaptive_and_hidden_polling(self):
         yuck = (REPO / 'dashboard/eww.yuck').read_text()
         self.assertIn(':run-while home_visible', yuck)
         self.assertIn('adaptive-run.py cpu 2 15', yuck)

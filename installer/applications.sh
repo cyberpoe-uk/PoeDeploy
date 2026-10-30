@@ -29,7 +29,7 @@ dashboard_application_selection_count() {
     local selected count=0
     for selected in "$@"; do
         case "${APPLICATIONS[$selected]:-}" in
-            @poedash|@pendash-dashboard|@pendash-full) count=$((count + 1)) ;;
+            @poedash|@pendash-dashboard) count=$((count + 1)) ;;
         esac
     done
     printf '%s\n' "$count"

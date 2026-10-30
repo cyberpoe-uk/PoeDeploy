@@ -109,21 +109,19 @@ PoeDash and PenDash are bundled under `apps/` and install directly from the
 PoeDeploy release. Their installation does not download another installer or
 source archive from a website or GitHub repository. Choose only one dashboard.
 
-PoeDash is the general dashboard without PenDash's security-tool or
-laptop-specific setup. Its installer offers `PoeDash` as the default display
-name and lets the user enter another name. It shows performance, laptop power
+PoeDash is the general dashboard. Its installer offers `PoeDash` as the default
+display name and lets the user enter another name. It shows performance, laptop power
 and battery data when available, the top ten processes, host specifications,
 MPRIS media controls, active VPN interfaces, mounted
-SMB/NFS shares, package updates, and a compact calendar. PenDash has two choices:
+SMB/NFS shares, package updates, and a compact calendar.
 
 PoeDeploy asks for the PoeDash name during the visible application-planning
 step. The background installation and dashboard updates are non-interactive, so
 they cannot stall behind the static progress screen.
 
-- **PenDash (dashboard only)** installs its dashboard and dashboard packages,
-  without BlackArch, Burp Suite, NVIDIA configuration, or laptop power rules.
-- **PenDash (full laptop setup)** runs the complete interactive laptop workflow,
-  including Chromium, tool choices, Burp, NVIDIA, and power configuration.
+**PenDash (dashboard)** installs its dashboard, dashboard packages, and Chromium
+integration. Burp Suite can be installed separately for its CTF tools. PenDash
+does not install BlackArch, configure NVIDIA, or apply laptop power rules.
 
 Both dashboards add enable/disable and update controls to a supported ML4W
 QuickShell status bar. The update control downloads the latest stable PoeDeploy

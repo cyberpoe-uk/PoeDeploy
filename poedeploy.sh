@@ -3181,9 +3181,7 @@ declare -A APPLICATIONS=(
 
     ["PowerTOP"]="powertop"
 
-    ["PenDash (dashboard only)"]="@pendash-dashboard"
-
-    ["PenDash (full laptop setup)"]="@pendash-full"
+    ["PenDash (dashboard)"]="@pendash-dashboard"
 
     ["PoeDash (dashboard)"]="@poedash"
 
@@ -3396,11 +3394,6 @@ install_selected_applications() {
                 ;;
             @pendash-dashboard)
                 install_bundled_dashboard_application "PenDash dashboard" pendash \
-                    --dashboard-only --non-interactive
-                continue
-                ;;
-            @pendash-full)
-                install_bundled_dashboard_application "PenDash full laptop setup" pendash \
                     --non-interactive
                 continue
                 ;;
