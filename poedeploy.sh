@@ -92,7 +92,7 @@ declare -A VERIFIED_PLYMOUTH_UKIS=()
 UKI_ACTION="not selected"
 
 RUN_MODE="full"
-SETUP_MODULE_IDS=(update yay base gpu network plymouth uki timeshift ml4w sddm applications browser shares tailscale secure_boot)
+SETUP_MODULE_IDS=(update yay base gpu network plymouth uki timeshift ml4w sddm fingerprint applications browser shares tailscale secure_boot)
 declare -A SETUP_MODULE_LABELS=(
     [update]="System update"
     [yay]="AUR helper (yay)"
@@ -104,6 +104,7 @@ declare -A SETUP_MODULE_LABELS=(
     [timeshift]="Timeshift"
     [ml4w]="ML4W desktop"
     [sddm]="SDDM login screen"
+    [fingerprint]="Fingerprint authentication"
     [applications]="Optional applications"
     [browser]="Default browser"
     [shares]="SMB / NFS shares"
@@ -125,7 +126,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || tr
 
 for poedeploy_component in \
     ui/logger.sh ui/progress.sh ui/keyboard.sh ui/dashboard.sh \
-    installer/applications.sh; do
+    installer/applications.sh installer/fingerprint.sh; do
     if [[ ! -r "$SCRIPT_DIR/$poedeploy_component" ]]; then
         printf '[ERROR] PoeDeploy component is missing: %s\n' "$poedeploy_component" >&2
         exit 1
@@ -4412,6 +4413,7 @@ run_setup_module() {
         timeshift) wait_for_pacman_lock; check_timeshift ;;
         ml4w) ensure_command_dependencies curl:curl; install_ml4w ;;
         sddm) wait_for_pacman_lock; choose_sddm_setup ;;
+        fingerprint) setup_fingerprint ;;
         applications)
             wait_for_pacman_lock
             install_selected_applications
@@ -4453,12 +4455,12 @@ pd_save_child_state() {
 setup_module_needs_terminal() {
     # Keep every menu's context and confirmations together. Package-only stages
     # remain on the dashboard; their sudo and external tools use the same handoff.
-    case "$1" in plymouth|uki|ml4w|sddm|browser|shares|secure_boot) return 0 ;; *) return 1 ;; esac
+    case "$1" in plymouth|uki|ml4w|sddm|fingerprint|browser|shares|secure_boot) return 0 ;; *) return 1 ;; esac
 }
 
 run_dashboard_stage() {
     local module="$1" index="$2" label="$3" state_file="$PD_UI_DIR/module-state" status decision safe_skip=false
-    case "$module" in applications|browser|shares|tailscale) safe_skip=true ;; esac
+    case "$module" in fingerprint|applications|browser|shares|tailscale) safe_skip=true ;; esac
 
     while true; do
         rm -f -- "$state_file" "$PD_UI_DIR/abort"

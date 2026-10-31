@@ -221,7 +221,7 @@ choose_setup_modules
 [[ "$RUN_MODE" == selected ]]
 [[ ${#SELECTED_SETUP_MODULES[@]} == 1 ]]
 [[ "${SELECTED_SETUP_MODULES[secure_boot]}" == true ]]
-''', "1\n15\nrun\n")
+''', "1\n16\nrun\n")
 
     def test_checklist_selects_sections_in_dependency_order(self):
         output = self.check_run(r'''
@@ -339,7 +339,7 @@ choose_setup_modules
 [[ ${#SELECTED_SETUP_MODULES[@]} == 2 ]]
 [[ "${SELECTED_SETUP_MODULES[applications]}" == true ]]
 [[ "${SELECTED_SETUP_MODULES[sddm]}" == true ]]
-''', "1\nrun\nall\nnone\n99\n1;echo injected\n11,10\n010\n10\n10\n08\n08\nrun\n")
+''', "1\nrun\nall\nnone\n99\n1;echo injected\n12,10\n010\n10\n10\n08\n08\nrun\n")
 
     def test_empty_run_and_eof_make_no_changes(self):
         output = self.check_run(r'''
@@ -412,7 +412,7 @@ setup_secure_boot() {
 }
 main
 [[ "${PROCESSED_SETUP_MODULES[*]}" == secure_boot ]]
-''', "1\n15\nrun\ny\n")
+''', "1\n16\nrun\ny\n")
         self.assertIn("SECURE_BOOT_ONLY", output)
         self.assertNotIn("UNEXPECTED", output)
 

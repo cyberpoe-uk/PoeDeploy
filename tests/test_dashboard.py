@@ -230,6 +230,19 @@ echo PTY_REGRESSION_DONE
         self.assertIn(b'POEDEPLOY 0%', output)
         self.assertGreaterEqual(output.count(b'Arch Linux installer'), 2)
 
+    def test_cleanup_clears_task_that_already_exited(self):
+        self.check(r'''
+PD_UI_DIR=$(mktemp -d)
+PD_UI_ACTIVE=true
+PD_DASHBOARD_PID=""
+# This process has exited and been reaped before cleanup begins.
+true &
+PD_TASK_PID=$!
+wait "$PD_TASK_PID"
+ui_cleanup 0
+[[ -z "$PD_TASK_PID" && "$PD_UI_ACTIVE" == false && ! -d "$PD_UI_DIR" ]]
+''')
+
     def test_ctrl_c_stops_interactive_worker_and_restores_terminal(self):
         output = self.check_pty(r'''
 POEDEPLOY_LOG=$(mktemp)
@@ -469,6 +482,7 @@ rm -f -- "$POEDEPLOY_LOG"
         expected = [
             'ui/logger.sh', 'ui/progress.sh', 'ui/keyboard.sh',
             'ui/dashboard.sh', 'installer/applications.sh',
+            'installer/fingerprint.sh', 'installer/fingerprint_config.py',
         ]
         for relative in expected:
             self.assertTrue((root / relative).is_file(), relative)

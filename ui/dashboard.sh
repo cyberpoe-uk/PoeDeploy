@@ -296,8 +296,9 @@ ui_cleanup() {
         if [[ -n "${PD_TASK_PID:-}" ]] && kill -0 "$PD_TASK_PID" 2>/dev/null; then
             _pd_terminate_tree "$PD_TASK_PID"
             wait "$PD_TASK_PID" 2>/dev/null || true
-            PD_TASK_PID=""
         fi
+        # The worker can exit on Ctrl+C before cleanup checks its PID.
+        PD_TASK_PID=""
         : >"$PD_UI_DIR/stop" 2>/dev/null || true
         [[ -z "${PD_DASHBOARD_PID:-}" ]] || wait "$PD_DASHBOARD_PID" 2>/dev/null || true
         rm -rf -- "$PD_UI_DIR"
