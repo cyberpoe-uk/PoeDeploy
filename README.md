@@ -205,11 +205,41 @@ when an application is only available from the Arch User Repository, usually
 called the AUR.
 
 PoeDeploy's full setup installs Tailscale and enables `tailscaled` at boot.
-Selecting Tailscale in Optional applications also enables and starts its service.
-For a selected-section run, choose Tailscale service to install and enable it.
-The user completes authentication with `sudo tailscale up`.
-PoeDash does not install Tailscale or Proton VPN. They display
-`Not installed` when a client is absent, and its connection state when present.
+Selecting Tailscale in Optional applications or the Tailscale service section
+uses the same installation and configuration flow. PoeDash only displays VPN
+status and does not install VPN clients.
+Once the daemon is running, desktop setup grants the validated desktop account
+operator permissions with `sudo tailscale set --operator=USERNAME`. This lets that
+user manage the local connection without sudo. Account detection uses the actual
+caller, or the validated `SUDO_USER` in a privileged context, never root. PoeDeploy's
+normal entry point still runs as a regular user and requests sudo when needed.
+
+On graphical systems with Tailscale 1.88 or newer, setup runs the official
+`tailscale configure systray --enable-startup=systemd` as the desktop user and
+enables `tailscale-systray.service`. A small user-service drop-in retries failures
+when D-Bus or the tray host starts late. If no user bus is available yet, startup
+is enabled for the next login. Existing alternative tray autostarts are retained
+and reported instead of adding a competing launcher. Quickshell's existing
+StatusNotifier tray displays the icon without configuration changes.
+
+Headless systems skip desktop integration. Chroots defer it until after boot.
+Unsupported versions and optional tray errors produce guidance without undoing
+installation. Setup does not run `tailscale up`, log out, reset authentication,
+or change unrelated preferences. Complete initial authentication when ready with
+`tailscale up` as the configured operator.
+
+Verify as the desktop user:
+
+```bash
+tailscale version
+systemctl is-active tailscaled
+systemctl --user is-enabled tailscale-systray.service
+systemctl --user status tailscale-systray.service
+journalctl --user -u tailscale-systray.service -b
+```
+
+The tray uses Tailscale's [official Linux systray support](https://tailscale.com/docs/features/client/linux-systray).
+
 
 [Proton VPN's Arch installation](https://protonvpn.com/support/linux-vpn-arch)
 uses `proton-vpn-gtk-app`. Selecting it also installs NetworkManager and
@@ -331,6 +361,7 @@ split into three layers:
 
 - `installer/applications.sh` dispatches PoeDash and legacy PenDash migration.
 - `installer/security-tools.py` handles explicit optional security installations.
+- `installer/tailscale.sh` adds operator permissions and official user-session tray startup.
 - `apps/poedash/` and `apps/pendash/` contain their program files, assets, and
   focused regression tests.
 - `ui/progress.sh` owns stage state and real progress calculations.

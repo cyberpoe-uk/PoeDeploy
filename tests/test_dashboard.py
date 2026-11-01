@@ -481,7 +481,7 @@ rm -f -- "$POEDEPLOY_LOG"
         root = Path(__file__).resolve().parents[1]
         expected = [
             'ui/logger.sh', 'ui/progress.sh', 'ui/keyboard.sh',
-            'ui/dashboard.sh', 'installer/applications.sh',
+            'ui/dashboard.sh', 'installer/applications.sh', 'installer/tailscale.sh',
             'installer/fingerprint.sh', 'installer/fingerprint_config.py',
         ]
         for relative in expected:

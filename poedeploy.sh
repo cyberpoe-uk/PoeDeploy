@@ -126,7 +126,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || tr
 
 for poedeploy_component in \
     ui/logger.sh ui/progress.sh ui/keyboard.sh ui/dashboard.sh \
-    installer/applications.sh installer/fingerprint.sh; do
+    installer/applications.sh installer/tailscale.sh installer/fingerprint.sh; do
     if [[ ! -r "$SCRIPT_DIR/$poedeploy_component" ]]; then
         printf '[ERROR] PoeDeploy component is missing: %s\n' "$poedeploy_component" >&2
         exit 1
@@ -4030,6 +4030,8 @@ configure_tailscale() {
     fi
 
     echo
+
+    configure_tailscale_desktop
 
     info "Tailscale is installed and running."
 

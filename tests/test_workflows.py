@@ -897,6 +897,7 @@ run_selected_setup_modules
 RUN_MODE=selected
 pacman() { [[ "$*" == '-Q tailscale' ]]; }
 systemctl() { return 0; }
+configure_tailscale_desktop() { :; }
 configure_tailscale
 ''')
         self.assertIn("Tailscale is installed and running", output)
@@ -906,6 +907,7 @@ configure_tailscale
 RUN_MODE=selected
 SKIPPED_PACKAGES=(tailscale)
 pacman() { echo MUST_NOT_QUERY; exit 91; }
+configure_tailscale_desktop() { :; }
 configure_tailscale
 ''')
         self.assertNotIn("MUST_NOT_QUERY", output)
@@ -918,6 +920,7 @@ SELECTED_PACKAGES=()
 pacman() { return 1; }
 systemctl() { return 1; }
 sudo() { printf 'ACTION:%s\n' "$*"; }
+configure_tailscale_desktop() { :; }
 configure_tailscale
 ''')
         self.assertIn('ACTION:pacman -S --needed --noconfirm tailscale', output)
