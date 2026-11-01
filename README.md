@@ -135,6 +135,19 @@ restarts and updates. Clicking album artwork or a song name opens the applicatio
 playing that media. The calendar includes an upcoming-events area from
 Thunderbird's local calendar cache, and opens Thunderbird when clicked. Without
 a configured calendar it shows the month grid with an empty events area.
+The agenda shows up to eight events in the next 14 days. Remote calendars need
+Thunderbird's **Offline Support** enabled and a completed synchronization.
+If it is disabled, the card explains that remote events are missing. To opt in:
+
+```bash
+~/.config/poedash/scripts/thunderbird-calendar.py --enable-offline-cache
+```
+
+Restart Thunderbird and synchronize the calendar afterward. This command adds
+only calendar caching preferences to the profile's `user.js`, backing up an
+existing file. Normal dashboard refreshes never change Thunderbird settings.
+Locked local databases are read through a temporary private copy, including
+pending committed WAL data. The original database is never changed.
 
 Battery details appear only when a system battery is detected. Remaining time appears only
 when the OS supplies a valid estimate. Power-profile and idle controls remain available on desktops. General metrics refresh every two seconds on battery. Playing

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Read upcoming events from Thunderbird's enabled local calendars without syncing."""
+import argparse
 import configparser
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
@@ -8,9 +9,11 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import sqlite3
 import sys
+import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # A small, licensed source subset is bundled to keep refreshes package-free.
@@ -143,13 +146,14 @@ def occurrences(start, lines, lower, upper):
         yield item
 
 
-def database_events(path, enabled, now, local):
+def _database_events(path, enabled, now, local):
     end = now + timedelta(days=14)
     lower = now.replace(hour=0, minute=0, second=0, microsecond=0)
     events, partial = [], False
     with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=0.2)) as connection:
         connection.row_factory = sqlite3.Row
         connection.execute('PRAGMA query_only=ON')
+        connection.execute('BEGIN')
         identifiers = list(enabled)
         placeholders = ','.join('?' for _ in identifiers)
         rows = [dict(row) for row in connection.execute(
@@ -202,6 +206,87 @@ def database_events(path, enabled, now, local):
     return events, partial
 
 
+
+def fingerprint(paths):
+    result = []
+    for path in paths:
+        try:
+            stat = path.stat()
+            result.append((stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
+        except FileNotFoundError:
+            result.append(None)
+    return result
+
+
+def database_events(path, enabled, now, local):
+    try:
+        return _database_events(path, enabled, now, local)
+    except sqlite3.OperationalError as exc:
+        if getattr(exc, 'sqlite_errorcode', 0) & 0xff not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+            raise
+    # Thunderbird can use exclusive SQLite locking. Never bypass locks on its
+    # live database or use immutable=1 (which would ignore uncheckpointed WAL).
+    # Recover a private, stable copy including WAL/rollback journal instead.
+    sources = [path, Path(str(path) + '-wal'), Path(str(path) + '-journal')]
+    with tempfile.TemporaryDirectory(prefix='poedash-calendar-') as tmp:
+        copied = Path(tmp) / path.name
+        for _ in range(3):
+            before = fingerprint(sources)
+            if sum(item[1] for item in before if item) > 64 * 1024 * 1024:
+                raise sqlite3.OperationalError('Locked calendar exceeds snapshot size limit')
+            for source, state in zip(sources, before):
+                destination = Path(tmp) / source.name
+                if state:
+                    shutil.copyfile(source, destination)
+                else:
+                    destination.unlink(missing_ok=True)
+            if before != fingerprint(sources):
+                continue
+            # Recovery and shared-memory creation affect the private copy only.
+            with closing(sqlite3.connect(copied)) as connection:
+                if connection.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
+                    raise sqlite3.DatabaseError('Calendar snapshot failed integrity check')
+            return _database_events(copied, enabled, now, local)
+    raise sqlite3.OperationalError('Calendar changed while copying. Retry next refresh')
+
+
+def uncached_calendars(enabled):
+    return {key: value for key, value in enabled.items()
+            if value.get('type') != 'storage' and value.get('cache.enabled') is not True}
+
+
+def enable_offline_cache(home=None):
+    """Explicit opt-in only. Thunderbird imports user.js on its next startup."""
+    selected = profile(Path.home() if home is None else home)
+    enabled = calendars(selected) if selected else {}
+    missing = uncached_calendars(enabled)
+    if not missing:
+        return False
+    path = selected / 'user.js'
+    original = path.read_text() if path.exists() else ''
+    lines = ['user_pref(' + json.dumps(f'calendar.registry.{key}.cache.enabled') + ', true);'
+             for key in sorted(missing)]
+    # Stable lines make reruns idempotent and leave every other preference intact.
+    additions = [line for line in lines if line not in original.splitlines()]
+    if not additions:
+        return False
+    if path.exists():
+        backup = path.with_name('user.js.poedash-backup-' + datetime.now().strftime('%Y%m%d%H%M%S%f'))
+        shutil.copy2(path, backup)
+    updated = original + ('\n' if original and not original.endswith('\n') else '')
+    updated += '// PoeDash: retain remote calendar events for the local agenda.\n' + '\n'.join(additions) + '\n'
+    # The profile stays live: do not edit prefs.js or stop Thunderbird.
+    descriptor, temporary = tempfile.mkstemp(prefix='.poedash-user-', dir=selected)
+    try:
+        with os.fdopen(descriptor, 'w') as stream:
+            stream.write(updated)
+        if path.exists():
+            os.chmod(temporary, path.stat().st_mode & 0o777)
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+    return True
+
 def reading(home=None, now=None):
     home = Path.home() if home is None else home
     local = local_zone()
@@ -224,6 +309,8 @@ def reading(home=None, now=None):
             partial = True
     events = sorted(values.values(), key=lambda event: event['sort'])[:8]
     status = 'Thunderbird · next 14 days' if events else 'No cached events · next 14 days'
+    if uncached_calendars(enabled):
+        status = 'Enable Thunderbird offline support · remote events missing'
     if partial:
         status = 'Some Thunderbird calendar data is unavailable'
     return {'connected': True, 'status': status,
@@ -231,7 +318,16 @@ def reading(home=None, now=None):
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--enable-offline-cache', action='store_true',
+                        help='opt in to remote calendar caching on the next Thunderbird restart')
+    args = parser.parse_args()
     try:
+        if args.enable_offline_cache:
+            changed = enable_offline_cache()
+            print('Offline caching configured. Restart Thunderbird and synchronize calendars.' if changed
+                  else 'No changes needed. Restart Thunderbird if caching was already configured.')
+            raise SystemExit(0)
         def timeout(signum, frame):
             raise TimeoutError('Calendar poll exceeded its time budget')
         signal.signal(signal.SIGALRM, timeout)

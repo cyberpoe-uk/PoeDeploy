@@ -30,7 +30,8 @@ class ThunderbirdCalendar(unittest.TestCase):
         self.profile.mkdir()
         (self.profile / 'prefs.js').write_text(
             'user_pref("calendar.registry.work.type", "caldav");\n'
-            'user_pref("calendar.registry.work.name", "Work");\n')
+            'user_pref("calendar.registry.work.name", "Work");\n'
+            'user_pref("calendar.registry.work.cache.enabled", true);\n')
         (self.profile / 'calendar-data').mkdir()
         self.database = self.profile / 'calendar-data/cache.sqlite'
         with closing(sqlite3.connect(self.database)) as connection, connection:
@@ -122,6 +123,58 @@ class ThunderbirdCalendar(unittest.TestCase):
         self.assertEqual(self.read()['events'], [])
         self.database.write_bytes(b'not a database')
         self.assertIn('unavailable', self.read()['status'])
+
+    def test_exclusive_wal_database_includes_uncheckpointed_events(self):
+        self.event(NOW.replace(hour=10))
+        with closing(sqlite3.connect(self.database, isolation_level=None)) as writer:
+            writer.execute('PRAGMA journal_mode=WAL')
+            writer.execute('PRAGMA locking_mode=EXCLUSIVE')
+            writer.execute('BEGIN EXCLUSIVE')
+            writer.execute("UPDATE cal_events SET title='Committed in WAL'")
+            writer.execute('COMMIT')
+            wal = Path(str(self.database) + '-wal')
+            self.assertGreater(wal.stat().st_size, 0)
+            before = (self.database.read_bytes(), wal.read_bytes())
+            result = self.read()
+            self.assertEqual(result['events'][0]['title'], 'Committed in WAL')
+            self.assertEqual(before, (self.database.read_bytes(), wal.read_bytes()))
+
+    def test_exclusive_rollback_transaction_never_displays_uncommitted_edits(self):
+        self.event(NOW.replace(hour=10))
+        with closing(sqlite3.connect(self.database)) as writer:
+            writer.execute('PRAGMA locking_mode=EXCLUSIVE')
+            writer.execute('BEGIN EXCLUSIVE')
+            writer.execute("UPDATE cal_events SET title='Uncommitted edit'")
+            result = self.read()
+            self.assertEqual(result['events'][0]['title'], 'Planning')
+            writer.rollback()
+
+    def test_uncached_remote_calendar_has_actionable_status(self):
+        with (self.profile / 'prefs.js').open('a') as stream:
+            stream.write('user_pref("calendar.registry.work.cache.enabled", false);\n')
+        self.assertIn('offline support', self.read()['status'])
+
+    def test_enabling_cache_is_explicit_targeted_and_idempotent(self):
+        prefs = self.profile / 'prefs.js'
+        with prefs.open('a') as stream:
+            stream.write('user_pref("calendar.registry.work.cache.enabled", false);\n'
+                         'user_pref("calendar.registry.local.type", "storage");\n'
+                         'user_pref("calendar.registry.disabled.type", "caldav");\n'
+                         'user_pref("calendar.registry.disabled.disabled", true);\n')
+        user = self.profile / 'user.js'
+        original = 'user_pref("unrelated.preference", 42);\n'
+        user.write_text(original)
+        before = prefs.read_bytes()
+        self.read()  # Normal polls must never alter settings.
+        self.assertEqual(user.read_text(), original)
+        self.assertTrue(calendar.enable_offline_cache(self.home))
+        self.assertTrue(user.read_text().startswith(original))
+        self.assertIn('calendar.registry.work.cache.enabled", true', user.read_text())
+        self.assertNotIn('calendar.registry.local', user.read_text())
+        self.assertNotIn('calendar.registry.disabled', user.read_text())
+        self.assertFalse(calendar.enable_offline_cache(self.home))
+        self.assertEqual(len(list(self.profile.glob('user.js.poedash-backup-*'))), 1)
+        self.assertEqual(prefs.read_bytes(), before)
 
     def test_monthly_ordinal_rules_use_the_bundled_recurrence_engine(self):
         start = datetime(2026, 10, 5, 9, tzinfo=UTC)

@@ -32,7 +32,17 @@ The player supports MPRIS artwork, track details, progress and transport control
 Clicking artwork or the track title opens the playing application. The calendar
 reads Thunderbird's enabled local calendars and cached events without modifying
 them. Titles wrap and the agenda scrolls. With no connected calendar, it shows
-an empty agenda. Clicking the calendar opens Thunderbird Calendar.
+an empty agenda. Clicking the calendar opens Thunderbird Calendar. The agenda
+covers the next 14 days, with up to eight events. CalDAV and other remote calendars
+need Thunderbird's Offline Support and a completed sync. The card reports
+uncached calendars explicitly. Opt in with
+`~/.config/poedash/scripts/thunderbird-calendar.py --enable-offline-cache`, then
+restart Thunderbird and synchronize. This writes only the affected calendar
+cache preferences to `user.js` and backs up an existing file. Normal polls are
+read-only. Exclusively locked databases use a bounded private copy with its WAL
+and rollback journal, validated before use and removed afterward. Copies that
+change during reading are retried up to three times. Locked databases larger
+than 64 MiB including journals are reported as unavailable rather than copied.
 
 ## Power and idle settings
 
