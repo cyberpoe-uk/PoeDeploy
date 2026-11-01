@@ -64,7 +64,10 @@ main. Refresh with the dashboard control, `poedash update`, or
 Refreshes replace managed dashboard files and bar controls without installing
 packages or configuring repositories. Preferences, colours, pins and state are
 retained. The installer backs up recognised legacy Eww configurations before
-retiring them. Unrecognised Eww setups are left alone.
+retiring them. Unrecognised Eww setups are left alone. Recognised retired dashboard launchers,
+workers, startup entries and theme hooks are removed, with bar controls rewired
+to PoeDash. Integration files are backed up alongside the retired configuration.
+Installed security tools and browser data remain intact.
 
 PoeDash supports ML4W QuickShell and Waybar controls. Its workspace observer
 reconnects to Hyprland and hides the dashboard outside workspace 1. The surface

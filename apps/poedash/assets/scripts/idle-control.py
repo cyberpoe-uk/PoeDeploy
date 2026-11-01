@@ -325,12 +325,12 @@ def apply(values, root=ROOT):
 
 
 def snapshot(root=ROOT):
-    result = dict(screen=0, lock=0, suspend=0, dirty=False, supported=False, message='', config='')
+    result = dict(screen=0, lock=0, suspend=0, dirty=False, supported=False, known=False, message='', config='')
     try:
         config, proc = discover()
         documents, _, values = load(config)
         stale = bool(proc and any(p.stat().st_mtime > proc.get('started', float('inf')) + .5 for p in documents))
-        result.update(values, supported=bool(proc), config=str(config),
+        result.update(values, known=True, supported=bool(proc), config=str(config),
                       dirty=stale, message='Configuration changed since Hypridle started. Apply to activate and verify these values.' if stale else 'Minutes · 0 disables a timer' if proc else 'Hypridle is configured but not running.')
     except (OSError, ValueError, RuntimeError) as exc:
         result['message'] = str(exc)
@@ -362,7 +362,17 @@ def main():
                     continue
                 # Drafts survive failures and refreshes. External changes are read
                 # when no edit is pending, so polling never discards entered values.
-                data = json.loads(state.read_text()) if state.is_file() else snapshot()
+                try:
+                    data = json.loads(state.read_text()) if state.is_file() else snapshot()
+                    if not isinstance(data, dict): raise ValueError('Editor state must be an object')
+                except (OSError, ValueError):
+                    data = snapshot()
+                if data.get('dirty'):
+                    try:
+                        validate({key: data[key] for key in KINDS})
+                        data['known'] = True
+                    except (KeyError, ValueError):
+                        data = snapshot()
                 if not data.get('dirty'):
                     fresh = snapshot()
                     if not fresh.get('dirty') and fresh.get('supported') and all(data.get(k) == fresh[k] for k in KINDS) and data.get('message', '').startswith('Applied and verified'):
@@ -372,7 +382,9 @@ def main():
                 if encoded != previous:
                     print(encoded, flush=True)
                     previous = encoded
-            except (OSError, ValueError): pass
+            except (OSError, ValueError, RuntimeError) as exc:
+                data = dict(screen=0, lock=0, suspend=0, dirty=False, supported=False, known=False, message=str(exc), config='')
+                print(json.dumps(data), flush=True)
             time.sleep(5)
     with (state.parent / '.idle-edit.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

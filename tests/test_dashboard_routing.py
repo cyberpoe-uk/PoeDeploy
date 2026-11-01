@@ -51,6 +51,18 @@ class DashboardRouting(unittest.TestCase):
                             control.update(root)
                         launch.assert_not_called()
 
+    def test_explicit_poedash_install_accepts_a_retired_selection_for_migration(self):
+        result = run_bash(r'''
+config_root=$(mktemp -d)
+trap 'rm -rf -- "$config_root"' EXIT
+export XDG_CONFIG_HOME="$config_root"
+mkdir -p "$config_root/poedeploy"
+printf 'pendash\n' > "$config_root/poedeploy/dashboard"
+validate_dashboard_update_target poedash
+''')
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertIn('Migrating',result.stdout)
+
     def test_refresh_dispatch_disables_package_setup_for_dashboard(self):
         result = run_bash(r'''
 load_version() { :; }

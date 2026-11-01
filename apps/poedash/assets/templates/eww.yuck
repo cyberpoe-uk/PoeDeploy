@@ -27,7 +27,7 @@
 
 (deflisten power_profile :initial '{"supported":false,"source":"unknown","active":"Unavailable","available":[],"mode":"Unavailable","enabled":false,"message":"Checking power profiles"}' `exec ./scripts/power-control.py listen`)
 
-(deflisten idle :initial '{"screen":0,"lock":0,"suspend":0,"dirty":false,"supported":false,"message":"Detecting idle manager","config":""}' `exec ./scripts/idle-control.py listen`)
+(deflisten idle :initial '{"screen":0,"lock":0,"suspend":0,"dirty":false,"supported":false,"known":false,"message":"Detecting idle manager","config":""}' `exec ./scripts/idle-control.py listen`)
 
 (deflisten app_lists :initial '{"pinned":[],"recent":[]}' `./scripts/desktop.py listen`)
 
@@ -170,7 +170,7 @@
   (box :space-evenly false :spacing {layout.row_gap}
     (label :text name :halign "start" :hexpand true)
     (button :active {idle.supported} :onclick "./scripts/idle-control.py adjust ${field} -1" :timeout "5s" (label :text "−"))
-    (label :class "idle-number" :text value :width 34 :height 0)
+    (label :class "idle-number" :text {idle.known ? value : "—"} :width 34 :height 0)
     (button :active {idle.supported} :onclick "./scripts/idle-control.py adjust ${field} 1" :timeout "5s" (label :text "+"))
     (label :text "min" :class "micro")))
 
@@ -222,7 +222,7 @@
           (for app in {app_lists.recent} (app-shortcut :app app :pinned false)))))))
 
 (defwidget dashboard-content []
-  (box :class "dashboard-surface ${refresh_status}" :visible home_visible :space-evenly false :hexpand true :vexpand true
+  (box :class "dashboard-surface ${refresh_status} idle-${idle.supported} profiles-${power_profile.supported}" :visible home_visible :space-evenly false :hexpand true :vexpand true
     (box :class {layout.density == "compact" ? "dashboard-panel compact" : "dashboard-panel comfortable"} :style "padding: ${layout.padding}px; font-size: ${layout.font_size}px;" :hexpand true :vexpand true :orientation "v" :space-evenly false :spacing {layout.gap} :vexpand true
       (box :class "header" :orientation {layout.columns == 1 ? "v" : "h"} :space-evenly false :spacing 16
         (box :orientation "v" :space-evenly false :hexpand true :spacing 4

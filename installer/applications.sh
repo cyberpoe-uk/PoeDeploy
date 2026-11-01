@@ -49,6 +49,12 @@ validate_dashboard_update_target() {
     selected=$(< "$selected_file")
     case "$selected" in
         poedash) ;;
+        pendash)
+            if [[ "$requested" == poedash ]]; then
+                info "Migrating the retired dashboard to PoeDash."
+                return 0
+            fi
+            ;;
         *) warning "Unrecognised saved dashboard selection. Reinstall the intended dashboard."; return 1 ;;
     esac
     if [[ "$selected" != "$requested" ]]; then

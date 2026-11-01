@@ -172,29 +172,12 @@ def chosen_name(args, root):
     return value
 
 
-def retire_legacy_dashboard(config_home, backup):
-    legacy = config_home / 'eww'
-    definition = legacy / 'eww.yuck'
-    if not definition.is_file():
-        return False
-    text = definition.read_text(errors='replace')
-    fingerprints = ('MY DASHBOARD', 'START WEB CTF', 'BlackArch home screen')
-    if not any(marker in text for marker in fingerprints):
-        return False
-    if shutil.which('eww'):
-        subprocess.run(['eww', '--config', str(legacy), 'kill'],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    shutil.copytree(legacy, backup / 'retired-legacy-eww', dirs_exist_ok=True)
-    shutil.rmtree(legacy)
-    custom = config_home / 'hypr/custom.lua'
-    if custom.is_file():
-        old = custom.read_text()
-        cleaned = re.sub(r'(?ms)^-- BEGIN [A-Z]+\n(?:(?!^-- END ).)*?\.config/eww/scripts/start\.sh.*?^-- END [A-Z]+\n?', '', old)
-        cleaned = re.sub(r'(?m)^.*\.config/eww/scripts/start\.sh.*\n?', '', cleaned)
-        if cleaned != old:
-            shutil.copy2(custom, backup / 'retired-custom.lua')
-            atomic(custom, cleaned, custom.stat().st_mode & 0o777)
-    return True
+def retire_legacy_dashboard(config_home, backup, root=None):
+    source = SOURCE / 'assets/scripts/retire-dashboard.py'
+    spec = importlib.util.spec_from_file_location('retire_dashboard', source)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    return migration.retire(config_home, backup, root or config_home / 'poedash')
 
 
 def install(args, root):
@@ -235,7 +218,9 @@ def install(args, root):
         shutil.copy2(hypr, backup / 'hyprland.lua')
         if matugen.exists():
             shutil.copy2(matugen, backup / 'matugen.toml')
-        retire_legacy_dashboard(config_home, backup)
+        retire_legacy_dashboard(config_home, backup, root)
+        matugen_text = matugen.read_text() if matugen.exists() else ''
+        parsed = tomllib.loads(matugen_text)
     preserved = {}
     legacy_backup = backup / 'retired-legacy-eww'
     for preserved_name in ('settings.json', 'colors.scss', 'disabled', 'layout.json'):

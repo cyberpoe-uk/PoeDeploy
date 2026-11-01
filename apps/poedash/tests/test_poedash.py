@@ -125,6 +125,23 @@ class Installation(unittest.TestCase):
         self.install()
         self.assertTrue((self.root / 'state/custom.json').exists())
 
+    def test_install_removes_retired_theme_and_launcher_without_readding_them(self):
+        legacy = self.home / '.config/eww'
+        legacy.mkdir(parents=True)
+        (legacy / 'eww.yuck').write_text('PenDash')
+        old_command = self.home / '.local/bin/pendash'
+        old_command.parent.mkdir(parents=True)
+        old_command.write_text('old launcher')
+        theme = self.home / '.config/matugen/config.toml'
+        theme.parent.mkdir(parents=True)
+        theme.write_text('[config]\n[templates.eww]\noutput_path="~/.config/eww/colors.scss"\n[templates.keep]\noutput_path="keep.scss"\n')
+        self.install()
+        self.assertFalse(legacy.exists())
+        self.assertFalse(old_command.exists())
+        self.assertNotIn('templates.eww', theme.read_text())
+        self.assertIn('templates.keep', theme.read_text())
+        self.assertIn('templates.poedash', theme.read_text())
+
     def test_old_launcher_settings_are_migrated_to_general_dashboard(self):
         self.install()
         old = {'monitor': 0, 'layout': {'scale': 'auto', 'system_width': 540,

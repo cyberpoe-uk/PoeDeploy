@@ -118,6 +118,18 @@ class IdleConfiguration(unittest.TestCase):
         with patch.object(idle, 'run', side_effect=command), patch.object(idle.os, 'kill', side_effect=ProcessLookupError), patch.object(idle, 'processes', side_effect=[[], [dict(pid=456)]]):
             self.assertEqual(idle.activate(self.config, proc, self.root),456)
 
+    def test_listeners_are_started_outside_the_lazy_grid_and_unknown_is_not_zero(self):
+        text = (SCRIPT.parents[1] / 'templates/eww.yuck').read_text()
+        root = text.split('(defwidget dashboard-content')[1]
+        self.assertIn('idle-${idle.supported}',root)
+        self.assertIn('profiles-${power_profile.supported}',root)
+        self.assertIn(':text {idle.known ? value : "—"}',text)
+        with patch.object(idle,'discover',side_effect=RuntimeError('missing idle config')):
+            self.assertFalse(idle.snapshot()['known'])
+        with patch.object(idle,'discover',return_value=(self.config,{'pid':123})):
+            self.assertTrue(idle.snapshot()['known'])
+            self.assertEqual(idle.snapshot()['screen'],60)
+
     def test_no_dashboard_text_is_interpolated_as_a_shell_command(self):
         text = (SCRIPT.parents[1] / 'templates/eww.yuck').read_text()
         card = text.split('(defwidget idle-setting')[1].split('(defwidget dashboard-grid')[0]

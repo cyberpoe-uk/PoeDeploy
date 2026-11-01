@@ -146,7 +146,9 @@ active GPU measurements, or `"passive"` to avoid NVIDIA queries on any machine.
 
 PoeDash also provides a **Power & Idle Management** card in the main grid. Its Idle and Power tabs share the ninth card, with
 the current profile always visible. Its numerical steppers edit Screen Off, Lock Screen and Auto Suspend in
-minutes. Zero disables only that timer. Apply is enabled only for pending changes.
+minutes. Zero disables only that timer. Apply is enabled only for pending changes. Timers are read from the detected
+configuration. Unknown/loading values show an em dash, while zero means the
+corresponding timer is genuinely disabled.
 It discovers the running Hypridle instance and its config, including custom paths,
 source files and dotfile symlinks. It backs up the resolved files, preserves other
 listeners and security hooks, restarts only Hypridle, and checks runtime timer
@@ -223,6 +225,14 @@ This action only installs Burp, without dashboard, repository, or package change
 Existing native PortSwigger installations are retained and use Burp's own updater.
 Existing repository packages are retained. Use the native installer's desktop
 entry or `~/.local/bin/burpsuite` to launch the PortSwigger build.
+
+Installing PoeDash also retires recognised old dashboard installations. It backs
+up their configuration and integration files, stops their daemon and workers,
+removes old launchers and startup hooks, updates Waybar/QuickShell controls, and
+removes retired Matugen hooks. Existing PoeDash preferences take precedence over
+migrated preferences. Other Eww configurations, security applications and browser
+data are preserved. A symlinked old config is unlinked while its inactive dotfiles
+source is retained. Backups are stored under `~/.local/state/poedash/backups/`.
 
 PoeDash adds enable/disable and update controls to a supported ML4W
 QuickShell status bar. The update control downloads the latest PoeDeploy `main`
