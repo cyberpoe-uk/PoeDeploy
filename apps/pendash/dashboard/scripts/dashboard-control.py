@@ -3,11 +3,25 @@
 import argparse
 import fcntl
 import json
+import os
 from pathlib import Path
 import re
 import shlex
 import shutil
 import subprocess
+
+
+DASHBOARD_ID = 'pendash'
+DASHBOARD_NAME = 'PenDash'
+
+
+def validate_update_target(root):
+    selection = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'poedeploy/dashboard'
+    if selection.is_file() and selection.read_text().strip() != DASHBOARD_ID:
+        raise RuntimeError('This is an outdated dashboard control. Use the selected dashboard updater or reinstall its bar integration.')
+    identity = root / 'dashboard-id'
+    if identity.is_file() and identity.read_text().strip() != DASHBOARD_ID:
+        raise RuntimeError('The update control points to another dashboard. Reinstall the intended dashboard to repair the bar integration.')
 
 
 def prepare(root):
@@ -79,14 +93,15 @@ def module(root):
 
 
 def update(root):
-    subprocess.Popen(['kitty', '--hold', '--title', 'Update dashboard',
+    validate_update_target(root)
+    subprocess.Popen(['kitty', '--hold', '--title', 'Update ' + DASHBOARD_NAME,
                       'bash', str(root / 'scripts/update.sh'), str(root)],
                      start_new_session=True)
 
 
 def install_waybar(root, config):
     text = config.read_text()
-    slug = 'poedash' if root.name == 'poedash' else 'pendash'
+    slug = DASHBOARD_ID
     name = 'custom/' + slug
     command = shlex.join(['python3', str(root / 'scripts/dashboard-control.py'), '--root', str(root)])
     entries = {name: module(root), name + '-update': {
@@ -164,7 +179,7 @@ def install_quickshell(root, statusbar=None):
         if not backup.exists():
             shutil.copy2(window, backup)
         window.write_text(updated)
-    rendered = source.read_text().replace('"@@DASHBOARD_ROOT@@"', json.dumps(str(root)))
+    rendered = source.read_text().replace('"@@DASHBOARD_ROOT@@"', json.dumps(str(root))).replace('"@@DASHBOARD_NAME@@"', json.dumps(DASHBOARD_NAME))
     (statusbar / 'DashboardModule.qml').write_text(rendered)
     for config in (Path.home() / '.config/ml4w-statusbar/config.json',
                    Path.home() / '.config/ml4w-statusbar/statusbar.json',
@@ -203,7 +218,7 @@ def main():
         if not (root / 'scripts/start.sh').is_file():
             print(json.dumps({'text': '', 'tooltip': 'Dashboard not installed'}))
             return
-        name = 'PoeDash' if root.name == 'poedash' else 'PenDash'
+        name = DASHBOARD_NAME
         enabled = not (root / 'disabled').exists()
         state = 'on' if enabled else 'off'
         print(json.dumps({'text': name + ' ' + ('●' if enabled else '○'), 'class': state,

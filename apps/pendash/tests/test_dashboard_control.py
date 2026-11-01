@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,6 +13,16 @@ c = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(c)
 
 class DashboardControl(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        environment = patch.dict(os.environ, {'XDG_CONFIG_HOME': temporary.name})
+        environment.start()
+        self.addCleanup(environment.stop)
+        home = patch.object(c.Path, 'home', return_value=Path(temporary.name))
+        home.start()
+        self.addCleanup(home.stop)
+
     def test_disable_enable_preserves_settings_and_scopes_eww(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'poedash'
@@ -52,8 +63,8 @@ class DashboardControl(unittest.TestCase):
             c.install_waybar(root, config)
             self.assertEqual(config.read_text(), first)
             data = json.loads(first)
-            self.assertEqual(data['modules-right'], ['custom/poedash', 'custom/poedash-update', 'clock'])
-            self.assertIn(' toggle', data['custom/poedash']['on-click'])
+            self.assertEqual(data['modules-right'], ['custom/pendash', 'custom/pendash-update', 'clock'])
+            self.assertIn(' toggle', data['custom/pendash']['on-click'])
 
     def test_waybar_empty_array(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -78,19 +89,19 @@ class DashboardControl(unittest.TestCase):
     def test_existing_switch_gets_one_adjacent_update_button(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / 'config'
-            config.write_text('{"modules-right": ["clock", "custom/poedash"], "custom/poedash": {"on-click": "keep"}}')
+            config.write_text('{"modules-right": ["clock", "custom/pendash"], "custom/pendash": {"on-click": "keep"}}')
             c.install_waybar(Path(tmp) / 'poedash', config)
             c.install_waybar(Path(tmp) / 'poedash', config)
             data = json.loads(config.read_text())
-            self.assertEqual(data['modules-right'], ['clock', 'custom/poedash', 'custom/poedash-update'])
-            self.assertEqual(data['custom/poedash']['on-click'], 'keep')
-            self.assertIn(' update', data['custom/poedash-update']['on-click'])
+            self.assertEqual(data['modules-right'], ['clock', 'custom/pendash', 'custom/pendash-update'])
+            self.assertEqual(data['custom/pendash']['on-click'], 'keep')
+            self.assertIn(' update', data['custom/pendash-update']['on-click'])
 
     def test_update_opens_terminal_without_running_installer_in_bar(self):
         root = Path('/tmp/path with spaces/poedash')
         with patch.object(c.subprocess, 'Popen') as launch:
             c.update(root)
-        launch.assert_called_once_with(['kitty', '--hold', '--title', 'Update dashboard',
+        launch.assert_called_once_with(['kitty', '--hold', '--title', 'Update PenDash',
                                        'bash', str(root / 'scripts/update.sh'), str(root)],
                                       start_new_session=True)
 

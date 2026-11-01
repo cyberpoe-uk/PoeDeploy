@@ -184,6 +184,7 @@ def install_dashboard(dry_run, preserve_colors=False):
             (destination / name).write_bytes(preserved[name])
     shutil.copy2(SOURCE.parent / 'shared/dashboard-layout.py', destination / 'scripts/layout.py')
     (destination / 'scripts/layout.py').chmod(0o755)
+    (destination / 'dashboard-id').write_text('pendash\n')
     if state_copy:
         shutil.copytree(state_copy, destination / 'state', dirs_exist_ok=True)
         shutil.rmtree(state_copy.parent)
@@ -196,6 +197,8 @@ def install_dashboard(dry_run, preserve_colors=False):
     if BEGIN not in old and '-- Home dashboard:' in old and 'local function protect_home' in old:
         old = ''  # Migrate the known pre-PenDash version of this managed dashboard file.
     write(custom, replace_block(old, (SOURCE / 'assets/custom.lua').read_text()))
+    config_home = Path(os.environ.get('XDG_CONFIG_HOME', HOME / '.config'))
+    write(config_home / 'poedeploy/dashboard', 'pendash\n', 0o600)
 
 
 def dashboard_enabled(root, enabled):
@@ -210,7 +213,7 @@ def dashboard_enabled(root, enabled):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     action = parser.add_mutually_exclusive_group()
-    action.add_argument('--update-dashboard', action='store_true', help='refresh the dashboard and install missing security tools')
+    action.add_argument('--update-dashboard', action='store_true', help='refresh dashboard files without changing packages or repositories')
     action.add_argument('--disable-dashboard', action='store_true', help='stop dashboard and disable autostart')
     action.add_argument('--enable-dashboard', action='store_true', help='restore dashboard and autostart')
     action.add_argument('--check', action='store_true', help='check the dashboard, Chromium, and security tools')
@@ -225,15 +228,12 @@ def main():
         root = HOME / '.config/eww'
         if not (root / 'eww.yuck').is_file():
             raise RuntimeError('Install PenDash before updating it.')
-        if not args.skip_packages:
-            ensure_blackarch(False)
-            install_packages(sorted(set(DASHBOARD + CURATED + ['chromium'])), False)
         install_dashboard(False, preserve_colors=True)
         if args.waybar_config:
             run([sys.executable, root / 'scripts/dashboard-control.py', '--root', root, 'waybar', '--config', args.waybar_config])
         if not (root / 'disabled').exists():
             dashboard_enabled(root, True)
-        print('PenDash dashboard updated. Configure Chromium and Burp manually.')
+        print('PenDash dashboard files updated. Packages and repositories were not changed.')
         return 0
     if args.disable_dashboard or args.enable_dashboard:
         dashboard_enabled(HOME / '.config/eww', args.enable_dashboard)

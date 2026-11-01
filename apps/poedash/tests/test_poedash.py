@@ -59,6 +59,8 @@ class Installation(unittest.TestCase):
         self.assertTrue((self.root / 'disabled').exists())
         self.assertEqual(json.loads((self.root / 'layout.json').read_text())['density'], 'comfortable')
         self.assertTrue((self.root / 'scripts/layout.py').stat().st_mode & 0o111)
+        self.assertEqual((self.root / 'dashboard-id').read_text(), 'poedash\n')
+        self.assertEqual((self.home / '.config/poedeploy/dashboard').read_text(), 'poedash\n')
         import tomllib
         theme = self.home / '.config/matugen/config.toml'
         self.assertIn('poedash', tomllib.loads(theme.read_text())['templates'])

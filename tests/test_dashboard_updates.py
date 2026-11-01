@@ -129,7 +129,9 @@ exit 97
                     args += ['--example-option', 'a path with spaces']
                     result = self.run_script(ROOT / 'apps' / slug / 'bootstrap.sh', *args)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    expected = ['--non-interactive' if arg == '--update-dashboard' and slug == 'poedash' else arg for arg in args]
+                    expected = []
+                    for arg in args:
+                        expected.extend(['--skip-deps', '--non-interactive'] if arg == '--update-dashboard' and slug == 'poedash' else [arg])
                     self.assertEqual(self.record.read_text().splitlines(), expected)
                     self.assertIn('https://codeload.github.com/cyberpoe-uk/PoeDeploy/tar.gz/refs/heads/main', self.git_record.read_text())
 

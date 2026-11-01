@@ -2,11 +2,13 @@ import Quickshell
 import Quickshell.Io
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls as Controls
 import qs.CustomTheme
 
 Item {
     id: dashboardControls
     property string dashboardRoot: "@@DASHBOARD_ROOT@@"
+    property string dashboardName: "@@DASHBOARD_NAME@@"
     property bool dashboardEnabled: true
     property bool collapsed: false
     property var navButtons: [toggleButton, updateButton]
@@ -44,6 +46,9 @@ Item {
         }
         Rectangle {
             id: updateButton
+            Controls.ToolTip.visible: updateMouse.containsMouse
+            Controls.ToolTip.text: "Update " + dashboardControls.dashboardName
+            Controls.ToolTip.delay: 350
             property bool focused: false
             function activate(): void { Quickshell.execDetached(["python3", dashboardControls.dashboardRoot + "/scripts/dashboard-control.py", "--root", dashboardControls.dashboardRoot, "update"]) }
             implicitWidth: 32; implicitHeight: 28; radius: 14

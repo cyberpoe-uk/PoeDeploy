@@ -121,11 +121,13 @@ install_bundled_dashboard_application PenDash pendash --non-interactive
 load_version() { :; }
 check_not_root() { :; }
 check_arch() { :; }
+validate_dashboard_update_target() { :; }
+pd_logger_init() { :; }
 install_bundled_dashboard_application() { printf 'REFRESH:%s:%s:%s\n' "$1" "$2" "$3"; }
 main --install-dashboard poedash
 main --install-dashboard pendash
 ''')
-        self.assertIn('REFRESH:PoeDash update:poedash:--non-interactive', output)
+        self.assertIn('REFRESH:PoeDash update:poedash:--skip-deps', output)
         self.assertIn('REFRESH:PenDash update:pendash:--update-dashboard', output)
 
     def test_dashboard_refresh_reports_installer_failure(self):
@@ -133,6 +135,8 @@ main --install-dashboard pendash
 load_version() { :; }
 check_not_root() { :; }
 check_arch() { :; }
+validate_dashboard_update_target() { :; }
+pd_logger_init() { :; }
 install_bundled_dashboard_application() { FAILED_PACKAGES+=("$1"); }
 if main --install-dashboard poedash; then exit 91; fi
 if main --install-dashboard pendash; then exit 92; fi

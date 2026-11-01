@@ -16,19 +16,50 @@ install_bundled_dashboard_application() {
         FAILED_PACKAGES+=("$name")
         return 0
     fi
-    ensure_command_dependencies python3:python
-    if [[ "$relative_source" == pendash ]] &&
-       ! command -v eww >/dev/null 2>&1 &&
-       ! command -v paru >/dev/null 2>&1 &&
-       ! command -v yay >/dev/null 2>&1; then
-        install_yay
+    local files_only=false option
+    for option in "$@"; do
+        case "$option" in --skip-deps|--skip-packages|--update-dashboard) files_only=true ;; esac
+    done
+    if [[ "$files_only" == true ]]; then
+        if ! command -v python3 >/dev/null 2>&1; then
+            warning "$name needs Python 3. Install the missing dependency before refreshing dashboard files."
+            FAILED_PACKAGES+=("$name")
+            return 0
+        fi
+    else
+        ensure_command_dependencies python3:python
+        if [[ "$relative_source" == pendash ]] &&
+           ! command -v eww >/dev/null 2>&1 &&
+           ! command -v paru >/dev/null 2>&1 &&
+           ! command -v yay >/dev/null 2>&1; then
+            install_yay
+        fi
     fi
     if ui_run_interactive bash "$source_dir/install.sh" "$@"; then
         INSTALLED_PACKAGES+=("$name")
         success "$name installed successfully from the PoeDeploy bundle."
     else
-        warning "$name installation failed. Review $POEDEPLOY_LOG."
+        if [[ -n "${POEDEPLOY_LOG:-}" ]]; then
+            warning "$name installation failed. Review $POEDEPLOY_LOG."
+        else
+            warning "$name installation failed. See the terminal output above."
+        fi
         FAILED_PACKAGES+=("$name")
+    fi
+}
+
+validate_dashboard_update_target() {
+    local requested="$1" selected_file="${XDG_CONFIG_HOME:-$HOME/.config}/poedeploy/dashboard"
+    local selected
+    [[ -f "$selected_file" ]] || return 0
+    selected=$(< "$selected_file")
+    case "$selected" in
+        poedash|pendash) ;;
+        *) warning "Unrecognised saved dashboard selection. Reinstall the intended dashboard."; return 1 ;;
+    esac
+    if [[ "$selected" != "$requested" ]]; then
+        warning "The selected dashboard is $selected, but this control requested $requested. Use the $selected updater to repair the bar controls."
+        return 1
     fi
 }
 

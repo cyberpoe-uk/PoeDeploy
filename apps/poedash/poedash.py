@@ -251,6 +251,7 @@ def install(args, root):
         shutil.copytree(assets / directory, root / directory, dirs_exist_ok=True)
     shutil.copy2(SOURCE.parent / 'shared/dashboard-layout.py', root / 'scripts/layout.py')
     (root / 'scripts/layout.py').chmod(0o755)
+    atomic(root / 'dashboard-id', 'poedash\n', 0o600)
     for filename in ('colors.scss', 'settings.example.json', 'media-placeholder.svg'):
         shutil.copy2(assets / filename, root / filename)
     if 'colors.scss' in preserved:
@@ -298,6 +299,7 @@ def install(args, root):
         atomic(matugen, clean_theme.rstrip() + '\n\n' + block)
         manifest['matugen_config'] = str(matugen)
     atomic(manifest_path, json.dumps(manifest, indent=2) + '\n')
+    atomic(config_home / 'poedeploy/dashboard', 'poedash\n', 0o600)
     if (not args.no_start and not (root / 'disabled').exists() and
             os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and os.environ.get('WAYLAND_DISPLAY')):
         try:

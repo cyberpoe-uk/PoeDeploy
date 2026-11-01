@@ -48,7 +48,15 @@ to replace an updater that still uses stable tags or a standalone repository.
 
 Dashboard updates are also available through the PoeDeploy bootstrapper with
 `--install-dashboard pendash` or `--install-dashboard poedash`; those actions
-select `main` while normal full setup uses a stable release. Updates install missing dashboard dependencies,
-including `playerctl`, and preserve colours, saved state, and the dashboard's
-enabled/disabled setting. Existing browser data and user-configured proxy or
-certificate settings are retained.
+select `main` while normal full setup uses a stable release. Refreshes replace
+dashboard files and bar controls without changing repositories or packages.
+Colours, saved state, and the dashboard's enabled/disabled setting are retained,
+along with existing browser data and user-configured proxy or certificate settings.
+Initial installation can install the dashboard's dependencies, and the explicit
+initial PenDash installation also configures its security tools.
+
+Each installed dashboard carries a `dashboard-id` marker. The selected dashboard
+is recorded in the XDG config directory under `poedeploy/dashboard`. Controls and
+the update dispatcher reject identity mismatches, and update tooltips and terminal
+titles name the dashboard they will update. Reinstalling PoeDash repairs a stale
+QuickShell binding and backs up and retires the recognised legacy Eww dashboard.

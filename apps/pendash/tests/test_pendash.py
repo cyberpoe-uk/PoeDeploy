@@ -1,6 +1,7 @@
 import importlib.util
 import hashlib
 import io
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -67,7 +68,7 @@ class InstallerTests(unittest.TestCase):
                 self.assertEqual(p.main(), 2)
                 command.assert_not_called()
 
-    def test_dashboard_update_preserves_user_data_and_ensures_missing_tools(self):
+    def test_dashboard_update_preserves_user_data_without_packages_or_repositories(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             root = home / '.config/eww'
@@ -86,12 +87,11 @@ class InstallerTests(unittest.TestCase):
             profile = root / 'state/chromium-ctf'
             profile.mkdir(parents=True)
             (profile / 'keep').write_text('profile data')
-            with patch.object(p.shutil, 'which', return_value='/usr/bin/mock'), patch.object(p, 'HOME', home), patch.object(p, 'BACKUP', home / 'backup'), patch.object(p.sys, 'argv', ['pendash.py', '--update-dashboard']), patch.object(p, 'ensure_blackarch') as repository, patch.object(p, 'install_packages') as packages, patch.object(p, 'dashboard_enabled') as enable:
+            with patch.dict(os.environ, {'XDG_CONFIG_HOME': str(home / '.config')}), patch.object(p.shutil, 'which', return_value='/usr/bin/mock'), patch.object(p, 'HOME', home), patch.object(p, 'BACKUP', home / 'backup'), patch.object(p.sys, 'argv', ['pendash.py', '--update-dashboard']), patch.object(p, 'ensure_blackarch') as repository, patch.object(p, 'install_packages') as packages, patch.object(p, 'dashboard_enabled') as enable:
                 self.assertEqual(p.main(), 0)
-            repository.assert_called_once_with(False)
-            packages.assert_called_once()
-            self.assertIn('burpsuite', packages.call_args.args[0])
-            self.assertIn('playerctl', packages.call_args.args[0])
+            repository.assert_not_called()
+            packages.assert_not_called()
+            self.assertEqual((home / '.config/poedeploy/dashboard').read_text(), 'pendash\n')
             enable.assert_not_called()
             self.assertEqual((root / 'colors.scss').read_text(), 'custom palette')
             self.assertFalse((root / 'browser.json').exists())

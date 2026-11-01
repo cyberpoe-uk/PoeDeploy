@@ -4564,13 +4564,15 @@ main() {
         load_version
         check_not_root
         check_arch
+        validate_dashboard_update_target "$2" || return $?
+        pd_logger_init
         local dashboard_failures=${#FAILED_PACKAGES[@]}
         case "$2" in
             poedash)
-                install_bundled_dashboard_application "PoeDash update" poedash --non-interactive
+                install_bundled_dashboard_application "PoeDash update" poedash --skip-deps --non-interactive
                 ;;
             pendash)
-                install_bundled_dashboard_application "PenDash update" pendash --update-dashboard
+                install_bundled_dashboard_application "PenDash update" pendash --update-dashboard --skip-packages
                 ;;
             *) die "Unknown dashboard: $2" ;;
         esac

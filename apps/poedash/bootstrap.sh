@@ -50,16 +50,22 @@ poedash_bootstrap() (
 
     # Keep the public dashboard-refresh flag compatible with the bundled installer.
     local arguments=()
+    local dashboard_refresh=false
     for argument in "$@"; do
         if [[ "$argument" == --update-dashboard ]]; then
-            arguments+=(--non-interactive)
+            dashboard_refresh=true
+            arguments+=(--skip-deps --non-interactive)
         else
             arguments+=("$argument")
         fi
     done
     set -- "${arguments[@]}"
 
-    echo 'PoeDash: starting the installer; package installation may request sudo.'
+    if [[ "$dashboard_refresh" == true ]]; then
+        echo 'PoeDash: refreshing dashboard files without changing packages or repositories.'
+    else
+        echo 'PoeDash: starting the installer; package installation may request sudo.'
+    fi
     # curl | bash consumes stdin. Restore the terminal for pacman/AUR prompts.
     if [[ ! -t 0 ]] && { true </dev/tty; } 2>/dev/null; then
         bash "$poedash_tmp/source/apps/poedash/install.sh" "$@" </dev/tty

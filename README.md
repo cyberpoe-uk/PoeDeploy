@@ -152,8 +152,13 @@ tag. The bootstrapper also uses `main` with `--install-dashboard poedash` or
 `--install-dashboard pendash`. Normal full setup continues to use stable releases. Selecting
 the same dashboard in PoeDeploy performs the same clean refresh: managed
 interface files are replaced while Eww itself, dashboard preferences, the
-enabled state, colour palette, and browser state are retained. PenDash updates
-also ensure the BlackArch repository and install any missing curated tools.
+enabled state, colour palette, and browser state are retained. Dashboard refreshes
+only replace dashboard files and bar integration. They do not add repositories,
+install security tools, or install or upgrade packages. BlackArch and curated
+security tools belong to the explicit initial PenDash installation.
+
+Installers record the selected dashboard in `~/.config/poedeploy/dashboard`.
+Updates from stale controls for another dashboard are rejected before setup runs.
 
 PoeDeploy prefers packages from the official Arch repositories. It uses `yay`
 when an application is only available from the Arch User Repository, usually
