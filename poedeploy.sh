@@ -4564,16 +4564,18 @@ main() {
         load_version
         check_not_root
         check_arch
+        local dashboard_failures=${#FAILED_PACKAGES[@]}
         case "$2" in
             poedash)
-                install_bundled_dashboard_application "PoeDash update" poedash --skip-deps --non-interactive
+                install_bundled_dashboard_application "PoeDash update" poedash --non-interactive
                 ;;
             pendash)
                 install_bundled_dashboard_application "PenDash update" pendash --update-dashboard
                 ;;
             *) die "Unknown dashboard: $2" ;;
         esac
-        return
+        (( ${#FAILED_PACKAGES[@]} == dashboard_failures ))
+        return $?
     fi
     if [[ "${1:-}" == --preview ]]; then
         preview_interface

@@ -28,8 +28,15 @@ PowerTOP scans. Its collectors pause when the dashboard is hidden and refresh
 less often on battery. The content area scrolls on smaller screens. Missing
 players, mounts or sensors show an empty state.
 
-Dashboard updates are delivered by updating and rerunning PoeDeploy with
-`--install-dashboard pendash`. Updates install missing dashboard dependencies,
+Both dashboard update buttons download PoeDeploy's latest `main` branch, where
+these applications are maintained, rather than waiting for a stable release tag.
+The public `poedash-latest` and `pendash-latest` launchers also use the bundled
+applications from PoeDeploy `main`. Run a current launcher once on older laptops
+to replace an updater that still uses stable tags or a standalone repository.
+
+Dashboard updates are also available through the PoeDeploy bootstrapper with
+`--install-dashboard pendash` or `--install-dashboard poedash`; those actions
+select `main` while normal full setup uses a stable release. Updates install missing dashboard dependencies,
 including `playerctl`, and preserve colours, saved state, and the dashboard's
 enabled/disabled setting. Existing browser data and user-configured proxy or
 certificate settings are retained.

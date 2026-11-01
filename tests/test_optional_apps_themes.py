@@ -125,8 +125,18 @@ install_bundled_dashboard_application() { printf 'REFRESH:%s:%s:%s\n' "$1" "$2" 
 main --install-dashboard poedash
 main --install-dashboard pendash
 ''')
-        self.assertIn('REFRESH:PoeDash update:poedash:--skip-deps', output)
+        self.assertIn('REFRESH:PoeDash update:poedash:--non-interactive', output)
         self.assertIn('REFRESH:PenDash update:pendash:--update-dashboard', output)
+
+    def test_dashboard_refresh_reports_installer_failure(self):
+        self.check(r'''
+load_version() { :; }
+check_not_root() { :; }
+check_arch() { :; }
+install_bundled_dashboard_application() { FAILED_PACKAGES+=("$1"); }
+if main --install-dashboard poedash; then exit 91; fi
+if main --install-dashboard pendash; then exit 92; fi
+''')
 
     def test_plymouth_cancellation_ignores_partial_output(self):
         self.check(r'''

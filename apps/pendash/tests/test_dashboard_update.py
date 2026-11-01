@@ -7,7 +7,7 @@ SCRIPT = next(REPO.glob('**/scripts/update.sh'))
 
 
 class DashboardUpdate(unittest.TestCase):
-    def test_embedded_update_uses_latest_stable_poedeploy(self):
+    def test_embedded_update_uses_poedeploy_main(self):
         result = subprocess.run(['bash', '-n', str(SCRIPT)], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         text = SCRIPT.read_text()
@@ -16,3 +16,5 @@ class DashboardUpdate(unittest.TestCase):
         self.assertIn('cyberpoe-uk/PoeDeploy.git', text)
         self.assertIn('--install-dashboard pendash', text)
         self.assertNotIn('cyberpoe-uk/PenDash', text)
+        self.assertIn('--branch main', text)
+        self.assertNotIn('ls-remote', text)

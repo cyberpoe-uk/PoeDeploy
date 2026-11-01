@@ -130,8 +130,11 @@ unmodified proxy/certificate helper scripts and their exact managed Chromium
 flags. Custom flags, browser profiles, and certificate stores are retained.
 
 Both dashboards add enable/disable and update controls to a supported ML4W
-QuickShell status bar. The update control downloads the latest stable PoeDeploy
-release and refreshes the selected dashboard from its bundled copy. Selecting
+QuickShell status bar. The update control downloads the latest PoeDeploy `main`
+branch and refreshes the selected dashboard from its maintained bundled copy.
+Dashboard changes are available as soon as they are pushed, without a release
+tag. The bootstrapper also uses `main` with `--install-dashboard poedash` or
+`--install-dashboard pendash`. Normal full setup continues to use stable releases. Selecting
 the same dashboard in PoeDeploy performs the same clean refresh: managed
 interface files are replaced while Eww itself, dashboard preferences, the
 enabled state, colour palette, and browser state are retained. PenDash updates
