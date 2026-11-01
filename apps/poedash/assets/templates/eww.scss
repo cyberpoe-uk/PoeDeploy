@@ -57,7 +57,3 @@ tooltip { background-color: $card; border: 1px solid $border; border-radius: 6px
 .power-idle-card button:hover { background-color: rgba($accent, 0.22); }
 .power-idle-card button:disabled { opacity: 0.4; }
 .idle-number { font-weight: 600; color: $accent; }
-
-.profile-selected { border: 1px solid $accent; }
-
-.comfortable .profile-option, .profile-option { padding: 4px 6px; }

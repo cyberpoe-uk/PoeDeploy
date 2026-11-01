@@ -117,7 +117,7 @@ screens the cards use three columns with individually sized cards:
 | --- | --- | --- |
 | Arch | System | Calendar |
 | Performance | Top Processes | Connectivity |
-| Player | Mounted Shares | Power & Idle |
+| Player | Mounted Shares | Session & Idle |
 
 The layout accounts for display scaling and desktop bars, and switches to fewer
 columns on narrow displays. It is validated through native 3840×2160 and scaled
@@ -144,8 +144,9 @@ pause metric collectors. Laptop GPU monitoring uses passive telemetry by default
 Set `"gpu_monitoring": "detailed"` in `~/.config/poedash/layout.json` to request
 active GPU measurements, or `"passive"` to avoid NVIDIA queries on any machine.
 
-PoeDash also provides a **Power & Idle Management** card in the main grid. Its Idle and Power tabs share the ninth card, with
-the current profile always visible. Its numerical steppers edit Screen Off, Lock Screen and Auto Suspend in
+PoeDash provides a **Session & Idle** card in the main grid. It labels the current
+power source, active profile and how that profile was selected. Profile selection
+uses QuickShell’s existing menu, without a duplicate dashboard menu. Its numerical steppers edit Screen Off, Lock Screen and Auto Suspend in
 minutes. Zero disables only that timer. Apply is enabled only for pending changes. Timers are read from the detected
 configuration. Unknown/loading values show an em dash, while zero means the
 corresponding timer is genuinely disabled. Legacy and Lua-style Hyprland DPMS
@@ -170,12 +171,13 @@ compatible tuned-ppd providers) is preferred. Native tuned supports the installe
 `throughput-performance`, `balanced` and `powersave` profiles. Conflicting managers
 are reported, and no competing backend is installed or enabled automatically.
 
-Manual profile buttons apply and verify real changes immediately. A manual choice
+Manual selections in QuickShell change the real system profile. A manual choice
 survives dashboard restarts and reinstalls until an actual source transition.
 Each new boot initialises the automatic default at user-session startup. The user
 service listens for power-supply and profile events even when the dashboard is
-closed, with a 60-second recovery reconciliation for missed events. The Power tab provides profile controls on both laptops and desktops. Battery
-details are omitted on desktops.
+closed, with a 60-second recovery reconciliation for missed events. “Selected by: Automatic” means PoeDash chose the profile using its AC/battery
+policy. QuickShell selections are marked Manual until the next source transition.
+Battery charge and remaining-time details are omitted on desktops.
 
 ```bash
 poedash power status

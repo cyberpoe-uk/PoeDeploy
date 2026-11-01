@@ -223,7 +223,7 @@ def reading(home=None, now=None):
         except (OSError, sqlite3.Error):
             partial = True
     events = sorted(values.values(), key=lambda event: event['sort'])[:8]
-    status = 'Thunderbird · next 14 days' if events else 'No upcoming cached events'
+    status = 'Thunderbird · next 14 days' if events else 'No cached events · next 14 days'
     if partial:
         status = 'Some Thunderbird calendar data is unavailable'
     return {'connected': True, 'status': status,

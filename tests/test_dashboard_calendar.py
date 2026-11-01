@@ -1,6 +1,6 @@
 """Read-only Thunderbird calendar selection, cached events and recurrence."""
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import importlib.util
 import json
 from pathlib import Path
@@ -68,6 +68,14 @@ class ThunderbirdCalendar(unittest.TestCase):
         (self.profile / 'prefs.js').write_text('')
         self.assertEqual(self.read()['events'], [])
         self.assertFalse(self.read()['connected'])
+
+    def test_upcoming_window_is_fourteen_days_not_the_entire_month(self):
+        self.event(NOW+timedelta(days=13),id='within',title='Within window')
+        self.event(NOW+timedelta(days=14),id='boundary',title='At boundary')
+        self.event(NOW+timedelta(days=20),id='later',title='Later this month')
+        data=self.read()
+        self.assertEqual([event['title'] for event in data['events']],['Within window'])
+        self.assertIn('14 days',data['status'])
 
     def test_upcoming_events_are_read_without_changing_the_database(self):
         self.event(NOW.replace(hour=10))

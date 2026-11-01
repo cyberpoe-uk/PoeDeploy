@@ -1,5 +1,8 @@
 """Independent media cadence, power transitions and bounded background work."""
 import asyncio
+import os
+import shutil
+from unittest.mock import patch
 import importlib.util
 from pathlib import Path
 import sys
@@ -108,6 +111,55 @@ class Scheduling(unittest.IsolatedAsyncioTestCase):
                 self.assertLessEqual(self.calls.count(key), 1)
         self.assertEqual(len(self.scheduler.running), len(refresh.CADENCE) - 1)
         gate.set()
+
+    async def test_power_transition_during_media_collection_does_not_kill_worker(self):
+        gate = asyncio.Event()
+        async def collect(key):
+            self.calls.append(key)
+            if key == 'media': await gate.wait()
+            return {'status':'Playing'} if key == 'media' else 50
+        self.scheduler.collect = collect
+        await self.scheduler.step(0, False, True)
+        await asyncio.sleep(.01)
+        await self.scheduler.step(.1, True, True)
+        self.assertNotIn('media', self.scheduler.due)
+        gate.set()
+        await asyncio.sleep(.01)
+        await self.scheduler.step(.2, True, True)
+        await self.settle(62, battery=True)
+        self.assertEqual(self.scheduler.values['media']['status'],'Playing')
+        self.assertGreaterEqual(self.calls.count('arch'),2)
+
+    @unittest.skipUnless(shutil.which('jq'), 'Arch collector requires jq')
+    async def test_real_arch_collector_publishes_uptime_after_boot(self):
+        root=self.scheduler.root
+        (root/'scripts').mkdir()
+        shutil.copy2(SCRIPTS/'arch-status.sh',root/'scripts/arch-status.sh')
+        binary=root/'bin'
+        binary.mkdir()
+        cut=binary/'cut'
+        cut.write_text('#!/bin/sh\nIFS=. read -r value rest < "$UPTIME_FIXTURE"\nprintf "%s\\n" "$value"\n')
+        cut.chmod(0o755)
+        uptime=root/'uptime'
+        uptime.write_text('0.00\n')
+        async def collect(key):
+            if key=='arch': return await self.scheduler.read(key)
+            return {'status':'Playing'} if key=='media' else 50
+        self.scheduler.collect=collect
+        async def sample(now, expected):
+            for _ in range(200):
+                await self.scheduler.step(now,False,True)
+                await asyncio.sleep(.01)
+                if self.scheduler.values.get('arch',{}).get('uptime')==expected:
+                    await self.scheduler.step(now,False,True)
+                    await asyncio.sleep(.01)
+                    return
+            self.fail('Arch uptime did not refresh')
+        with patch.dict(os.environ,PATH=str(binary)+os.pathsep+os.environ['PATH'],UPTIME_FIXTURE=str(uptime)):
+            await sample(0,'0h 0m')
+            uptime.write_text('600.00\n')
+            await sample(61,'0h 10m')
+        self.assertTrue(any(batch.get('arch',{}).get('uptime')=='0h 10m' for batch in self.batches))
 
 
 if __name__ == '__main__':

@@ -14,7 +14,6 @@
 (defpoll calendar_text :run-while home_visible :interval "1m" :initial "" `./scripts/calendar.sh`)
 (defpoll calendar_events :run-while home_visible :interval "1m" :initial '{"connected":false,"status":"Checking Thunderbird calendars","events":[]}' `./scripts/thunderbird-calendar.py`)
 (defpoll system_info :run-while home_visible :interval "5m" :initial '{"host":"--","os":"--","kernel":"--","cpu":"--","gpu":"--","memory":"--","disk":"--","load":"--"}' `./scripts/system-info.py`)
-(defvar power_tab "idle")
 (defvar power '{"present":false,"on_battery":false,"available":false,"watts":"--","battery":"--","status":"--","remaining":""}')
 (defvar processes '[{"name":"Collecting process data","pid":"","cpu":"","memory":""}]')
 (defvar shares '["Checking mounted shares"]')
@@ -159,12 +158,10 @@
         (for share in shares
           (label :show-truncated false :class "share-row" :text share :xalign 0 :wrap true :hexpand true :width {layout.card_width - 16} :height 0 :tooltip share))))))
 
-(defwidget profile-controls []
-  (box :orientation "v" :space-evenly false :spacing {layout.row_gap}
-    (box :orientation {layout.card_width > 450 || layout.font_size <= 14 ? "h" : "v"} :space-evenly false :spacing {layout.row_gap}
-      (for profile in {power_profile.available}
-        (button :class {profile == power_profile.active ? "density-toggle profile-option profile-selected" : "density-toggle profile-option"} :onclick "./scripts/power-control.py set ${profile}" :timeout "20s" (label :text {profile == "power-saver" ? "Power Saver" : profile == "performance" ? "Performance" : "Balanced"} :style "font-size: ${layout.small_size}px;"))))
-    (label :visible {power_profile.message != ""} :text {power_profile.message} :tooltip {power_profile.message} :wrap true :xalign 0 :width {layout.card_width - 32} :height 0 :style "font-size: ${layout.small_size}px;")))
+(defwidget session-status [heading value detail]
+  (box :orientation "v" :space-evenly false :spacing 2
+    (label :text heading :halign "start" :style "font-size: ${layout.small_size}px;" :class "micro")
+    (label :text value :tooltip detail :xalign 0 :wrap true :width {(layout.card_width - 16 - 2 * layout.row_gap) / 3} :height 0)))
 
 (defwidget idle-setting [name field value detail]
   (box :space-evenly false :spacing {layout.row_gap}
@@ -176,25 +173,19 @@
 
 (defwidget power-card [height]
   (box :class "card power-idle-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
-    (section-title :text "POWER & IDLE")
-    (label :text "${power_profile.source} · ${power_profile.active} · ${power_profile.mode}" :width {layout.card_width - 16} :height 0 :wrap true :xalign 0 :style "font-size: ${layout.small_size}px;")
+    (section-title :text "SESSION & IDLE")
     (box :space-evenly true :spacing {layout.row_gap}
-      (button :class {power_tab == "idle" ? "profile-selected" : ""} :onclick "eww --config . update power_tab=idle" (label :text "Idle"))
-      (button :class {power_tab == "power" ? "profile-selected" : ""} :onclick "eww --config . update power_tab=power" (label :text "Power")))
+      (session-status :heading "Source" :value {power_profile.source == "ac" ? "AC" : power_profile.source == "battery" ? "Battery" : power_profile.source == "desktop" ? "Desktop" : "Unknown"} :detail "Current system power source")
+      (session-status :heading "Profile" :value {power_profile.active == "performance" ? "Performance" : power_profile.active == "balanced" ? "Balanced" : power_profile.active == "power-saver" ? "Power Saver" : power_profile.active} :detail {power_profile.message != "" ? power_profile.message : "Active system power profile. Change it using QuickShell's power menu."})
+      (session-status :heading "Selected by" :value {!power_profile.supported ? "Unavailable" : !power_profile.enabled ? "Manual" : power_profile.mode == "Automatic" ? "Automatic" : "Manual"} :detail {power_profile.enabled ? "Automatic: PoeDash selects Performance on AC/Desktop and Power Saver on battery. Manual choices in QuickShell remain until the next power-source transition." : "PoeDash automatic switching is disabled. The current profile is retained."}))
+    (label :visible {power.present} :text {power.remaining != "" ? "${power.battery} · ${power.remaining}" : power.battery} :tooltip {power.available ? "${power.status} · Power draw ${power.watts}" : power.status} :halign "start" :style "font-size: ${layout.small_size}px;")
     (scroll :hscroll false :vscroll true :width 0 :height {layout.power_height} :vexpand true
       (box :orientation "v" :space-evenly false :spacing {layout.row_gap}
-        (box :visible {power_tab == "idle"} :orientation "v" :space-evenly false :spacing {layout.row_gap}
-          (idle-setting :name "Screen Off" :field "screen" :value {idle.screen_text} :detail {idle.screen_detail})
-          (idle-setting :name "Lock Screen" :field "lock" :value {idle.lock_text} :detail {idle.lock_detail})
-          (idle-setting :name "Auto Suspend" :field "suspend" :value {idle.suspend_text} :detail {idle.suspend_detail})
-          (label :text {idle.message} :tooltip {idle.message} :wrap true :xalign 0 :width {layout.card_width - 16} :height 0 :style "font-size: ${layout.small_size}px;")
-          (button :active {idle.supported && idle.dirty} :halign "end" :onclick "./scripts/idle-control.py apply" :timeout "25s" (label :text "Apply")))
-        (box :visible {power_tab == "power"} :orientation "v" :space-evenly false :spacing {layout.row_gap}
-          (box :visible {power.present} :orientation "v" :space-evenly false :spacing {layout.row_gap}
-            (label :text "${power.battery} · ${power.status}" :halign "start")
-            (label :visible {power.available} :text "Power draw: ${power.watts}" :halign "start")
-            (label :visible {power.remaining != ""} :text {power.remaining} :halign "start"))
-          (profile-controls))))))
+        (idle-setting :name "Screen Off" :field "screen" :value {idle.screen_text} :detail {idle.screen_detail})
+        (idle-setting :name "Lock Screen" :field "lock" :value {idle.lock_text} :detail {idle.lock_detail})
+        (idle-setting :name "Auto Suspend" :field "suspend" :value {idle.suspend_text} :detail {idle.suspend_detail})
+        (label :text {idle.message} :tooltip {idle.message} :wrap true :xalign 0 :width {layout.card_width - 16} :height 0 :style "font-size: ${layout.small_size}px;")
+        (button :active {idle.supported && idle.dirty} :halign "end" :onclick "./scripts/idle-control.py apply" :timeout "25s" (label :text "Apply"))))))
 
 (defwidget dashboard-grid []
   (literal :content dashboard_grid))

@@ -95,7 +95,8 @@ class Scheduler:
                 try:
                     self.values[key] = task.result()
                     if key == 'media':
-                        self.due[key] = min(self.due[key], now + interval(key, on_battery, self.values[key]))
+                        next_media = now + interval(key, on_battery, self.values[key])
+                        self.due[key] = min(self.due.get(key, next_media), next_media)
                 except (OSError, ValueError, RuntimeError, asyncio.TimeoutError, asyncio.CancelledError):
                     pass  # Retain the last successful sample.
         if self.publisher is not None and self.publisher.done():

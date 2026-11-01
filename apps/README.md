@@ -13,7 +13,7 @@ The wide layout uses three columns:
 | --- | --- | --- |
 | Arch | System | Calendar |
 | Performance | Top Processes | Connectivity |
-| Player | Mounted Shares | Power & Idle |
+| Player | Mounted Shares | Session & Idle |
 
 The layout adapts to display scaling, desktop bars and narrower monitors.
 Comfortable is the default. Compact uses smaller text and spacing. Card heights
@@ -36,8 +36,9 @@ an empty agenda. Clicking the calendar opens Thunderbird Calendar.
 
 ## Power and idle settings
 
-The always-visible Power & Idle Management card is the ninth card in the main
-grid, with Idle and Power tabs and a persistent current-profile summary.
+The always-visible Session & Idle card is the ninth card in the main grid.
+Source, Profile and Selected by identify the current power status. Profile choices
+use QuickShell’s existing menu. There are no duplicate Power tabs or selectors.
 Screen Off, Lock Screen and Auto Suspend use independent minute controls, with
 zero disabling a timer. Apply backs up and updates the discovered Hypridle config,
 restarts the existing daemon and verifies registered timers. Other listeners,
@@ -45,7 +46,7 @@ source files, symlinks, before-sleep locks and resume hooks are retained. Unsupp
 custom actions require manual review. Missing Hypridle/autostart configuration is
 reported. No new idle service or privileged dashboard process is introduced.
 
-Power-profile controls appear in the Power tab on both laptops and desktops. The installer configures a single user service that listens for
+The installer configures a single user service that listens for
 power-supply events independently of the dashboard. Battery selects Power Saver,
 AC and desktops select Performance, with a reported supported fallback when needed.
 Manual overrides last until the next real power-source transition and survive
