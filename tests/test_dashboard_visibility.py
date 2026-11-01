@@ -87,7 +87,7 @@ class ObserverRecovery(unittest.TestCase):
 
 class SurfaceVisibility(unittest.TestCase):
     def test_refresh_recreates_only_its_own_dashboard_surface(self):
-        for relative in ('apps/pendash/dashboard', 'apps/poedash/assets'):
+        for relative in ('apps/poedash/assets',):
             with self.subTest(relative=relative), tempfile.TemporaryDirectory() as tmp:
                 home = Path(tmp)
                 root = home / 'config with spaces'
@@ -116,7 +116,7 @@ class SurfaceVisibility(unittest.TestCase):
                                   ['active-windows'], ['open', 'dashboard']])
 
     def test_both_dashboards_hide_widgets_instead_of_making_them_transparent(self):
-        for relative in ('apps/pendash/dashboard', 'apps/poedash/assets/templates'):
+        for relative in ('apps/poedash/assets/templates',):
             with self.subTest(relative=relative):
                 root = ROOT / relative
                 yuck = (root / 'eww.yuck').read_text()

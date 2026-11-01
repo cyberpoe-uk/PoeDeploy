@@ -39,14 +39,13 @@ install_selected_applications
 [[ ${#INSTALLED_PACKAGES[@]} == 3 ]]
 ''')
 
-    def test_both_dashboard_choices_use_bundled_installers(self):
+    def test_dashboard_choice_uses_bundled_installer(self):
         output = self.check(r'''
 install_bundled_dashboard_application() { printf 'DASHBOARD:%s:%s:%s\n' "$1" "$2" "${3:-}"; }
-SELECTED_PACKAGES=(@poedash @pendash-dashboard)
+SELECTED_PACKAGES=(@poedash)
 install_selected_applications
 ''')
         self.assertIn('DASHBOARD:PoeDash:poedash:--skip-deps', output)
-        self.assertIn('DASHBOARD:PenDash dashboard:pendash:--non-interactive', output)
 
     def test_single_dashboard_and_independent_security_choices(self):
         self.check(r'''
@@ -54,9 +53,8 @@ gum() { :; }
 choose_checklist() {
     options=$(cat)
     [[ "$options" == *'PoeDash (dashboard)'* ]] || exit 91
-    [[ "$options" != *'PenDash (dashboard + security tools)'* ]] || exit 92
     [[ "$options" == *'Burp Suite (official PortSwigger installer)'* ]] || exit 93
-    [[ $(dashboard_application_selection_count "${!APPLICATIONS[@]}") == 1 ]] || exit 94
+    [[ "${APPLICATIONS["PoeDash (dashboard)"]}" == @poedash ]] || exit 94
     echo 'Security tools (requires BlackArch repository)'
 }
 select_applications
@@ -75,17 +73,6 @@ install_bundled_dashboard_application() {
 install_selected_applications
 ''')
 
-    def test_legacy_pendash_installer_is_files_only(self):
-        self.check(r'''
-ensure_command_dependencies() { exit 91; }
-install_yay() { exit 92; }
-ui_run_interactive() {
-    [[ "$*" == "bash $SCRIPT_DIR/apps/pendash/install.sh --non-interactive" ]] || exit 93
-}
-install_bundled_dashboard_application PenDash pendash --non-interactive
-[[ "${INSTALLED_PACKAGES[*]}" == PenDash ]]
-''')
-
     def test_noninteractive_dashboard_refresh_dispatches_without_setup_menu(self):
         output = self.check(r'''
 load_version() { :; }
@@ -95,10 +82,8 @@ validate_dashboard_update_target() { :; }
 pd_logger_init() { :; }
 install_bundled_dashboard_application() { printf 'REFRESH:%s:%s:%s\n' "$1" "$2" "$3"; }
 main --install-dashboard poedash
-main --install-dashboard pendash
 ''')
         self.assertIn('REFRESH:PoeDash update:poedash:--skip-deps', output)
-        self.assertIn('REFRESH:PenDash update:pendash:--update-dashboard', output)
 
     def test_dashboard_refresh_reports_installer_failure(self):
         self.check(r'''
@@ -109,7 +94,6 @@ validate_dashboard_update_target() { :; }
 pd_logger_init() { :; }
 install_bundled_dashboard_application() { FAILED_PACKAGES+=("$1"); }
 if main --install-dashboard poedash; then exit 91; fi
-if main --install-dashboard pendash; then exit 92; fi
 ''')
 
     def test_plymouth_cancellation_ignores_partial_output(self):

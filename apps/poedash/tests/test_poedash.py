@@ -98,15 +98,17 @@ class Installation(unittest.TestCase):
         (legacy / 'eww.yuck').write_text('(label :text "MY DASHBOARD")')
         (legacy / 'old-interface').write_text('legacy')
         custom = self.hypr.parent / 'custom.lua'
-        custom.write_text('hl.exec_cmd("~/.config/eww/scripts/start.sh")\n-- keep me\n')
+        custom.write_text('-- BEGIN OLDHOME\nhl.exec_cmd("~/.config/eww/scripts/start.sh")\n-- END OLDHOME\n-- BEGIN OTHER\n-- keep me\n-- END OTHER\n')
         self.install()
         self.assertFalse(legacy.exists())
         backups = list((self.home / '.local/state/poedash/backups').iterdir())
         self.assertEqual((backups[0] / 'retired-legacy-eww/old-interface').read_text(), 'legacy')
         self.assertNotIn('.config/eww/scripts/start.sh', custom.read_text())
         self.assertIn('-- keep me', custom.read_text())
+        self.assertNotIn('OLDHOME', custom.read_text())
+        self.assertIn('-- BEGIN OTHER', custom.read_text())
 
-    def test_pendash_preferences_and_state_migrate_and_existing_poedash_wins(self):
+    def test_legacy_eww_preferences_and_state_survive_upgrades(self):
         legacy = self.home / '.config/eww'
         legacy.mkdir(parents=True)
         (legacy / 'eww.yuck').write_text('(label :text "MY DASHBOARD")')

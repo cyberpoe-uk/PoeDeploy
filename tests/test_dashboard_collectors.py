@@ -11,8 +11,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-SCRIPTS = Path(__file__).resolve().parents[1] / 'dashboard/scripts'
-spec = importlib.util.spec_from_file_location('pendash_media', SCRIPTS / 'media.py')
+SCRIPTS = Path(__file__).resolve().parents[1] / 'apps/poedash/assets/scripts'
+spec = importlib.util.spec_from_file_location('poedash_media', SCRIPTS / 'media.py')
 media = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(media)
 

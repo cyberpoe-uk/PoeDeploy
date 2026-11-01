@@ -43,15 +43,11 @@ def prepare(root):
             shutil.copy2(start, backup)
         start.write_text(text)
     # Upgrade old integration without touching unrelated Hyprland settings.
-    lua = root / 'hyprland.lua' if root.name == 'poedash' else Path.home() / '.config/hypr/custom.lua'
+    lua = root / 'hyprland.lua'
     if lua.is_file():
         text = lua.read_text()
         if 'local function protect_home' in text and 'dashboard_disabled' not in text:
-            pattern = r'(?ms)^-- BEGIN PENDASH\n.*?^-- END PENDASH'
-            match = re.search(pattern, text)
-            block = match.group() if match else text
-            if root.name != 'poedash' and not match and '-- Home dashboard:' not in text:
-                raise RuntimeError('Unrecognised dashboard integration; reinstall before toggling.')
+            block = text
             function = ('local function dashboard_disabled()\n'
                         '    local f = io.open(' + json.dumps(str(root / 'disabled')) + ', "r")\n'
                         '    if f then f:close() return true end\n'
@@ -59,9 +55,6 @@ def prepare(root):
             body = re.sub(r'(local function protect_home[^\n]*\n)', r'\1    if dashboard_disabled() then return end\n', block)
             body = body.replace('if current and current.workspace', 'if not dashboard_disabled() and current and current.workspace')
             wrapped = 'do\n' + function + 'if not dashboard_disabled() then\n' + body + '\nend\nend\n'
-            if match:
-                body = body.replace('-- BEGIN PENDASH\n', '').replace('-- END PENDASH', '')
-                wrapped = '-- BEGIN PENDASH\ndo\n' + function + 'if not dashboard_disabled() then\n' + body + '\nend\nend\n-- END PENDASH'
             backup = lua.with_name(lua.name + '.before-dashboard-toggle')
             if not backup.exists():
                 shutil.copy2(lua, backup)
@@ -107,7 +100,7 @@ def install_waybar(root, config):
     entries = {name: module(root), name + '-update': {
         'exec-if': shlex.join(['test', '-f', str(root / 'scripts/start.sh')]),
         'exec': "printf '↻'", 'interval': 60, 'format': ' {} ',
-        'tooltip-format': 'Update ' + ('PoeDash' if slug == 'poedash' else 'PenDash'),
+        'tooltip-format': 'Update ' + DASHBOARD_NAME,
         'on-click': command + ' update'}}
     missing = {key: value for key, value in entries.items() if json.dumps(key) not in text}
     if not missing:

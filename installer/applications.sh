@@ -17,7 +17,6 @@ install_bundled_dashboard_application() {
         return 0
     fi
     local files_only=false option
-    [[ "$relative_source" != pendash ]] || files_only=true
     for option in "$@"; do
         case "$option" in --skip-deps|--skip-packages|--update-dashboard) files_only=true ;; esac
     done
@@ -29,12 +28,6 @@ install_bundled_dashboard_application() {
         fi
     else
         ensure_command_dependencies python3:python
-        if [[ "$relative_source" == pendash ]] &&
-           ! command -v eww >/dev/null 2>&1 &&
-           ! command -v paru >/dev/null 2>&1 &&
-           ! command -v yay >/dev/null 2>&1; then
-            install_yay
-        fi
     fi
     if ui_run_interactive bash "$source_dir/install.sh" "$@"; then
         INSTALLED_PACKAGES+=("$name")
@@ -55,21 +48,11 @@ validate_dashboard_update_target() {
     [[ -f "$selected_file" ]] || return 0
     selected=$(< "$selected_file")
     case "$selected" in
-        poedash|pendash) ;;
+        poedash) ;;
         *) warning "Unrecognised saved dashboard selection. Reinstall the intended dashboard."; return 1 ;;
     esac
     if [[ "$selected" != "$requested" ]]; then
         warning "The selected dashboard is $selected, but this control requested $requested. Use the $selected updater to repair the bar controls."
         return 1
     fi
-}
-
-dashboard_application_selection_count() {
-    local selected count=0
-    for selected in "$@"; do
-        case "${APPLICATIONS[$selected]:-}" in
-            @poedash|@pendash-dashboard) count=$((count + 1)) ;;
-        esac
-    done
-    printf '%s\n' "$count"
 }

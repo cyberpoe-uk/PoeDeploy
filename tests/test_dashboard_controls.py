@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-REPO = Path(__file__).resolve().parents[1]
+REPO = Path(__file__).resolve().parents[1] / 'apps/poedash'
 SCRIPT = next(REPO.glob('**/scripts/dashboard-control.py'))
 spec = importlib.util.spec_from_file_location('control', SCRIPT)
 c = importlib.util.module_from_spec(spec)
@@ -63,15 +63,15 @@ class DashboardControl(unittest.TestCase):
             c.install_waybar(root, config)
             self.assertEqual(config.read_text(), first)
             data = json.loads(first)
-            self.assertEqual(data['modules-right'], ['custom/pendash', 'custom/pendash-update', 'clock'])
-            self.assertIn(' toggle', data['custom/pendash']['on-click'])
+            self.assertEqual(data['modules-right'], ['custom/poedash', 'custom/poedash-update', 'clock'])
+            self.assertIn(' toggle', data['custom/poedash']['on-click'])
 
     def test_waybar_empty_array(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / 'config'
             config.write_text('{"modules-right": []}')
             c.install_waybar(Path(tmp) / 'eww', config)
-            self.assertEqual(json.loads(config.read_text())['modules-right'], ['custom/pendash', 'custom/pendash-update'])
+            self.assertEqual(json.loads(config.read_text())['modules-right'], ['custom/poedash', 'custom/poedash-update'])
 
     def test_legacy_workspace_guard_is_upgraded_once(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -89,19 +89,19 @@ class DashboardControl(unittest.TestCase):
     def test_existing_switch_gets_one_adjacent_update_button(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / 'config'
-            config.write_text('{"modules-right": ["clock", "custom/pendash"], "custom/pendash": {"on-click": "keep"}}')
+            config.write_text('{"modules-right": ["clock", "custom/poedash"], "custom/poedash": {"on-click": "keep"}}')
             c.install_waybar(Path(tmp) / 'poedash', config)
             c.install_waybar(Path(tmp) / 'poedash', config)
             data = json.loads(config.read_text())
-            self.assertEqual(data['modules-right'], ['clock', 'custom/pendash', 'custom/pendash-update'])
-            self.assertEqual(data['custom/pendash']['on-click'], 'keep')
-            self.assertIn(' update', data['custom/pendash-update']['on-click'])
+            self.assertEqual(data['modules-right'], ['clock', 'custom/poedash', 'custom/poedash-update'])
+            self.assertEqual(data['custom/poedash']['on-click'], 'keep')
+            self.assertIn(' update', data['custom/poedash-update']['on-click'])
 
     def test_update_opens_terminal_without_running_installer_in_bar(self):
         root = Path('/tmp/path with spaces/poedash')
         with patch.object(c.subprocess, 'Popen') as launch:
             c.update(root)
-        launch.assert_called_once_with(['kitty', '--hold', '--title', 'Update PenDash',
+        launch.assert_called_once_with(['kitty', '--hold', '--title', 'Update PoeDash',
                                        'bash', str(root / 'scripts/update.sh'), str(root)],
                                       start_new_session=True)
 
@@ -138,4 +138,4 @@ class DashboardControl(unittest.TestCase):
             self.assertIn(str(root), module)
             self.assertIn('toggleButton', module)
             self.assertIn('updateButton', module)
-            self.assertIn('󰍹', (REPO / 'dashboard/scripts/DashboardModule.qml').read_text())
+            self.assertIn('󰍹', (REPO / 'assets/scripts/DashboardModule.qml').read_text())

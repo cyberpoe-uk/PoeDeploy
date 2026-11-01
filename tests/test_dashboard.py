@@ -487,6 +487,10 @@ rm -f -- "$POEDEPLOY_LOG"
         for relative in expected:
             self.assertTrue((root / relative).is_file(), relative)
 
+    def test_only_one_dashboard_source_is_shipped(self):
+        apps = Path(__file__).resolve().parents[1] / 'apps'
+        self.assertEqual({p.name for p in apps.iterdir() if p.is_dir()}, {'poedash', 'shared'})
+
     def test_dashboard_installers_are_fully_bundled(self):
         root = Path(__file__).resolve().parents[1]
         expected = [
@@ -494,10 +498,6 @@ rm -f -- "$POEDEPLOY_LOG"
             'apps/poedash/assets/templates/eww.yuck',
             'apps/poedash/assets/scripts/DashboardModule.qml',
             'apps/poedash/assets/scripts/dashboard-control.py',
-            'apps/pendash/install.sh', 'apps/pendash/pendash.py',
-            'apps/pendash/dashboard/eww.yuck', 'apps/pendash/assets/custom.lua',
-            'apps/pendash/dashboard/scripts/DashboardModule.qml',
-            'apps/pendash/dashboard/scripts/dashboard-control.py',
         ]
         for relative in expected:
             self.assertTrue((root / relative).is_file(), relative)
@@ -506,8 +506,7 @@ rm -f -- "$POEDEPLOY_LOG"
         self.assertNotIn('github.com', installer)
         self.assertNotIn('curl ', installer)
         poe_controls = (root / 'apps/poedash/assets/scripts/DashboardModule.qml').read_text()
-        pen_controls = (root / 'apps/pendash/dashboard/scripts/DashboardModule.qml').read_text()
-        for controls in (poe_controls, pen_controls):
+        for controls in (poe_controls,):
             self.assertIn('󰍹', controls)
             self.assertIn('󰶐', controls)
             self.assertIn('Quickshell.execDetached', controls)

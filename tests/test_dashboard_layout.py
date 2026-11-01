@@ -113,9 +113,9 @@ class PreferenceTests(unittest.TestCase):
 
 
 class DashboardStructureTests(unittest.TestCase):
-    def test_both_dashboards_have_the_same_three_rows_and_live_control(self):
+    def test_dashboard_has_the_same_three_rows_and_live_control(self):
         cards = (('arch', 'system', 'calendar'), ('performance', 'processes', 'connectivity'), ('player', 'shares', 'power'))
-        for path in (ROOT / 'apps/pendash/dashboard/eww.yuck', ROOT / 'apps/poedash/assets/templates/eww.yuck'):
+        for path in (ROOT / 'apps/poedash/assets/templates/eww.yuck',):
             with self.subTest(path=path):
                 text = path.read_text()
                 wide = text.split('(defwidget dashboard-grid []')[1].split('layout.columns == 2')[0]

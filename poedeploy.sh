@@ -3238,22 +3238,16 @@ select_applications() {
 
     )
 
-    while true; do
-        SELECTED_APPS=()
-        if ! selection=$(printf '%s\n' "${options[@]}" |
-            choose_checklist "Select applications" ""); then
-            info "Application selection cancelled. Skipping optional applications."
-            APPLICATIONS_ACTION="selection cancelled"
-            return 0
-        fi
-        if [[ -n "$selection" ]]; then
-            mapfile -t SELECTED_APPS <<< "$selection"
-        fi
-        if (( $(dashboard_application_selection_count "${SELECTED_APPS[@]}") <= 1 )); then
-            break
-        fi
-        warning "PoeDash and PenDash cannot be installed together. Select only one dashboard option."
-    done
+    SELECTED_APPS=()
+    if ! selection=$(printf '%s\n' "${options[@]}" |
+        choose_checklist "Select applications" ""); then
+        info "Application selection cancelled. Skipping optional applications."
+        APPLICATIONS_ACTION="selection cancelled"
+        return 0
+    fi
+    if [[ -n "$selection" ]]; then
+        mapfile -t SELECTED_APPS <<< "$selection"
+    fi
 
     if [[ ${#SELECTED_APPS[@]} -eq 0 ||
           ( ${#SELECTED_APPS[@]} -eq 1 && -z "${SELECTED_APPS[0]}" ) ]]; then
@@ -3403,11 +3397,6 @@ install_selected_applications() {
                 else
                     FAILED_PACKAGES+=("$package")
                 fi
-                continue
-                ;;
-            @pendash-dashboard)
-                install_bundled_dashboard_application "PenDash dashboard" pendash \
-                    --non-interactive
                 continue
                 ;;
         esac
@@ -4574,7 +4563,7 @@ preview_interface() {
 
 main() {
     if [[ "${1:-}" == --install-dashboard ]]; then
-        [[ -n "${2:-}" ]] || die "--install-dashboard requires poedash or pendash."
+        [[ -n "${2:-}" ]] || die "--install-dashboard requires poedash."
         load_version
         check_not_root
         check_arch
@@ -4584,9 +4573,6 @@ main() {
         case "$2" in
             poedash)
                 install_bundled_dashboard_application "PoeDash update" poedash --skip-deps --non-interactive
-                ;;
-            pendash)
-                install_bundled_dashboard_application "PenDash update" pendash --update-dashboard --skip-packages
                 ;;
             *) die "Unknown dashboard: $2" ;;
         esac

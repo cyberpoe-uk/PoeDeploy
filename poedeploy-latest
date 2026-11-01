@@ -46,8 +46,8 @@ trap cleanup EXIT
 info "Starting PoeDeploy setup..."
     if [[ "${1:-}" == --install-dashboard ]]; then
         case "${2:-}" in
-            pendash|poedash) ;;
-            *) die '--install-dashboard requires poedash or pendash.' ;;
+            poedash) ;;
+            *) die '--install-dashboard requires poedash.' ;;
         esac
         info "This launcher downloads the latest PoeDeploy main branch for dashboard updates."
     else

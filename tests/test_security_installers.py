@@ -3,19 +3,15 @@ import hashlib
 import io
 import os
 from pathlib import Path
-import sys
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
-from unittest.mock import MagicMock
+from unittest.mock import patch, MagicMock
 
-REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO))
-spec = importlib.util.spec_from_file_location('pendash', REPO / 'pendash.py')
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location('security_tools', ROOT / 'installer/security-tools.py')
 p = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(p)
-
 
 def burp_download_page(checksum):
     return f'''<input id="CurrentVersion" value="2026.10.1">
@@ -25,7 +21,6 @@ def burp_download_page(checksum):
           <code class="hash-value sha-256-checksum">{checksum}</code></div>
         <div class="checksum-panel" data-build-id="124">
           <code class="hash-value sha-256-checksum">{'a' * 64}</code></div>'''
-
 
 class OfficialBurpTests(unittest.TestCase):
     def test_download_uses_current_native_release_for_each_architecture(self):
@@ -86,82 +81,7 @@ class OfficialBurpTests(unittest.TestCase):
                 network.assert_not_called()
                 command.assert_not_called()
 
-    def test_burp_only_action_does_not_install_packages_or_dashboard(self):
-        with patch.object(p.sys, 'argv', ['pendash.py', '--install-burp']), \
-                patch.object(p.os, 'geteuid', return_value=1000), \
-                patch.object(p, 'install_burp') as burp, \
-                patch.object(p, 'ensure_blackarch') as repository, \
-                patch.object(p, 'install_packages') as packages, \
-                patch.object(p, 'install_dashboard') as dashboard:
-            self.assertEqual(p.main(), 0)
-            burp.assert_called_once_with(False)
-            repository.assert_not_called()
-            packages.assert_not_called()
-            dashboard.assert_not_called()
-
-
 class InstallerTests(unittest.TestCase):
-    def test_legacy_install_migrates_to_poedash_without_security_packages(self):
-        for options in ([], ['--non-interactive'], ['--update-dashboard']):
-            with self.subTest(options=options), \
-                 patch.object(p.sys, 'argv', ['pendash.py', *options]), \
-                 patch.object(p.os, 'geteuid', return_value=1000), \
-                 patch.object(p, 'ensure_blackarch') as repository, \
-                 patch.object(p, 'install_packages') as packages, \
-                 patch.object(p, 'install_burp') as burp, \
-                 patch.object(p, 'install_dashboard') as dashboard, \
-                 patch.object(p, 'run') as command:
-                self.assertEqual(p.main(), 0)
-                repository.assert_not_called()
-                packages.assert_not_called()
-                burp.assert_not_called()
-                dashboard.assert_not_called()
-                self.assertEqual(command.call_args.args[0], ['bash', p.SOURCE.parent / 'poedash/install.sh', '--skip-deps', '--non-interactive'])
-
-    def test_retired_system_setup_flags_are_rejected_before_installation(self):
-        for options in (['--tool-mode', 'all'], ['--skip-nvidia'], ['--burp-installer', '/tmp/installer.sh'], ['setup-burp-ca']):
-            with self.subTest(options=options), \
-                 patch.object(p.sys, 'argv', ['pendash.py', *options]), \
-                 patch.object(p.sys, 'stderr', io.StringIO()), \
-                 patch.object(p, 'install_packages') as packages, \
-                 patch.object(p, 'install_dashboard') as dashboard:
-                with self.assertRaises(SystemExit) as result:
-                    p.main()
-                self.assertEqual(result.exception.code, 2)
-                packages.assert_not_called()
-                dashboard.assert_not_called()
-
-    def test_check_reports_missing_tools_without_modifying_the_system(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
-            dashboard = home / '.config/eww/eww.yuck'
-            dashboard.parent.mkdir(parents=True)
-            dashboard.touch()
-            with patch.object(p, 'HOME', home), \
-                 patch.object(p.os, 'geteuid', return_value=1000), \
-                 patch.object(p.sys, 'argv', ['pendash.py', '--check']), \
-                 patch.object(p.subprocess, 'check_output', return_value='\n'.join(p.CURATED + ['chromium'])), \
-                 patch.object(p, 'official_burp', return_value=home / 'BurpSuite/BurpSuite'), \
-                 patch.object(p, 'run') as command:
-                self.assertEqual(p.main(), 0)
-                dashboard.unlink()
-                self.assertEqual(p.main(), 2)
-                command.assert_not_called()
-
-    def test_legacy_dry_run_remains_non_mutating(self):
-        with patch.object(p.sys, 'argv', ['pendash.py', '--dry-run']), \
-             patch.object(p.os, 'geteuid', return_value=1000), patch.object(p, 'run') as command:
-            self.assertEqual(p.main(), 0)
-            self.assertIn('--dry-run', command.call_args.args[0])
-
-    def test_managed_lua_block_is_idempotent_and_preserves_user_content(self):
-        block = (REPO / 'assets/custom.lua').read_text()
-        first = p.replace_block('-- user setting\n', block)
-        second = p.replace_block(first, block)
-        self.assertEqual(first, second)
-        self.assertIn('-- user setting', first)
-        self.assertEqual(first.count(p.BEGIN), 1)
-
     def test_repository_bootstrap_checks_checksum_and_cleans_up(self):
         script = b'#!/bin/sh\n# harmless bootstrap fixture\n'
         digest = hashlib.sha1(script).hexdigest()
@@ -211,57 +131,24 @@ class InstallerTests(unittest.TestCase):
             p.install_packages(['nmap', 'ffuf', 'chromium'], False)
             command.assert_called_once_with(['sudo', 'pacman', '-Syu', '--needed', 'nmap'])
 
-    def test_legacy_cleanup_is_backed_up_and_preserves_manual_settings(self):
-        with tempfile.TemporaryDirectory() as tmp:
+class ExistingNativeInstallation(unittest.TestCase):
+    def test_native_burp_launcher_is_discovered_without_reinstallation(self):
+        with tempfile.TemporaryDirectory(prefix='burp with spaces ') as tmp:
             home = Path(tmp)
-            launcher = home / '.local/bin/ctf-chromium'
+            binary = home / 'previous-install/BurpSuite'
+            binary.parent.mkdir()
+            binary.write_text('#!/bin/sh\n')
+            binary.chmod(0o755)
+            launcher = home / '.local/bin/burpsuite'
             launcher.parent.mkdir(parents=True)
-            content = b'legacy generated launcher fixture\n'
-            launcher.write_bytes(content)
-            flags = home / '.config/chromium-flags.conf'
-            flags.parent.mkdir()
-            flags.write_text('--custom-option\n--proxy-server=http://127.0.0.1:8080\n--proxy-bypass-list=<-loopback>\n--proxy-server=http://manual:9999\n')
-            flags.chmod(0o600)
-            certificate = home / '.local/share/pki/nssdb/cert9.db'
-            certificate.parent.mkdir(parents=True)
-            certificate.write_bytes(b'keep trust store')
-            backups = home / 'backups'
-            with patch.object(p, 'HOME', home), patch.object(p, 'BACKUP', backups), \
-                 patch.object(p, 'LEGACY_BROWSER_FILES', {'.local/bin/ctf-chromium': hashlib.sha256(content).hexdigest()}):
-                p.cleanup_legacy_browser_setup()
-                p.cleanup_legacy_browser_setup()
-            self.assertFalse(launcher.exists())
-            self.assertEqual(flags.read_text(), '--custom-option\n--proxy-server=http://manual:9999\n')
-            self.assertEqual(flags.stat().st_mode & 0o777, 0o600)
-            self.assertEqual(certificate.read_bytes(), b'keep trust store')
-            self.assertTrue(list(backups.rglob('ctf-chromium')))
-            self.assertTrue(list(backups.rglob('chromium-flags.conf')))
+            import shlex
+            launcher.write_text('#!/bin/sh\nexec ' + shlex.quote(str(binary)) + ' "$@"\n')
+            with patch.object(p, 'HOME', home), patch.object(p.urllib.request, 'urlopen') as download:
+                self.assertEqual(p.official_burp(), binary)
+                p.install_burp(False)
+                download.assert_not_called()
 
-    def test_customised_launcher_and_flags_are_retained(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
-            launcher = home / '.local/bin/ctf-chromium'
-            launcher.parent.mkdir(parents=True)
-            launcher.write_bytes(b'user customised launcher')
-            flags = home / '.config/chromium-flags.conf'
-            flags.parent.mkdir()
-            flags.write_text('--proxy-server=http://127.0.0.1:8080\n')
-            with patch.object(p, 'HOME', home), patch.object(p, 'BACKUP', home / 'backups'):
-                p.cleanup_legacy_browser_setup()
-            self.assertEqual(launcher.read_bytes(), b'user customised launcher')
-            self.assertEqual(flags.read_text(), '--proxy-server=http://127.0.0.1:8080\n')
-
-    def test_dashboard_keeps_adaptive_and_hidden_polling(self):
-        yuck = (REPO / 'dashboard/eww.yuck').read_text()
-        self.assertIn(':run-while home_visible', yuck)
-        self.assertIn('adaptive-run.py cpu 2 15', yuck)
-        self.assertIn('LAPTOP POWER', yuck)
-        for feature in ('CONNECTIVITY', 'Tailscale IP', 'SMB / NFS SHARES',
-                        'SPECIFICATIONS', 'TOP PROCESSES', 'media.art', 'media-control.sh'):
-            self.assertIn(feature, yuck)
-        for removed in ('QUICK LAUNCH', 'START WEB CTF', 'ctf_status', 'ctf_target', 'launch-app.sh'):
-            self.assertNotIn(removed, yuck)
-
-
-if __name__ == '__main__':
-    unittest.main()
+    def test_tool_installation_never_installs_dashboard_dependencies(self):
+        with patch.object(p.subprocess, 'check_output', return_value=''), patch.object(p, 'run') as run:
+            p.install_packages(['nmap'], False)
+        run.assert_called_once_with(['sudo', 'pacman', '-Syu', '--needed', 'nmap'])

@@ -105,8 +105,7 @@ The application list includes:
 PoeDash, PowerTOP, Proton VPN, Spotify, Tailscale, Thunderbird,
 Visual Studio Code, and VLC.
 
-PoeDash is the single maintained dashboard bundled under `apps/`. Legacy PenDash
-installers and refresh controls migrate to PoeDash without installing packages.
+PoeDash is the only dashboard, bundled under `apps/poedash/`.
 BlackArch, security tools and official Burp are independent optional applications.
 
 The dashboard shows the current machine's hostname prominently in the top-left
@@ -169,10 +168,10 @@ Linux build from [PortSwigger](https://portswigger.net/burp/downloads), verified
 against its published SHA-256 checksum. It does not use the AUR package.
 Dashboard installation and refresh never install these tools or repositories.
 
-Existing setups can install the official Burp build separately:
+From a PoeDeploy checkout, install the official Burp build separately:
 
 ```bash
-curl -fsSL https://cyberpoe.uk/pendash-latest | bash -s -- --install-burp
+python3 installer/security-tools.py burp
 ```
 
 This action only installs Burp, without dashboard, repository, or package changes.
@@ -180,17 +179,11 @@ Existing native PortSwigger installations are retained and use Burp's own update
 Existing repository packages are retained. Use the native installer's desktop
 entry or `~/.local/bin/burpsuite` to launch the PortSwigger build.
 
-Migrating PenDash backs up its recognised Eww configuration and keeps its palette,
-density, enabled state and dashboard state. Existing PoeDash preferences take
-precedence. Shared application history and pins, browser profiles and certificates
-are retained. The legacy PenDash installer remains a compatibility entry point.
-
 PoeDash adds enable/disable and update controls to a supported ML4W
 QuickShell status bar. The update control downloads the latest PoeDeploy `main`
 branch and refreshes the selected dashboard from its maintained bundled copy.
 Dashboard changes are available as soon as they are pushed, without a release
-tag. The bootstrapper also uses `main` with `--install-dashboard poedash` or
-`--install-dashboard pendash`. Normal full setup continues to use stable releases. Selecting
+tag. The bootstrapper also uses `main` with `--install-dashboard poedash`. Normal full setup continues to use stable releases. Selecting
 the same dashboard in PoeDeploy performs the same clean refresh: managed
 interface files are replaced while Eww itself, dashboard preferences, the
 enabled state, colour palette, and browser state are retained. Dashboard refreshes
@@ -359,11 +352,10 @@ python3 -m unittest discover -s tests -v
 The existing setup functions remain in `poedeploy.sh`, while the new runtime is
 split into three layers:
 
-- `installer/applications.sh` dispatches PoeDash and legacy PenDash migration.
+- `installer/applications.sh` dispatches the bundled PoeDash installer.
 - `installer/security-tools.py` handles explicit optional security installations.
 - `installer/tailscale.sh` adds operator permissions and official user-session tray startup.
-- `apps/poedash/` and `apps/pendash/` contain their program files, assets, and
-  focused regression tests.
+- `apps/poedash/` contains dashboard program files, assets and focused tests.
 - `ui/progress.sh` owns stage state and real progress calculations.
 - `ui/dashboard.sh` and `ui/keyboard.sh` render the static TTY and handle keys.
 - `ui/logger.sh` owns the log and provides `run_cmd` and `run_cmd_capture` for

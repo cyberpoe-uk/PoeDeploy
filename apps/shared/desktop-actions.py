@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Recent desktop applications and calendar/MPRIS activation for both dashboards."""
+"""Recent desktop applications and calendar/MPRIS activation for PoeDash."""
 import argparse
 import configparser
 import fcntl

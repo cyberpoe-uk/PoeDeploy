@@ -9,7 +9,6 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 UPDATERS = {
-    'pendash': ROOT / 'apps/pendash/dashboard/scripts/update.sh',
     'poedash': ROOT / 'apps/poedash/assets/scripts/update.sh',
 }
 
@@ -107,10 +106,7 @@ exit 97
         files = {'install.sh': '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$RECORD"\nexit "${INSTALL_EXIT:-0}"\n'}
         if valid:
             files[slug + '.py'] = ''
-            if slug == 'pendash':
-                files.update({'dashboard/eww.yuck': '', 'assets/custom.lua': ''})
-            else:
-                files['assets/settings.example.json'] = ''
+            files['assets/settings.example.json'] = ''
         with tarfile.open(self.archive, 'w:gz') as archive:
             for name, content in files.items():
                 data = content.encode()
@@ -175,8 +171,14 @@ printf '%s\\n' "$@" > "$RECORD"
 INSTALLER
 ''')
 
+    def test_unknown_dashboard_is_rejected_before_downloading(self):
+        result = self.run_script(ROOT / 'poedeploy-latest', '--install-dashboard', 'unsupported')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.git_record.exists())
+        self.assertIn('requires poedash', result.stderr)
+
     def test_dashboard_actions_use_main_while_full_setup_uses_stable(self):
-        for slug in ('pendash', 'poedash', None):
+        for slug in ('poedash', None):
             with self.subTest(slug=slug):
                 self.git_record.unlink(missing_ok=True)
                 args = ['--install-dashboard', slug] if slug else []

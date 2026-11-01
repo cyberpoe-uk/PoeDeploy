@@ -12,7 +12,6 @@ from test_workflows import run_bash
 ROOT = Path(__file__).resolve().parents[1]
 CONTROLS = {
     'poedash': ROOT / 'apps/poedash/assets/scripts/dashboard-control.py',
-    'pendash': ROOT / 'apps/pendash/dashboard/scripts/dashboard-control.py',
 }
 
 
@@ -35,7 +34,7 @@ class DashboardRouting(unittest.TestCase):
 
     def test_stale_controls_and_mismatched_installed_files_never_launch_updates(self):
         for slug, script in CONTROLS.items():
-            other = 'pendash' if slug == 'poedash' else 'poedash'
+            other = 'unknown-dashboard'
             for mismatch in ('selection', 'installed identity'):
                 with self.subTest(slug=slug, mismatch=mismatch), tempfile.TemporaryDirectory() as tmp:
                     spec = importlib.util.spec_from_file_location('control_' + slug, script)
@@ -52,24 +51,7 @@ class DashboardRouting(unittest.TestCase):
                             control.update(root)
                         launch.assert_not_called()
 
-    def test_old_pendash_button_cannot_refresh_selected_poedash(self):
-        result = run_bash(r'''
-config_root=$(mktemp -d)
-trap 'rm -rf -- "$config_root"' EXIT
-export XDG_CONFIG_HOME="$config_root"
-mkdir -p "$config_root/poedeploy"
-printf 'poedash\n' > "$config_root/poedeploy/dashboard"
-load_version() { :; }
-check_not_root() { :; }
-check_arch() { :; }
-pd_logger_init() { exit 91; }
-install_bundled_dashboard_application() { exit 92; }
-if main --install-dashboard pendash; then exit 93; fi
-''')
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn('selected dashboard is poedash', result.stdout + result.stderr)
-
-    def test_refresh_dispatch_disables_package_setup_for_both_dashboards(self):
+    def test_refresh_dispatch_disables_package_setup_for_dashboard(self):
         result = run_bash(r'''
 load_version() { :; }
 check_not_root() { :; }
@@ -79,12 +61,10 @@ pd_logger_init() { :; }
 install_bundled_dashboard_application() {
     case "$2" in
         poedash) [[ "$*" == 'PoeDash update poedash --skip-deps --non-interactive' ]] || exit 91 ;;
-        pendash) [[ "$*" == 'PenDash update pendash --update-dashboard --skip-packages' ]] || exit 92 ;;
         *) exit 93 ;;
     esac
 }
 main --install-dashboard poedash
-main --install-dashboard pendash
 ''')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -110,7 +90,6 @@ command() {
 }
 ui_run_interactive() { :; }
 install_bundled_dashboard_application 'PoeDash update' poedash --skip-deps --non-interactive
-install_bundled_dashboard_application 'PenDash update' pendash --update-dashboard --skip-packages
 [[ ${#FAILED_PACKAGES[@]} == 0 ]]
 ''')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

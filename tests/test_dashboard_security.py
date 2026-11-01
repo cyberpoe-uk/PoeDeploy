@@ -17,7 +17,7 @@ class SecurityChoices(unittest.TestCase):
         for choice, method in [('blackarch', 'ensure_blackarch'), ('burp', 'install_burp'), ('security-tools', 'install_packages')]:
             with self.subTest(choice=choice):
                 tools = MagicMock()
-                with patch.object(security.sys, 'argv', ['security-tools.py', choice, '--dry-run']), patch.object(security.importlib.util, 'module_from_spec', return_value=tools), patch.object(security.importlib.util, 'spec_from_file_location'):
+                with patch.object(security.sys, 'argv', ['security-tools.py', choice, '--dry-run']), patch.multiple(security, ensure_blackarch=tools.ensure_blackarch, install_burp=tools.install_burp, install_packages=tools.install_packages, PACMAN_CONFIG=tools.PACMAN_CONFIG):
                     self.assertEqual(security.main(), 0)
                 getattr(tools, method).assert_called_once()
                 for other in {'ensure_blackarch', 'install_burp', 'install_packages'} - {method}:
@@ -28,7 +28,7 @@ class SecurityChoices(unittest.TestCase):
         tools = MagicMock()
         with tempfile.TemporaryDirectory() as tmp:
             tools.PACMAN_CONFIG = Path(tmp) / 'pacman.conf'
-            with patch.object(security.sys, 'argv', ['security-tools.py', 'security-tools']), patch.object(security.importlib.util, 'module_from_spec', return_value=tools), patch.object(security.importlib.util, 'spec_from_file_location'):
+            with patch.object(security.sys, 'argv', ['security-tools.py', 'security-tools']), patch.multiple(security, ensure_blackarch=tools.ensure_blackarch, install_burp=tools.install_burp, install_packages=tools.install_packages, PACMAN_CONFIG=tools.PACMAN_CONFIG):
                 with self.assertRaisesRegex(RuntimeError, 'optional BlackArch'):
                     security.main()
             tools.install_packages.assert_not_called()

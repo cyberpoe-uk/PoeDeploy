@@ -179,7 +179,7 @@ def retire_legacy_dashboard(config_home, backup):
         return False
     text = definition.read_text(errors='replace')
     fingerprints = ('MY DASHBOARD', 'START WEB CTF', 'BlackArch home screen')
-    if not any(marker in text for marker in fingerprints) and not ((legacy / 'dashboard-id').is_file() and (legacy / 'dashboard-id').read_text().strip() == 'pendash'):
+    if not any(marker in text for marker in fingerprints):
         return False
     if shutil.which('eww'):
         subprocess.run(['eww', '--config', str(legacy), 'kill'],
@@ -189,7 +189,7 @@ def retire_legacy_dashboard(config_home, backup):
     custom = config_home / 'hypr/custom.lua'
     if custom.is_file():
         old = custom.read_text()
-        cleaned = re.sub(r'(?ms)^-- BEGIN PENDASH\n.*?^-- END PENDASH\n?', '', old)
+        cleaned = re.sub(r'(?ms)^-- BEGIN [A-Z]+\n(?:(?!^-- END ).)*?\.config/eww/scripts/start\.sh.*?^-- END [A-Z]+\n?', '', old)
         cleaned = re.sub(r'(?m)^.*\.config/eww/scripts/start\.sh.*\n?', '', cleaned)
         if cleaned != old:
             shutil.copy2(custom, backup / 'retired-custom.lua')

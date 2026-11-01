@@ -6,7 +6,7 @@ import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ('apps/poedash/assets/scripts/vpn.sh', 'apps/pendash/dashboard/scripts/vpn.sh')
+SCRIPTS = ('apps/poedash/assets/scripts/vpn.sh',)
 
 
 class VpnStatus(unittest.TestCase):

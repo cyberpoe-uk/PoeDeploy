@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Persistent density and monitor-aware geometry shared by both dashboards."""
+"""Persistent density and monitor-aware geometry for PoeDash."""
 import argparse
 import fcntl
 import json
