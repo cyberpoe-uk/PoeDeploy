@@ -10,6 +10,16 @@ curated set of BlackArch security tools. PenDash no longer includes Quick Launch
 CTF sessions, a target field, or readiness checks. Launch applications through
 your desktop as usual; configure Chromium and Burp manually.
 
+Initial PenDash installation obtains Burp directly from PortSwigger's current
+native Linux download, checks its published SHA-256, and installs it under
+`~/.local/share/pendash/burp`. It selects x64 or ARM64 to match the machine,
+uses the bundled Java runtime, and creates `~/.local/bin/burpsuite`. Choose
+Community Edition, or activate an existing Professional license.
+The `burpsuite` package is excluded from pacman and AUR installation. Existing
+native PortSwigger installations are retained. Run `apps/pendash/install.sh
+--install-burp` to install only Burp on an existing setup. Dashboard refreshes
+do not install or upgrade Burp. Existing repository packages are retained.
+
 Both dashboards show:
 
 - CPU, GPU and memory status, system specifications, load, and home disk usage.

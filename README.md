@@ -140,10 +140,26 @@ they cannot stall behind the static progress screen.
 
 **PenDash (dashboard + security tools)** adds the BlackArch repository using
 its [official, checksum-verified bootstrapper](https://blackarch.org/downloads.html)
-and installs Burp Suite Community (`burpsuite`), ffuf, Gobuster, Nmap, sqlmap,
-Wfuzz, Wireshark, and jwt-tool alongside the dashboard and Chromium.
+and installs ffuf, Gobuster, Nmap, sqlmap, Wfuzz, Wireshark, and jwt-tool alongside
+the dashboard and Chromium. Burp comes directly from
+[PortSwigger's official downloads](https://portswigger.net/burp/downloads), using
+the current native Linux installer and its published SHA-256 checksum. It does
+not use the pacman or AUR `burpsuite` package. The native installer includes its
+Java runtime and installs for the desktop user. Use Community Edition, or
+activate an existing Professional license.
 Chromium launches normally. Configure its Burp proxy and certificates manually.
 PenDash does not configure NVIDIA or apply laptop power rules.
+
+Existing setups can install the official Burp build separately:
+
+```bash
+curl -fsSL https://cyberpoe.uk/pendash-latest | bash -s -- --install-burp
+```
+
+This action only installs Burp, without dashboard, repository, or package changes.
+Existing native PortSwigger installations are retained and use Burp's own updater.
+Existing repository packages are retained. Use the native installer's desktop
+entry or `~/.local/bin/burpsuite` to launch the PortSwigger build.
 
 When updating an older PenDash setup, the installer backs up and removes known,
 unmodified proxy/certificate helper scripts and their exact managed Chromium

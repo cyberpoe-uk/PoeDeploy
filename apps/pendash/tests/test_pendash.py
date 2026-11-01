@@ -4,6 +4,7 @@ import io
 import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -16,6 +17,89 @@ p = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(p)
 
 
+def burp_download_page(checksum):
+    return f'''<input id="CurrentVersion" value="2026.10.1">
+        <a class="btn-download-small" data-type="Linux" data-build-id="123">Download</a>
+        <a class="btn-download-small" data-type="LinuxArm64" data-build-id="124">Download</a>
+        <div class="checksum-panel" data-build-id="123">
+          <code class="hash-value sha-256-checksum">{checksum}</code></div>
+        <div class="checksum-panel" data-build-id="124">
+          <code class="hash-value sha-256-checksum">{'a' * 64}</code></div>'''
+
+
+class OfficialBurpTests(unittest.TestCase):
+    def test_download_uses_current_native_release_for_each_architecture(self):
+        for arch, kind, checksum in (('x86_64', 'Linux', 'b' * 64),
+                                     ('aarch64', 'LinuxArm64', 'a' * 64)):
+            version, url, digest = p.burp_release(burp_download_page('b' * 64), arch)
+            self.assertEqual(version, '2026.10.1')
+            self.assertEqual(url, f'https://portswigger.net/burp/releases/download?product=desktop&version=2026.10.1&type={kind}')
+            self.assertEqual(digest, checksum)
+
+    def test_missing_metadata_or_unsupported_architecture_fails(self):
+        for page, arch in (('', 'x86_64'), (burp_download_page(''), 'x86_64'),
+                           (burp_download_page('b' * 64), 'i686')):
+            with self.assertRaises(RuntimeError):
+                p.burp_release(page, arch)
+
+    def test_verified_download_installs_without_sudo_and_creates_launcher(self):
+        script = b'#!/bin/sh\n# harmless official installer fixture\n'
+        checksum = hashlib.sha256(script).hexdigest()
+        with tempfile.TemporaryDirectory(prefix="burp user's home ") as tmp:
+            home = Path(tmp)
+            seen = []
+            def install(argv):
+                seen.append(argv)
+                self.assertEqual(Path(argv[1]).read_bytes(), script)
+                self.assertEqual(argv[2:4], ['-q', '-dir'])
+                destination = Path(argv[4])
+                destination.mkdir(parents=True)
+                binary = destination / 'BurpSuite'
+                binary.write_text('#!/bin/sh\nprintf "%s\\n" "$1"\n')
+                binary.chmod(0o755)
+            with patch.object(p, 'HOME', home), patch.object(p, 'BACKUP', home / 'backup'), \
+                    patch.object(p, 'official_burp', return_value=None), \
+                    patch.object(p.platform, 'machine', return_value='x86_64'), \
+                    patch.object(p.urllib.request, 'urlopen', side_effect=[io.BytesIO(burp_download_page(checksum).encode()), io.BytesIO(script)]), \
+                    patch.object(p, 'run', side_effect=install):
+                p.install_burp(False)
+            self.assertFalse(Path(seen[0][1]).exists())
+            result = subprocess.run([home / '.local/bin/burpsuite', 'argument with spaces'], capture_output=True, text=True, check=True)
+            self.assertEqual(result.stdout, 'argument with spaces\n')
+
+    def test_corrupt_download_never_runs_or_writes_launcher(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(p, 'HOME', Path(tmp)), \
+                patch.object(p, 'official_burp', return_value=None), \
+                patch.object(p.platform, 'machine', return_value='x86_64'), \
+                patch.object(p.urllib.request, 'urlopen', side_effect=[io.BytesIO(burp_download_page('0' * 64).encode()), io.BytesIO(b'corrupt')]), \
+                patch.object(p, 'run') as command:
+            with self.assertRaisesRegex(RuntimeError, 'SHA-256 mismatch'):
+                p.install_burp(False)
+            command.assert_not_called()
+            self.assertFalse((Path(tmp) / '.local/bin/burpsuite').exists())
+
+    def test_existing_native_install_and_dry_run_do_not_download(self):
+        for existing, dry_run in ((Path('/existing/BurpSuite'), False), (None, True)):
+            with patch.object(p, 'official_burp', return_value=existing), \
+                    patch.object(p.urllib.request, 'urlopen') as network, patch.object(p, 'run') as command:
+                p.install_burp(dry_run)
+                network.assert_not_called()
+                command.assert_not_called()
+
+    def test_burp_only_action_does_not_install_packages_or_dashboard(self):
+        with patch.object(p.sys, 'argv', ['pendash.py', '--install-burp']), \
+                patch.object(p.os, 'geteuid', return_value=1000), \
+                patch.object(p, 'install_burp') as burp, \
+                patch.object(p, 'ensure_blackarch') as repository, \
+                patch.object(p, 'install_packages') as packages, \
+                patch.object(p, 'install_dashboard') as dashboard:
+            self.assertEqual(p.main(), 0)
+            burp.assert_called_once_with(False)
+            repository.assert_not_called()
+            packages.assert_not_called()
+            dashboard.assert_not_called()
+
+
 class InstallerTests(unittest.TestCase):
     def test_pendash_restores_curated_tools_and_keeps_chromium(self):
         for options in ([], ['--non-interactive']):
@@ -24,14 +108,17 @@ class InstallerTests(unittest.TestCase):
                  patch.object(p.os, 'geteuid', return_value=1000), \
                  patch.object(p, 'ensure_blackarch') as repository, \
                  patch.object(p, 'install_packages') as packages, \
+                 patch.object(p, 'install_burp') as burp, \
                  patch.object(p, 'install_dashboard') as dashboard, \
                  patch.object(p, 'run') as command:
                 self.assertEqual(p.main(), 0)
                 repository.assert_called_once_with(False)
                 packages.assert_called_once()
                 selected = packages.call_args.args[0]
-                self.assertTrue({'chromium', 'burpsuite', 'ffuf', 'gobuster', 'nmap',
+                self.assertTrue({'chromium', 'ffuf', 'gobuster', 'nmap',
                                  'sqlmap', 'wfuzz', 'wireshark-qt', 'jwt-tool'}.issubset(selected))
+                self.assertNotIn('burpsuite', selected)
+                burp.assert_called_once_with(False)
                 self.assertFalse(set(selected).intersection({
                     'nvidia-prime', 'hypridle', 'hyprlock', 'power-profiles-daemon',
                     'tailscale', 'proton-vpn-gtk-app', 'blackarch',
@@ -62,6 +149,7 @@ class InstallerTests(unittest.TestCase):
                  patch.object(p.os, 'geteuid', return_value=1000), \
                  patch.object(p.sys, 'argv', ['pendash.py', '--check']), \
                  patch.object(p.subprocess, 'check_output', return_value='\n'.join(p.CURATED + ['chromium'])), \
+                 patch.object(p, 'official_burp', return_value=home / 'BurpSuite/BurpSuite'), \
                  patch.object(p, 'run') as command:
                 self.assertEqual(p.main(), 0)
                 dashboard.unlink()
@@ -87,10 +175,11 @@ class InstallerTests(unittest.TestCase):
             profile = root / 'state/chromium-ctf'
             profile.mkdir(parents=True)
             (profile / 'keep').write_text('profile data')
-            with patch.dict(os.environ, {'XDG_CONFIG_HOME': str(home / '.config')}), patch.object(p.shutil, 'which', return_value='/usr/bin/mock'), patch.object(p, 'HOME', home), patch.object(p, 'BACKUP', home / 'backup'), patch.object(p.sys, 'argv', ['pendash.py', '--update-dashboard']), patch.object(p, 'ensure_blackarch') as repository, patch.object(p, 'install_packages') as packages, patch.object(p, 'dashboard_enabled') as enable:
+            with patch.dict(os.environ, {'XDG_CONFIG_HOME': str(home / '.config')}), patch.object(p.shutil, 'which', return_value='/usr/bin/mock'), patch.object(p, 'HOME', home), patch.object(p, 'BACKUP', home / 'backup'), patch.object(p.sys, 'argv', ['pendash.py', '--update-dashboard']), patch.object(p, 'ensure_blackarch') as repository, patch.object(p, 'install_packages') as packages, patch.object(p, 'install_burp') as burp, patch.object(p, 'dashboard_enabled') as enable:
                 self.assertEqual(p.main(), 0)
             repository.assert_not_called()
             packages.assert_not_called()
+            burp.assert_not_called()
             self.assertEqual((home / '.config/poedeploy/dashboard').read_text(), 'pendash\n')
             enable.assert_not_called()
             self.assertEqual((root / 'colors.scss').read_text(), 'custom palette')
@@ -161,8 +250,8 @@ class InstallerTests(unittest.TestCase):
         with patch.object(p.subprocess, 'check_output', return_value='ffuf\nchromium\n'), \
              patch.object(p.shutil, 'which', return_value='/usr/bin/eww'), \
              patch.object(p, 'run') as command:
-            p.install_packages(['burpsuite', 'ffuf', 'chromium'], False)
-            command.assert_called_once_with(['sudo', 'pacman', '-Syu', '--needed', 'burpsuite'])
+            p.install_packages(['nmap', 'ffuf', 'chromium'], False)
+            command.assert_called_once_with(['sudo', 'pacman', '-Syu', '--needed', 'nmap'])
 
     def test_legacy_cleanup_is_backed_up_and_preserves_manual_settings(self):
         with tempfile.TemporaryDirectory() as tmp:

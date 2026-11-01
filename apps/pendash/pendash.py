@@ -3,14 +3,18 @@
 import argparse
 import datetime
 import hashlib
+from html.parser import HTMLParser
 import os
 from pathlib import Path
+import platform
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import urllib.request
+import urllib.parse
 
 SOURCE = Path(__file__).resolve().parent
 HOME = Path.home()
@@ -20,7 +24,7 @@ BACKUP = STATE / 'backups' / STAMP
 DASHBOARD = ['hyprland', 'jq', 'python', 'kitty', 'btop', 'nvtop',
              'powertop', 'brightnessctl', 'libnotify', 'playerctl', 'pciutils',
              'procps-ng', 'util-linux', 'iproute2', 'coreutils']
-CURATED = ['burpsuite', 'ffuf', 'gobuster', 'nmap', 'sqlmap', 'wfuzz',
+CURATED = ['ffuf', 'gobuster', 'nmap', 'sqlmap', 'wfuzz',
            'wireshark-qt', 'jwt-tool']
 PACMAN_CONFIG = Path('/etc/pacman.conf')
 BLACKARCH_MIRRORLIST = Path('/etc/pacman.d/blackarch-mirrorlist')
@@ -31,6 +35,102 @@ LEGACY_BROWSER_FILES = {
     '.local/lib/pendash/burp_ca.py': 'ae34f12ca2c569731e2e545ee46ed08d38ef07a4a55ee7ff552709afbd13c1b5',
 }
 BEGIN, END = '-- BEGIN PENDASH', '-- END PENDASH'
+BURP_DOWNLOADS = 'https://portswigger.net/burp/downloads'
+
+
+class BurpDownloads(HTMLParser):
+    """Read platform build IDs and their SHA-256 checksums from PortSwigger."""
+    def __init__(self):
+        super().__init__()
+        self.version = ''
+        self.builds = {}
+        self.hashes = {}
+        self.panel = None
+        self.capture = None
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        classes = attrs.get('class', '').split()
+        if tag == 'input' and attrs.get('id') == 'CurrentVersion':
+            self.version = attrs.get('value', '')
+        if tag == 'a' and 'btn-download-small' in classes:
+            self.builds[attrs.get('data-type')] = attrs.get('data-build-id')
+        if tag == 'div' and 'checksum-panel' in classes:
+            self.panel = attrs.get('data-build-id')
+        if tag == 'code' and 'sha-256-checksum' in classes and self.panel:
+            self.capture = self.panel
+            self.hashes[self.capture] = ''
+
+    def handle_data(self, data):
+        if self.capture:
+            self.hashes[self.capture] += data
+
+    def handle_endtag(self, tag):
+        if tag == 'code':
+            self.capture = None
+
+
+def burp_release(page, machine):
+    kind = {'x86_64': 'Linux', 'aarch64': 'LinuxArm64', 'arm64': 'LinuxArm64'}.get(machine)
+    if not kind:
+        raise RuntimeError(f'PortSwigger does not provide a supported Linux installer for {machine}.')
+    metadata = BurpDownloads()
+    metadata.feed(page)
+    checksum = metadata.hashes.get(metadata.builds.get(kind), '').strip().lower()
+    if not re.fullmatch(r'\d{4}(?:\.\d+){1,3}', metadata.version) or not re.fullmatch(r'[0-9a-f]{64}', checksum):
+        raise RuntimeError('Could not find the Burp Linux release and SHA-256 on the official download page.')
+    url = 'https://portswigger.net/burp/releases/download?' + urllib.parse.urlencode(
+        {'product': 'desktop', 'version': metadata.version, 'type': kind})
+    return metadata.version, url, checksum
+
+
+def official_burp():
+    # Do not treat a pacman/AUR JAR launcher as the native PortSwigger install.
+    for directory, executable in (
+            (HOME / '.local/share/pendash/burp', 'BurpSuite'),
+            (HOME / 'BurpSuite', 'BurpSuite'),
+            (HOME / 'BurpSuiteCommunity', 'BurpSuiteCommunity'),
+            (HOME / 'BurpSuitePro', 'BurpSuitePro'),
+            (Path('/opt/BurpSuite'), 'BurpSuite'),
+            (Path('/opt/BurpSuiteCommunity'), 'BurpSuiteCommunity'),
+            (Path('/opt/BurpSuitePro'), 'BurpSuitePro')):
+        binary = directory / executable
+        if binary.is_file() and os.access(binary, os.X_OK):
+            return binary
+    return None
+
+
+def install_burp(dry_run):
+    existing = official_burp()
+    if existing:
+        print(f'PortSwigger Burp is already installed: {existing}. Use its own updater for new releases.')
+        return
+    if dry_run:
+        print('Would download the current native Burp Linux installer from PortSwigger, verify SHA-256, and install for this user.')
+        return
+    # Resolve an explicit version so the checksum and download cannot drift apart.
+    with urllib.request.urlopen(BURP_DOWNLOADS, timeout=30) as response:
+        page = response.read(2 * 1024 * 1024).decode()
+    version, url, checksum = burp_release(page, platform.machine())
+    print(f'Downloading PortSwigger Burp Suite {version} (native Linux installer)...', flush=True)
+    destination = HOME / '.local/share/pendash/burp'
+    with tempfile.TemporaryDirectory(prefix='pendash-burp-') as tmp:
+        installer = Path(tmp) / 'burpsuite.sh'
+        digest = hashlib.sha256()
+        with urllib.request.urlopen(url, timeout=60) as response, installer.open('wb') as target:
+            while chunk := response.read(1024 * 1024):
+                digest.update(chunk)
+                target.write(chunk)
+        if digest.hexdigest() != checksum:
+            raise RuntimeError('Burp installer SHA-256 mismatch. Installation was not run.')
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        run(['sh', installer, '-q', '-dir', destination])
+    binary = destination / 'BurpSuite'
+    if not binary.is_file() or not os.access(binary, os.X_OK):
+        raise RuntimeError(f'Burp installer did not create {binary}.')
+    write(HOME / '.local/bin/burpsuite', '#!/bin/sh\nexec ' + shlex.quote(str(binary)) + ' "$@"\n', 0o755)
+    print(f'Installed PortSwigger Burp Suite {version}. Use Community Edition, or activate an existing Professional license.')
+    print('Existing repository packages were retained. Launch the PortSwigger installation from its desktop entry or ~/.local/bin/burpsuite.')
 
 
 def run(argv, check=True, **kwargs):
@@ -124,9 +224,11 @@ def installation_checks():
     missing = sorted(set(CURATED + ['chromium']) - installed)
     for package in missing:
         print('[MISSING] ' + package)
+    burp_ready = official_burp() is not None
+    print('[PASS] PortSwigger Burp installed' if burp_ready else '[MISSING] PortSwigger native Burp installation')
     dashboard_ready = (HOME / '.config/eww/eww.yuck').is_file()
     print('[PASS] Dashboard installed' if dashboard_ready else '[MISSING] PenDash dashboard')
-    return dashboard_ready and not missing
+    return dashboard_ready and burp_ready and not missing
 
 
 def install_packages(packages, dry_run):
@@ -219,6 +321,7 @@ def main():
     action.add_argument('--disable-dashboard', action='store_true', help='stop dashboard and disable autostart')
     action.add_argument('--enable-dashboard', action='store_true', help='restore dashboard and autostart')
     action.add_argument('--check', action='store_true', help='check the dashboard, Chromium, and security tools')
+    action.add_argument('--install-burp', action='store_true', help='install Burp directly from PortSwigger without dashboard or package changes')
     action.add_argument('--dry-run', action='store_true')
     parser.add_argument('--waybar-config', type=Path, help='add a toggle to this Waybar config')
     parser.add_argument('--non-interactive', action='store_true')
@@ -242,9 +345,13 @@ def main():
         return 0
     if args.check:
         return 0 if installation_checks() else 2
+    if args.install_burp:
+        install_burp(False)
+        return 0
     if not args.skip_packages:
         ensure_blackarch(args.dry_run)
         install_packages(sorted(set(DASHBOARD + CURATED + ['chromium'])), args.dry_run)
+        install_burp(args.dry_run)
     install_dashboard(args.dry_run)
     if args.waybar_config and not args.dry_run:
         root = HOME / '.config/eww'
