@@ -21,23 +21,28 @@ class GeometryTests(unittest.TestCase):
                     data = layout.geometry(width, height, mode)
                     padding = 20 if mode == 'comfortable' else 14
                     total = (data['columns'] * (data['card_width'] + 2 * padding + 4)
-                             + (data['columns'] - 1) * data['gap'] + 2 * data['padding'])
+                             + (data['columns'] - 1) * data['gap'] + 2 * data['padding']
+                             + data['rail_width'] + data['gap'])
                     self.assertLessEqual(total, width)
                     self.assertIn(data['columns'], (1, 2, 3))
                     for key in ('list_height', 'share_height', 'power_height'):
                         self.assertGreater(data[key], 0)
         self.assertEqual(layout.geometry(1920, 1080)['columns'], 3)
-        self.assertEqual(layout.geometry(1000, 800)['columns'], 2)
+        self.assertEqual(layout.geometry(1100, 800)['columns'], 2)
         self.assertEqual(layout.geometry(720, 900)['columns'], 1)
 
-    def test_compact_has_less_spacing_and_content_fits_1080p(self):
+    def test_enlarged_modes_use_readable_fonts_and_compact_fits_1080p(self):
         compact = layout.geometry(1920, 1080, 'compact')
         comfortable = layout.geometry(1920, 1080, 'comfortable')
         self.assertLess(compact['row_gap'], comfortable['row_gap'])
         self.assertLess(compact['padding'], comfortable['padding'])
-        for data, header in ((compact, 78), (comfortable, 96)):
-            total = sum(data[key] for key in ('top_height', 'middle_height', 'bottom_height'))
-            self.assertLessEqual(total + 2 * data['padding'] + header + 2 * data['gap'], 1080)
+        self.assertGreaterEqual(compact['font_size'], 16)
+        self.assertGreaterEqual(comfortable['font_size'], compact['font_size'] + 3)
+        total = sum(compact[key] for key in ('top_height', 'middle_height', 'bottom_height'))
+        self.assertLessEqual(total + 2 * compact['padding'] + 90 + 2 * compact['gap'], 1080)
+        for data in (compact, comfortable):
+            self.assertGreater(data['album_size'], 54)
+            self.assertLessEqual(data['album_size'] + data['media_text_width'] + 16, data['card_width'])
 
     def test_monitor_uses_logical_pixels_and_reserved_bars(self):
         monitors = [dict(name='eDP-1', width=2560, height=1440, scale=2, reserved=[0, 30, 0, 0]),
@@ -114,6 +119,20 @@ class DashboardStructureTests(unittest.TestCase):
                 self.assertIn('layout.py listen', text)
                 self.assertIn('layout.list_height', text)
                 self.assertIn('layout.share_height', text)
+                self.assertIn('(recent-apps-card)', text)
+                sidebar = text.split('(defwidget recent-apps-card []')[1].split('(defwidget dashboard-content []')[0]
+                self.assertIn(':class "card recent-rail"', sidebar)
+                self.assertNotIn('layout.hostname', sidebar)
+                content = text.split('(defwidget dashboard-content []')[1]
+                self.assertLess(content.index(':text {layout.hostname}'), content.index('(recent-apps-card)'))
+                self.assertIn('app_lists.pinned', sidebar)
+                self.assertIn('rail-divider', sidebar)
+                self.assertIn(':onrightclick', text)
+                self.assertIn('calendar_events.events', text)
+                self.assertIn('desktop.py launch ${app.id}', text)
+                self.assertIn('desktop.py calendar', text)
+                self.assertIn(':image-width {layout.album_size}', text)
+                self.assertIn('/media-control.sh open', text)
                 self.assertIn(':width 0 :height {layout.list_height}', text)
                 self.assertIn(':width 0 :height {layout.share_height}', text)
                 self.assertNotIn(':text "BLACKARCH"', text)

@@ -120,8 +120,19 @@ screens the cards use three aligned rows:
 | Player | Mounted Shares | Power |
 
 The layout accounts for display scaling and desktop bars, and switches to fewer
-columns on narrow displays. Long process, share and laptop activity lists scroll
-inside their cards. Comfortable mode can use vertical scrolling on short screens.
+columns on narrow displays. Compact uses 16–20 px body text and Comfortable uses
+20–24 px, scaling with the available card width. Artwork grows with the player
+card and song names wrap. Long process, share and laptop activity lists scroll
+inside their cards. Both modes can use vertical scrolling on short screens.
+
+A narrow app card sits below the hostname and dashboard name on the left, aligned
+with the other cards and using the same theme. Right-click an app to pin or unpin
+it. Pinned apps stay above Recent Apps, separated by a subtle line. Clicking an
+app focuses its open window or launches it if closed. History and pins survive
+restarts and updates. Clicking album artwork or a song name opens the application
+playing that media. The calendar includes an upcoming-events area from
+Thunderbird's local calendar cache, and opens Thunderbird when clicked. Without
+a configured calendar it shows the month grid with an empty events area.
 
 The dashboard shows on workspace 1 using widget visibility rather than global
 opacity. Its workspace observer supports nonzero monitor IDs and reconnects if

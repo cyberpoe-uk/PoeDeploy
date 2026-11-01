@@ -18,11 +18,11 @@ DEFAULT_ROOT = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) 
 BEGIN, END = '-- BEGIN POEDASH', '-- END POEDASH'
 THEME_BEGIN, THEME_END = '# BEGIN POEDASH', '# END POEDASH'
 PACKAGES = ['hyprland', 'jq', 'python', 'iproute2', 'util-linux', 'procps-ng',
-            'coreutils', 'gawk', 'sed', 'grep', 'bash', 'pacman-contrib', 'kitty',
+            'coreutils', 'glib2', 'gawk', 'sed', 'grep', 'bash', 'pacman-contrib', 'kitty',
             'btop', 'nvtop', 'rofi', 'libnotify', 'ttf-jetbrains-mono-nerd',
             'matugen', 'playerctl', 'socat']
 REQUIRED = ['hyprctl', 'eww', 'jq', 'python3', 'ip', 'cal', 'flock', 'free',
-            'timeout', 'checkupdates', 'kitty', 'btop', 'nvtop', 'rofi', 'notify-send', 'matugen', 'playerctl', 'socat']
+            'timeout', 'gio', 'checkupdates', 'kitty', 'btop', 'nvtop', 'rofi', 'notify-send', 'matugen', 'playerctl', 'socat']
 
 
 def run(argv, **kw):
@@ -253,6 +253,11 @@ def install(args, root):
     (root / 'scripts/layout.py').chmod(0o755)
     shutil.copy2(SOURCE.parent / 'shared/workspace-state.py', root / 'scripts/workspace.py')
     (root / 'scripts/workspace.py').chmod(0o755)
+    shutil.copy2(SOURCE.parent / 'shared/desktop-actions.py', root / 'scripts/desktop.py')
+    (root / 'scripts/desktop.py').chmod(0o755)
+    shutil.copy2(SOURCE.parent / 'shared/thunderbird-calendar.py', root / 'scripts/thunderbird-calendar.py')
+    (root / 'scripts/thunderbird-calendar.py').chmod(0o755)
+    shutil.copytree(SOURCE.parent / 'shared/calendar-vendor', root / 'scripts/calendar-vendor', dirs_exist_ok=True, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     atomic(root / 'dashboard-id', 'poedash\n', 0o600)
     for filename in ('colors.scss', 'settings.example.json', 'media-placeholder.svg'):
         shutil.copy2(assets / filename, root / filename)

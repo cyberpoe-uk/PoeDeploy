@@ -158,7 +158,7 @@ class Installation(unittest.TestCase):
         self.assertEqual(poedash.settings(self.root)['name'], 'Studio PC')
         yuck = (self.root / 'eww.yuck').read_text()
         for feature in ('TOP PROCESSES', 'Power draw', 'SMB / NFS SHARES',
-                        'SPECIFICATIONS', 'media-control.sh spotify',
+                        'SPECIFICATIONS', 'media-control.sh open',
                         'Tailscale IP', ':wrap true', 'media.art'):
             self.assertIn(feature, yuck)
         self.assertIn(':visible {power.available}', yuck)
@@ -166,9 +166,10 @@ class Installation(unittest.TestCase):
         self.assertNotIn('dashboard-away', yuck)
         self.assertIn('deflisten home_visible', yuck)
         self.assertIn(':text {layout.hostname}', yuck)
-        self.assertIn('spotify-launcher', (self.root / 'scripts/media-control.sh').read_text())
+        self.assertIn('desktop.py', (self.root / 'scripts/media-control.sh').read_text())
+        self.assertTrue((self.root / 'scripts/desktop.py').stat().st_mode & 0o111)
         self.assertIn('updates > 50 ? "updates critical"', yuck)
-        for script in ('system-info.py', 'processes.py', 'shares.py', 'power.py', 'media.py'):
+        for script in ('system-info.py', 'processes.py', 'shares.py', 'power.py', 'media.py', 'thunderbird-calendar.py'):
             result = subprocess.run([str(self.root / 'scripts' / script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             json.loads(result.stdout)

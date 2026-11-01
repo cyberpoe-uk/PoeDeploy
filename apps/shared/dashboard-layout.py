@@ -3,6 +3,7 @@
 import argparse
 import fcntl
 import json
+import math
 import os
 from pathlib import Path
 import select
@@ -53,28 +54,65 @@ def monitor_size(root):
 def geometry(width, height, mode='compact'):
     comfortable = mode == 'comfortable'
     padding, gap = (28, 16) if comfortable else (20, 10)
+    if width < 600:
+        padding, gap = 10, 8
+    rail_width = (136 if comfortable else 112) if width >= 900 else (64 if width >= 600 else 52)
     minimum = 390 if comfortable else 350
-    content = max(240, width - 2 * padding - 4)
+    content = max(180, width - 2 * padding - rail_width - gap - 4)
     columns = min(3, max(1, (content + gap) // (minimum + gap)))
-    cell_width = max(260, (content - (columns - 1) * gap) // columns)
-    available = max(400, height - 2 * padding - (96 if comfortable else 78) - 2 * gap - 12)
-    minimum_heights = (240, 275, 205) if comfortable else (195, 225, 175)
+    cell_width = max(180, (content - (columns - 1) * gap) // columns)
+    font_size = min(20, max(16, round(cell_width / 34))) + (4 if comfortable else 0)
+    small_size = font_size - 2
+    heading_size = font_size + 2
+    row_gap = 9 if comfortable else 6
+    line_height = math.ceil(font_size * 1.35)
+    header_height = 108 if comfortable else 90
+    card_padding = 20 if comfortable else 14
+    card_width = max(120, cell_width - 2 * card_padding - 4)
+    calendar_size = font_size if card_width >= 450 else font_size - 2
+    month_width = math.ceil(21 * calendar_size * 0.63)
+    calendar_inline = card_width >= month_width + font_size * 8 + gap
+    agenda_width = card_width - month_width - gap if calendar_inline else card_width
+    agenda_height = max(90, 6 * font_size)
+    calendar_height = (8 * math.ceil(calendar_size * 1.35) + heading_size + 2 * card_padding + 3 * row_gap + 4
+                       + (0 if calendar_inline else agenda_height + 2 * line_height))
+    available = max(400, height - 2 * padding - header_height - 2 * gap - 12)
+    # System specifications can wrap onto two lines. Connectivity has seven rows.
+    minimum_heights = (max(calendar_height, 2 * card_padding + heading_size + 7 * line_height + 6 * row_gap),
+                       2 * card_padding + heading_size + 7 * (line_height + row_gap),
+                       260 if comfortable else 220)
     heights = [max(minimum_height, round(available * ratio))
                for minimum_height, ratio in zip(minimum_heights, (0.32, 0.39, 0.29))]
-    card_padding = 20 if comfortable else 14
     # Leave room for CSS padding when GTK calculates a card's minimum width.
-    card_width = max(200, cell_width - 2 * card_padding - 4)
+    char_width = font_size * 0.62
+    key_width = math.ceil(small_size * 0.62 * 9)
+    media_control = 40 if comfortable else 34
+    album_size = min(224 if comfortable else 192, round(card_width * 0.34),
+                     heights[2] - 2 * card_padding - heading_size - media_control - 4 * row_gap - 16)
+    album_size = max(64, album_size)
+    media_text_width = max(80, card_width - album_size - 16)
+    rail_content_width = max(24, rail_width - 2 * card_padding - 4)
     return {
-        'density': mode, 'columns': columns, 'gap': gap, 'row_gap': 12 if comfortable else 6, 'padding': padding,
+        'density': mode, 'columns': columns, 'gap': gap, 'row_gap': row_gap, 'padding': padding,
+        'rail_width': rail_width, 'rail_labels': width >= 900,
+        'rail_content_width': rail_content_width,
+        'rail_name_chars': max(3, int(rail_content_width / (small_size * 0.62)) - 3),
         'card_width': card_width, 'card_padding': card_padding, 'top_height': heights[0],
         'middle_height': heights[1], 'bottom_height': heights[2],
-        'list_height': max(90, heights[1] - 2 * card_padding - 62),
-        'share_height': max(75, heights[2] - 2 * card_padding - 40),
-        'power_height': max(75, heights[2] - 2 * card_padding - 40),
-        'key_width': min(70, max(40, round(cell_width * 0.15))),
-        'calendar_size': 16 if comfortable else (12 if height < 900 else 14),
-        'hostname_width': max(10, min(63, (width - 2 * padding - (300 if columns > 1 else 0)) // 20)),
-        'text_width': max(18, min(72, (cell_width - 2 * card_padding - 100) // (9 if comfortable else 8))),
+        'list_height': max(90, heights[1] - 2 * card_padding - 2 * line_height - row_gap),
+        'share_height': max(75, heights[2] - 2 * card_padding - 2 * line_height - row_gap),
+        'power_height': max(75, heights[2] - 2 * card_padding - line_height - row_gap),
+        'font_size': font_size, 'small_size': small_size, 'heading_size': heading_size,
+        'title_size': font_size + 16, 'media_title_size': font_size + 4,
+        'media_control': media_control, 'album_size': album_size,
+        'media_text_width': media_text_width,
+        'process_name_chars': max(6, int((card_width - small_size * 0.62 * 12) / char_width)),
+        'key_width': key_width,
+        'calendar_size': calendar_size, 'calendar_inline': calendar_inline,
+        'month_width': month_width, 'agenda_width': agenda_width, 'agenda_height': agenda_height,
+        'hostname_width': max(6, min(63, int((width - rail_width - gap - 2 * padding - (360 if columns > 1 else 0)) / ((font_size + 16) * 0.62)))),
+        'stat_key_chars': max(6, min(15, int(card_width / (2 * char_width)))),
+        'text_width': max(4, min(72, int((card_width - 15 * char_width - 10) / char_width))),
     }
 
 

@@ -3,40 +3,34 @@
 * { all: unset; font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", monospace; color: $foreground; }
 window { background-color: transparent; }
 .dashboard-panel { background-color: rgba($background, 0.50); border: 1px solid rgba($border, 0.45); }
-.compact, .compact label { font-size: 13px; }
-.comfortable, .comfortable label { font-size: 14px; }
 .header { padding-bottom: 12px; border-bottom: 1px solid rgba($border, 0.30); }
+.card-title { color: $accent; font-weight: 700; letter-spacing: 1px; }
+.process-row { padding: 8px 0; border-bottom: 1px solid rgba($border, 0.18); }
+.process-name { font-weight: 600; }
+.subheading, .column-heading, .micro { color: $muted; }
 .title, .clock { font-weight: 700; letter-spacing: 1px; }
-.compact .title, .compact .clock { font-size: 28px; }
-.comfortable .title, .comfortable .clock { font-size: 32px; }
-.subtitle, .date { color: $secondary; font-size: 12px; }
-.comfortable .subtitle, .comfortable .date { font-size: 13px; }
+.subtitle, .date { color: $secondary; }
 .card { background-color: rgba($card, 0.58); border: 1px solid rgba($border, 0.32); border-radius: 11px; padding: 14px; }
 .comfortable .card { padding: 20px; }
-.compact .card-title, .card-title { color: $accent; font-size: 13px; font-weight: 700; letter-spacing: 1px; }
-.comfortable .card-title { font-size: 14px; }
 .stat-name, .info-key { color: $secondary; }
 .stat-value { font-weight: 600; }
 .info-value { color: $secondary; }
-.compact .info-key, .compact .subheading, .compact .column-heading, .compact .micro { color: $muted; font-size: 11px; }
-.comfortable .info-key, .comfortable .subheading, .comfortable .column-heading, .comfortable .micro { font-size: 12px; }
-.meter-row { min-height: 26px; }
-.comfortable .meter-row { min-height: 32px; }
-progressbar trough { min-width: 40px; min-height: 5px; background-color: rgba($border, 0.45); border-radius: 3px; }
-progressbar progress { min-height: 5px; background-color: $accent; border-radius: 3px; }
+.meter-row { min-height: 32px; }
+.comfortable .meter-row { min-height: 40px; }
+progressbar trough { min-width: 40px; min-height: 7px; background-color: rgba($border, 0.45); border-radius: 3px; }
+progressbar progress { min-height: 7px; background-color: $accent; border-radius: 3px; }
 .calendar-month { color: $secondary; }
-.compact .process-row { font-size: 12px; padding: 4px 0; border-bottom: 1px solid rgba($border, 0.18); }
-.comfortable .process-row { font-size: 13px; padding: 5px 0; }
 .process-row, .column-heading { font-family: "JetBrains Mono", monospace; }
 .share-row, .empty-state { color: $secondary; }
 .share-row { padding: 4px 0; }
-.player-logo { min-width: 54px; min-height: 54px; border-radius: 10px; background-color: rgba($accent, 0.18); }
-.player-logo label { font-size: 28px; color: $accent; }
+.player-logo { border-radius: 10px; background-color: rgba($accent, 0.18); }
+.player-logo label { color: $accent; }
 .player-logo:hover { background-color: rgba($accent, 0.35); }
 .media-title { font-weight: 700; }
 .media-artist, .media-time { color: $secondary; }
 .media-control { min-width: 28px; min-height: 28px; border-radius: 8px; }
-.media-control label { font-size: 16px; }
+.media-control label { font-size: 22px; }
+.comfortable .media-control label { font-size: 26px; }
 .media-control:hover { background-color: rgba($accent, 0.18); }
 .media-unavailable { opacity: 0.4; }
 .density-toggle { border: 1px solid rgba($accent, 0.60); border-radius: 8px; padding: 8px 12px; }
@@ -49,3 +43,13 @@ progressbar progress { min-height: 5px; background-color: $accent; border-radius
 button:hover .card-title, button:hover .stat-name { color: $foreground; }
 scrollbar slider { min-width: 4px; min-height: 24px; border-radius: 2px; background-color: rgba($border, 0.65); }
 tooltip { background-color: $card; border: 1px solid $border; border-radius: 6px; padding: 6px; }
+
+.recent-app { padding: 10px 0; border-radius: 8px; }
+.recent-app:hover, .media-details:hover { background-color: rgba($accent, 0.12); }
+.calendar-card:hover { border-color: rgba($accent, 0.75); }
+
+.rail-divider { background-color: rgba($border, 0.40); margin: 8px 0; }
+
+.calendar-status { color: $muted; }
+.event-time { color: $accent; }
+.calendar-event { padding-bottom: 6px; border-bottom: 1px solid rgba($border, 0.18); }

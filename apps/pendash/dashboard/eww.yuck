@@ -7,6 +7,7 @@
 (defpoll packages :run-while home_visible :interval "30m" :initial "--" `~/.config/eww/scripts/arch-status.sh packages`)
 (defpoll updates :run-while home_visible :interval "30m" :initial "--" `~/.config/eww/scripts/arch-status.sh updates`)
 (defpoll calendar_text :run-while home_visible :interval "1m" :initial "" `~/.config/eww/scripts/calendar.sh`)
+(defpoll calendar_events :run-while home_visible :interval "1m" :initial '{"connected":false,"status":"Checking Thunderbird calendars","events":[]}' `~/.config/eww/scripts/thunderbird-calendar.py`)
 
 ;; Eww wakes at the AC cadence; expensive collectors return cached data on battery.
 (defpoll cpu :run-while home_visible :interval "2s" :initial 0 `~/.config/eww/scripts/adaptive-run.py cpu 2 15 ~/.config/eww/scripts/cpu.sh`)
@@ -16,29 +17,30 @@
 (defpoll vpn :run-while home_visible :interval "5s" :initial '{"tailscale":false,"lab":false,"summary":"Checking VPNs","count":"0","tailscale_state":"Checking","proton_state":"Checking"}' `~/.config/eww/scripts/adaptive-run.py vpn 5 30 ~/.config/eww/scripts/vpn.sh`)
 (defpoll power :run-while home_visible :interval "2s" :initial '{"laptop":false,"battery":"--","draw":"--","remaining":"--","status":"--","profile":"--","effects":"--","top1":"","top2":"","top3":"","pt_label":"PowerTOP scan","pt_detail":""}' `~/.config/eww/scripts/adaptive-run.py power 2 15 ~/.config/eww/scripts/power-status.py`)
 (defpoll system_info :run-while home_visible :interval "5m" :initial '{"host":"--","os":"--","kernel":"--","cpu":"--","gpu":"--","memory":"--","disk":"--","load":"--"}' `~/.config/eww/scripts/adaptive-run.py system-info 300 600 ~/.config/eww/scripts/system-info.py`)
-(defpoll processes :run-while home_visible :interval "3s" :initial '["Collecting process data"]' `~/.config/eww/scripts/adaptive-run.py processes 3 15 ~/.config/eww/scripts/processes.py`)
+(defpoll processes :run-while home_visible :interval "3s" :initial '[{"name":"Collecting process data","pid":"","cpu":"","memory":""}]' `~/.config/eww/scripts/adaptive-run.py processes 3 15 ~/.config/eww/scripts/processes.py`)
 (defpoll shares :run-while home_visible :interval "15s" :initial '["Checking mounted shares"]' `~/.config/eww/scripts/adaptive-run.py shares 15 60 ~/.config/eww/scripts/shares.py`)
 (defpoll media :run-while home_visible :interval "2s" :initial '{"available":false,"player":"No media","title":"Nothing playing","artist":"","status":"Stopped","position":"0:00","length":"0:00","progress":0,"icon":"♪","art":""}' `~/.config/eww/scripts/adaptive-run.py media 2 5 ~/.config/eww/scripts/media.py`)
 ;; Start with narrow geometry until the monitor listener reports the actual size.
-(deflisten layout :initial '{"density": "compact", "columns": 1, "gap": 10, "row_gap": 6, "padding": 20, "card_width": 244, "card_padding": 14, "top_height": 195, "middle_height": 225, "bottom_height": 175, "list_height": 135, "share_height": 107, "power_height": 107, "key_width": 41, "calendar_size": 12, "hostname_width": 14, "text_width": 18, "hostname": "Loading…"}' `~/.config/eww/scripts/layout.py listen`)
+(deflisten layout :initial '{"density": "compact", "columns": 1, "gap": 8, "row_gap": 6, "padding": 10, "rail_width": 52, "rail_labels": false, "rail_content_width": 24, "rail_name_chars": 3, "card_width": 204, "card_padding": 14, "top_height": 360, "middle_height": 242, "bottom_height": 220, "list_height": 164, "share_height": 142, "power_height": 164, "font_size": 16, "small_size": 14, "heading_size": 18, "title_size": 32, "media_title_size": 20, "media_control": 34, "album_size": 69, "media_text_width": 119, "process_name_chars": 10, "key_width": 79, "calendar_size": 14, "calendar_inline": false, "month_width": 186, "agenda_width": 204, "agenda_height": 96, "hostname_width": 12, "stat_key_chars": 10, "text_width": 4, "hostname": "Loading…"}' `~/.config/eww/scripts/layout.py listen`)
 
+(deflisten app_lists :initial '{"pinned":[],"recent":[]}' `~/.config/eww/scripts/desktop.py listen`)
 
 (defwidget section-title [text]
-  (label :show-truncated false :class "card-title" :text text :halign "start"))
+  (label :show-truncated false :class "card-title" :style "font-size: ${layout.heading_size}px;" :text text :halign "start"))
 
 (defwidget stat-row [name value]
-  (box :space-evenly false :spacing 10 :hexpand true
-    (label :show-truncated false :class "stat-name" :text name :halign "start" :hexpand true)
+  (box :space-evenly false :spacing 10 :hexpand true :vexpand true
+    (label :show-truncated false :class "stat-name" :text name :halign "start" :hexpand true :limit-width {layout.stat_key_chars} :tooltip name)
     (label :class "stat-value" :text value :halign "end" :limit-width {layout.text_width} :tooltip value)))
 
 (defwidget info-row [name value]
-  (box :space-evenly false :spacing 10
-    (label :show-truncated false :class "info-key" :text name :width {layout.key_width} :height 0 :halign "start")
-    (label :class "info-value" :text value :halign "start" :hexpand true :limit-width {layout.text_width} :tooltip value)))
+  (box :space-evenly false :spacing 10 :vexpand true
+    (label :show-truncated false :class "info-key" :style "font-size: ${layout.small_size}px;" :text name :width {layout.key_width} :height 0 :halign "start")
+    (label :show-truncated false :class "info-value" :xalign 0 :text value :halign "start" :hexpand true :width {layout.card_width - layout.key_width - 10} :height 0 :wrap true :tooltip value)))
 
 (defwidget meter [name value display action]
   (button :onclick action
-    (box :space-evenly false :spacing 10 :class "meter-row"
+    (box :space-evenly false :spacing 10 :class "meter-row" :vexpand true
       (label :show-truncated false :class "stat-name" :text name :width 36 :halign "start")
       (progress :value value :hexpand true :valign "center")
       (label :class "stat-value" :text display :width 56 :xalign 1))))
@@ -63,10 +65,22 @@
     (info-row :name "HOME DISK" :value {system_info.disk})))
 
 (defwidget calendar-card [height]
-  (box :class "card calendar-card" :orientation "v" :space-evenly false :spacing 6 :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
-    (section-title :text "CALENDAR")
-    (label :show-truncated false :class "calendar-month" :text month :halign "start")
-    (label :show-truncated false :class "calendar-text" :style "font-size: ${layout.calendar_size}px;" :markup calendar_text :unindent false :halign "center" :valign "center" :vexpand true)))
+  (button :timeout "15s" :onclick "~/.config/eww/scripts/desktop.py calendar" :tooltip "Open Thunderbird Calendar"
+    (box :class "card calendar-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+      (section-title :text "CALENDAR")
+      (box :orientation {layout.calendar_inline ? "h" : "v"} :space-evenly false :spacing {layout.gap} :vexpand true
+        (box :orientation "v" :space-evenly false :spacing 6 :width {layout.calendar_inline ? layout.month_width : layout.card_width} :height 0
+          (label :show-truncated false :class "calendar-month" :text month :halign "start")
+          (label :show-truncated false :class "calendar-text" :style "font-size: ${layout.calendar_size}px;" :markup calendar_text :unindent false :halign "center" :valign "start"))
+        (box :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.agenda_width} :height 0 :vexpand true
+          (label :show-truncated false :class "subheading" :text "UPCOMING" :style "font-size: ${layout.small_size}px;" :halign "start")
+          (label :show-truncated false :class "calendar-status" :text {calendar_events.status} :width {layout.agenda_width} :height 0 :wrap true :xalign 0 :style "font-size: ${layout.small_size}px;")
+          (scroll :hscroll false :vscroll true :width 0 :height {layout.agenda_height} :vexpand true
+            (box :orientation "v" :space-evenly false :spacing {layout.row_gap}
+              (for event in {calendar_events.events}
+                (box :class "calendar-event" :orientation "v" :space-evenly false :spacing 4 :tooltip {event.calendar}
+                  (label :show-truncated false :class "event-time" :text {event.when} :halign "start" :style "font-size: ${layout.small_size}px;")
+                  (label :show-truncated false :text {event.title} :width {layout.agenda_width} :height 0 :wrap true :xalign 0))))))))))
 
 (defwidget performance-card [height]
   (box :class "card metrics-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
@@ -78,14 +92,23 @@
     (stat-row :name "Load 1 / 5 / 15m" :value {system_info.load})))
 
 ;; Specify both dimensions so Eww 0.6 does not retain a previous allocated width.
+(defwidget process-row [process]
+  (box :class "process-row" :orientation "v" :space-evenly false :spacing 4
+    (box :space-evenly false :spacing 8
+      (label :class "process-name" :text {process.name} :limit-width {layout.process_name_chars} :hexpand true :xalign 0 :tooltip {process.name})
+      (label :class "micro" :style "font-size: ${layout.small_size}px;" :text {process.pid != "" ? "PID ${process.pid}" : ""} :halign "end"))
+    (box :visible {process.pid != ""} :space-evenly false :spacing 16
+      (label :text "CPU ${process.cpu}" :halign "start")
+      (label :text "RAM ${process.memory}" :halign "start"))))
+
 (defwidget processes-card [height]
   (box :class "card processes-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
     (button :onclick "~/.config/eww/scripts/launch.sh system" :tooltip "Open btop" (section-title :text "TOP PROCESSES"))
-    (label :show-truncated false :class "column-heading" :text "PROCESS              PID    CPU    RAM" :halign "start")
-    (scroll :hscroll {layout.columns == 1} :vscroll true :width 0 :height {layout.list_height} :vexpand true
+    (label :show-truncated false :class "column-heading" :style "font-size: ${layout.small_size}px;" :text "PROCESS / PID · CPU / RAM" :halign "start")
+    (scroll :hscroll false :vscroll true :width 0 :height {layout.list_height} :vexpand true
       (box :orientation "v" :space-evenly false
         (for process in processes
-          (label :show-truncated false :class "process-row" :text process :halign "start"))))))
+          (process-row :process process))))))
 
 (defwidget connectivity-card [height]
   (box :class "card connectivity-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
@@ -99,20 +122,21 @@
     (stat-row :name "Active VPNs" :value {vpn.summary})))
 
 (defwidget media-control [action icon tooltip]
-  (button :class {media.available ? "media-control" : "media-control media-unavailable"} :onclick "~/.config/eww/scripts/media-control.sh ${action}" :tooltip tooltip
+  (button :class {media.available ? "media-control" : "media-control media-unavailable"} :width {layout.media_control} :height {layout.media_control} :timeout "8s" :onclick "~/.config/eww/scripts/media-control.sh ${action}" :tooltip tooltip
     (label :show-truncated false :text icon)))
 
 (defwidget player-card [height]
   (box :class "card media-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
     (section-title :text "PLAYER")
-    (box :space-evenly false :spacing 12 :vexpand true
-      (button :class "player-logo" :valign "center" :onclick "~/.config/eww/scripts/media-control.sh spotify" :tooltip "Open Spotify on the next available workspace"
+    (box :space-evenly false :spacing 16 :vexpand true
+      (button :class "player-logo" :timeout "12s" :width {layout.album_size} :height {layout.album_size} :valign "center" :onclick "~/.config/eww/scripts/media-control.sh open" :tooltip "Open the playing application"
         (box
-          (image :visible {media.art != ""} :path {media.art != "" ? media.art : "media-placeholder.svg"} :image-width 54 :image-height 54)
-          (label :show-truncated false :visible {media.art == ""} :text {media.icon})))
+          (image :visible {media.art != ""} :path {media.art != "" ? media.art : "media-placeholder.svg"} :image-width {layout.album_size} :image-height {layout.album_size})
+          (label :show-truncated false :visible {media.art == ""} :style "font-size: ${layout.album_size / 2}px;" :text {media.icon})))
+      (button :class "media-details" :timeout "12s" :onclick "~/.config/eww/scripts/media-control.sh open" :tooltip "Open the playing application"
       (box :orientation "v" :space-evenly false :spacing 6 :hexpand true :valign "center"
-        (label :class "media-title" :hexpand true :xalign 0 :text {media.title} :halign "start" :limit-width {layout.text_width} :tooltip {media.title})
-        (label :class "media-artist" :hexpand true :xalign 0 :text {media.artist != "" ? media.artist : media.player} :halign "start" :limit-width {layout.text_width})))
+        (label :show-truncated false :class "media-title" :hexpand true :xalign 0 :style "font-size: ${layout.media_title_size}px;" :text {media.title} :halign "fill" :width {layout.media_text_width} :height 0 :wrap true :tooltip {media.title})
+        (label :show-truncated false :class "media-artist" :hexpand true :xalign 0 :text {media.artist != "" ? media.artist : media.player} :halign "fill" :width {layout.media_text_width} :height 0 :wrap true :tooltip {media.artist}))))
     (progress :class "media-progress" :value {media.progress})
     (box :space-evenly false :spacing 10
       (label :show-truncated false :class "media-time" :text "${media.position} / ${media.length}" :halign "start" :hexpand true)
@@ -123,7 +147,7 @@
 (defwidget shares-card [height]
   (box :class "card shares-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
     (section-title :text "MOUNTED SHARES")
-    (label :show-truncated false :class "subheading" :text "SMB / NFS SHARES" :halign "start")
+    (label :show-truncated false :class "subheading" :style "font-size: ${layout.small_size}px;" :text "SMB / NFS SHARES" :halign "start")
     (scroll :hscroll false :vscroll true :width 0 :height {layout.share_height} :vexpand true
       (box :orientation "v" :space-evenly false :spacing 6
         (for share in shares
@@ -135,12 +159,12 @@
     (label :show-truncated false :visible {!power.laptop} :class "empty-state" :text "No system battery detected" :halign "start")
     (scroll :visible {power.laptop} :hscroll false :vscroll true :width 0 :height {layout.power_height} :vexpand true
       (box :orientation "v" :space-evenly false :spacing 6
-        (label :show-truncated false :class "subheading" :text "LAPTOP POWER" :halign "start")
+        (label :show-truncated false :class "subheading" :style "font-size: ${layout.small_size}px;" :text "LAPTOP POWER" :halign "start")
         (stat-row :name {power.status} :value "${power.battery} · ${power.draw}")
         (label :halign "start" :text {power.remaining})
         (stat-row :name "CPU profile" :value {power.profile})
         (stat-row :name "Effects" :value {power.effects})
-        (label :show-truncated false :class "micro" :halign "start" :text "TOP APP ACTIVITY · CPU, NOT WATTS")
+        (label :show-truncated false :class "micro" :style "font-size: ${layout.small_size}px;" :halign "start" :text "TOP APP ACTIVITY · CPU, NOT WATTS")
         (label :halign "start" :text {power.top1})
         (label :halign "start" :text {power.top2})
         (label :halign "start" :text {power.top3})
@@ -219,20 +243,44 @@
     )
   ))
 
+(defwidget app-shortcut [app pinned]
+  (button :class {pinned ? "recent-app pinned-app" : "recent-app"} :timeout "10s"
+    :onclick "~/.config/eww/scripts/desktop.py launch ${app.id}"
+    :onrightclick "~/.config/eww/scripts/desktop.py pin ${app.id}"
+    :tooltip {pinned ? "${app.name} · Right click to unpin" : "${app.name} · Right click to pin"}
+    (box :orientation "v" :space-evenly false :spacing 6
+      (image :icon {app.icon} :icon-size {layout.density == "compact" ? "large-toolbar" : "dialog"})
+      (label :visible {layout.rail_labels} :text {app.name} :limit-width {layout.rail_name_chars} :width {layout.rail_content_width} :height 0 :wrap true :style "font-size: ${layout.small_size}px;"))))
+
+(defwidget recent-apps-card []
+  (box :class "card recent-rail" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.rail_width} :height 0 :vexpand true
+    (scroll :hscroll false :vscroll true :vexpand true
+      (box :orientation "v" :space-evenly false :spacing {layout.row_gap}
+        (label :visible {arraylength(app_lists.pinned) > 0} :show-truncated false :class "card-title" :text {layout.rail_labels ? "PINNED" : ""} :style "font-size: ${layout.small_size}px;")
+        (box :orientation "v" :space-evenly false :spacing {layout.row_gap}
+          (for app in {app_lists.pinned} (app-shortcut :app app :pinned true)))
+        (box :visible {arraylength(app_lists.pinned) > 0 && arraylength(app_lists.recent) > 0} :class "rail-divider" :height 1)
+        (label :show-truncated false :class "card-title" :text {layout.rail_labels ? "RECENT" : ""} :style "font-size: ${layout.small_size}px;")
+        (label :visible {arraylength(app_lists.recent) == 0} :show-truncated false :text {layout.rail_labels ? "Open an app to start" : "…"} :width {layout.rail_content_width} :height 0 :wrap true)
+        (box :orientation "v" :space-evenly false :spacing {layout.row_gap}
+          (for app in {app_lists.recent} (app-shortcut :app app :pinned false)))))))
+
 (defwidget dashboard-content []
   (box :class "dashboard-surface" :space-evenly false :hexpand true :vexpand true :visible home_visible
-    (box :class {layout.density == "compact" ? "dashboard-panel compact" : "dashboard-panel comfortable"} :style "padding: ${layout.padding}px;" :hexpand true :vexpand true :orientation "v" :space-evenly false :spacing {layout.gap}
+    (box :class {layout.density == "compact" ? "dashboard-panel compact" : "dashboard-panel comfortable"} :style "padding: ${layout.padding}px; font-size: ${layout.font_size}px;" :hexpand true :vexpand true :orientation "v" :space-evenly false :spacing {layout.gap}
       (box :class "header" :orientation {layout.columns == 1 ? "v" : "h"} :space-evenly false :spacing 16
         (box :orientation "v" :space-evenly false :hexpand true :spacing 4
-          (label :show-truncated false :class "title" :hexpand true :xalign 0 :text {layout.hostname} :limit-width {layout.hostname_width} :tooltip {layout.hostname})
-          (label :show-truncated false :class "subtitle" :text "PenDash · System overview" :halign "start" :limit-width 34))
-        (button :class "density-toggle" :timeout "6s" :onclick "~/.config/eww/scripts/layout.py toggle" :tooltip {layout.density == "compact" ? "Switch to Comfortable spacing" : "Switch to Compact spacing"}
+          (label :class "title" :style "font-size: ${layout.title_size}px;" :xalign 0 :text {layout.hostname} :limit-width {layout.hostname_width} :tooltip {layout.hostname})
+          (label :show-truncated false :class "subtitle" :style "font-size: ${layout.small_size}px;" :text "PenDash" :halign "start"))
+        (button :class "density-toggle" :timeout "6s" :onclick "~/.config/eww/scripts/layout.py toggle" :tooltip {layout.density == "compact" ? "Switch to Comfortable: larger text, artwork and controls" : "Switch to Compact: readable text with tighter spacing"}
           (label :show-truncated false :text {layout.density == "compact" ? "Compact" : "Comfortable"}))
         (box :orientation "v" :space-evenly false :spacing 4
-          (label :show-truncated false :class "clock" :text clock :halign "end")
-          (label :show-truncated false :class "date" :text today :halign "end")))
-      (scroll :hscroll false :vscroll true :vexpand true
-        (dashboard-grid)))))
+          (label :show-truncated false :class "clock" :style "font-size: ${layout.title_size}px;" :text clock :halign "end")
+          (label :show-truncated false :class "date" :style "font-size: ${layout.small_size}px;" :text today :halign "end")))
+      (box :orientation "h" :space-evenly false :spacing {layout.gap} :vexpand true
+        (recent-apps-card)
+        (scroll :hscroll false :vscroll true :hexpand true :vexpand true
+          (dashboard-grid))))))
 
 (defwindow dashboard
   :monitor 0

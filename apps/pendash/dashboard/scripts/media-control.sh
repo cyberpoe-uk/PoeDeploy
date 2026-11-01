@@ -13,22 +13,8 @@ case "${1:-}" in
         [[ -n "$selected" ]] || exit 0
         exec playerctl -p "$selected" "$1"
         ;;
-    spotify)
-        workspaces=$(hyprctl workspaces -j)
-        workspace=2
-        while jq -e --argjson id "$workspace" '.[] | select(.id == $id)' <<<"$workspaces" >/dev/null; do
-            ((workspace++))
-        done
-        if command -v spotify-launcher >/dev/null; then
-            hyprctl dispatch exec "[workspace $workspace silent] spotify-launcher"
-        elif command -v spotify >/dev/null; then
-            hyprctl dispatch exec "[workspace $workspace silent] spotify"
-        elif command -v flatpak >/dev/null && flatpak info com.spotify.Client >/dev/null 2>&1; then
-            hyprctl dispatch exec "[workspace $workspace silent] flatpak run com.spotify.Client"
-        else
-            notify-send "PenDash" "Spotify is not installed"
-            exit 1
-        fi
+    spotify|open)
+        exec python3 "$(dirname "$(realpath "$0")")/desktop.py" media
         ;;
     *) exit 2 ;;
 esac

@@ -23,7 +23,7 @@ STAMP = datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
 BACKUP = STATE / 'backups' / STAMP
 DASHBOARD = ['hyprland', 'jq', 'python', 'kitty', 'btop', 'nvtop',
              'powertop', 'brightnessctl', 'libnotify', 'playerctl', 'pciutils',
-             'procps-ng', 'util-linux', 'iproute2', 'coreutils']
+             'procps-ng', 'glib2', 'util-linux', 'iproute2', 'coreutils']
 CURATED = ['ffuf', 'gobuster', 'nmap', 'sqlmap', 'wfuzz',
            'wireshark-qt', 'jwt-tool']
 PACMAN_CONFIG = Path('/etc/pacman.conf')
@@ -288,6 +288,11 @@ def install_dashboard(dry_run, preserve_colors=False):
     (destination / 'scripts/layout.py').chmod(0o755)
     shutil.copy2(SOURCE.parent / 'shared/workspace-state.py', destination / 'scripts/workspace.py')
     (destination / 'scripts/workspace.py').chmod(0o755)
+    shutil.copy2(SOURCE.parent / 'shared/desktop-actions.py', destination / 'scripts/desktop.py')
+    (destination / 'scripts/desktop.py').chmod(0o755)
+    shutil.copy2(SOURCE.parent / 'shared/thunderbird-calendar.py', destination / 'scripts/thunderbird-calendar.py')
+    (destination / 'scripts/thunderbird-calendar.py').chmod(0o755)
+    shutil.copytree(SOURCE.parent / 'shared/calendar-vendor', destination / 'scripts/calendar-vendor', dirs_exist_ok=True, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     (destination / 'dashboard-id').write_text('pendash\n')
     if state_copy:
         shutil.copytree(state_copy, destination / 'state', dirs_exist_ok=True)

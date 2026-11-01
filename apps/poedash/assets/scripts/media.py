@@ -18,7 +18,7 @@ EMPTY = {'available': False, 'player': 'No media', 'title': 'Nothing playing',
 
 def call(*args):
     return subprocess.run(['playerctl', *args], capture_output=True, text=True,
-                          timeout=2, check=True).stdout.strip()
+                          timeout=2, check=True).stdout.rstrip('\r\n')
 
 
 def clock(microseconds):
@@ -62,17 +62,28 @@ def artwork(url):
         return ''
 
 
-data = dict(EMPTY)
-if shutil.which('playerctl'):
+def reading():
+    data = dict(EMPTY)
+    if not shutil.which('playerctl'):
+        return data
     try:
         players = [name for name in call('-l').splitlines() if name]
-        statuses = {name: call('-p', name, 'status') for name in players}
+        statuses = {}
+        for name in players:
+            try:
+                statuses[name] = call('-p', name, 'status')
+            except (OSError, subprocess.SubprocessError):
+                continue
+        players = list(statuses)
         player = next((name for name in players if statuses[name] == 'Playing'), players[0])
         fields = call('-p', player, 'metadata', '--format',
                       '{{title}}\u001f{{artist}}\u001f{{mpris:length}}\u001f{{mpris:artUrl}}').split('\x1f')
         title, artist, length, art_url = (fields + ['', '', '0', ''])[:4]
-        position = float(call('-p', player, 'position') or 0)
-        length_us = float(length or 0)
+        try:
+            position = max(0, float(call('-p', player, 'position') or 0))
+        except subprocess.SubprocessError:
+            position = 0
+        length_us = max(0, float(length or 0))
         data = {'available': True, 'player': player.split('.')[0].title(),
                 'title': title or 'Unknown title', 'artist': artist,
                 'status': statuses[player], 'position': clock(position * 1_000_000),
@@ -80,6 +91,10 @@ if shutil.which('playerctl'):
                 'progress': min(100, round(position * 100_000_000 / length_us)) if length_us else 0,
                 'icon': '' if 'spotify' in player.lower() else '♪',
                 'art': artwork(art_url)}
-    except (IndexError, OSError, ValueError, subprocess.SubprocessError):
+    except (IndexError, OSError, ValueError, OverflowError, subprocess.SubprocessError):
         pass
-print(json.dumps(data))
+    return data
+
+
+if __name__ == '__main__':
+    print(json.dumps(reading()))
