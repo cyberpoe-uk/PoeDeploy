@@ -71,10 +71,11 @@ class BatteryDetection(unittest.TestCase):
         self.supply('BAT1', type='Battery', status='Full', energy_now=30, energy_full=30)
         self.assertEqual(battery.reading(self.root)['battery'], '80%')
 
-    def test_power_only_rows_disappear_in_one_and_two_column_layouts(self):
+    def test_battery_details_hide_but_settings_card_remains(self):
         text = (ROOT / 'apps/poedash/assets/templates/eww.yuck').read_text()
-        self.assertIn(':visible {power.present} :class "card power-card"', text)
-        self.assertEqual(text.count('(box :visible {power.present} :space-evenly true'), 2)
+        self.assertIn('(box :visible {power.present} :orientation "v"', text)
+        self.assertIn('(defwidget power-card', text)
+        self.assertNotIn('(scroll :hscroll false :vscroll true :hexpand true :vexpand true', text)
 
 
 if __name__ == '__main__':

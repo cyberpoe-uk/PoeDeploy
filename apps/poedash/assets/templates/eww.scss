@@ -10,13 +10,10 @@ window { background-color: transparent; }
 .subheading, .column-heading, .micro { color: $muted; }
 .title, .clock { font-weight: 700; letter-spacing: 1px; }
 .subtitle, .date { color: $secondary; }
-.card { background-color: rgba($card, 0.58); border: 1px solid rgba($border, 0.32); border-radius: 11px; padding: 10px; }
-.comfortable .card { padding: 14px; }
+.card { background-color: rgba($card, 0.58); border: 1px solid rgba($border, 0.32); border-radius: 11px; }
 .stat-name, .info-key { color: $secondary; }
 .stat-value { font-weight: 600; }
 .info-value { color: $secondary; }
-.meter-row { min-height: 26px; }
-.comfortable .meter-row { min-height: 32px; }
 progressbar trough { min-width: 40px; min-height: 5px; background-color: rgba($border, 0.45); border-radius: 3px; }
 progressbar progress { min-height: 5px; background-color: $accent; border-radius: 3px; }
 .comfortable progressbar trough, .comfortable progressbar progress { min-height: 7px; }
@@ -55,3 +52,12 @@ tooltip { background-color: $card; border: 1px solid $border; border-radius: 6px
 .calendar-status { color: $muted; }
 .event-time { color: $accent; }
 .calendar-event { padding-bottom: 6px; border-bottom: 1px solid rgba($border, 0.18); }
+
+.power-idle-card button { padding: 3px 6px; border-radius: 6px; background-color: rgba($accent, 0.10); }
+.power-idle-card button:hover { background-color: rgba($accent, 0.22); }
+.power-idle-card button:disabled { opacity: 0.4; }
+.idle-number { font-weight: 600; color: $accent; }
+
+.profile-selected { border: 1px solid $accent; }
+
+.comfortable .profile-option, .profile-option { padding: 4px 6px; }

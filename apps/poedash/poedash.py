@@ -313,6 +313,12 @@ def install(args, root):
         manifest['matugen_config'] = str(matugen)
     atomic(manifest_path, json.dumps(manifest, indent=2) + '\n')
     atomic(config_home / 'poedeploy/dashboard', 'poedash\n', 0o600)
+    if not args.no_start:
+        try:
+            run([sys.executable, root / 'scripts/power-control.py', 'install'])
+        except (OSError, subprocess.SubprocessError) as exc:
+            print(f'WARNING: Dashboard installed. Power-profile integration needs attention: {exc}', file=sys.stderr)
+
     if (not args.no_start and not (root / 'disabled').exists() and
             os.environ.get('HYPRLAND_INSTANCE_SIGNATURE') and os.environ.get('WAYLAND_DISPLAY')):
         try:
@@ -324,6 +330,8 @@ def install(args, root):
 
 
 def uninstall(root):
+    if (root / 'scripts/power-control.py').is_file():
+        run([sys.executable, root / 'scripts/power-control.py', 'uninstall'])
     manifest = json.loads((root / 'install.json').read_text())
     if manifest.get('hyprland_config'):
         hypr = Path(manifest['hyprland_config'])
@@ -372,6 +380,7 @@ def main():
     for name in ('render', 'reload', 'doctor', 'uninstall', 'start', 'stop', 'enable', 'disable', 'update'):
         sub.add_parser(name)
     sub.add_parser('theme').add_argument('wallpaper')
+    sub.add_parser('power', help='manage automatic power profiles').add_argument('power_action', choices=['status', 'enable', 'disable'])
     args = parser.parse_args()
     root = args.root.expanduser().resolve()
     if args.action == 'install':
@@ -392,6 +401,8 @@ def main():
         run([sys.executable, root / 'scripts/dashboard-control.py', '--root', root, args.action])
     elif args.action == 'uninstall':
         uninstall(root)
+    elif args.action == 'power':
+        run([sys.executable, root / 'scripts/power-control.py', args.power_action])
     elif args.action == 'theme':
         theme(root, args.wallpaper)
     return 0

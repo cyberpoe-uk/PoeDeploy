@@ -19,7 +19,7 @@ class GeometryTests(unittest.TestCase):
             for mode in ('compact', 'comfortable'):
                 with self.subTest(width=width, height=height, mode=mode):
                     data = layout.geometry(width, height, mode)
-                    padding = 14 if mode == 'comfortable' else 10
+                    padding = data['card_padding']
                     total = (data['columns'] * (data['card_width'] + 2 * padding + 4)
                              + (data['columns'] - 1) * data['gap'] + 2 * data['padding']
                              + data['rail_width'] + data['gap'])
@@ -28,8 +28,8 @@ class GeometryTests(unittest.TestCase):
                     for key in ('list_height', 'share_height', 'power_height'):
                         self.assertGreater(data[key], 0)
         self.assertEqual(layout.geometry(1920, 1080)['columns'], 3)
-        self.assertEqual(layout.geometry(1100, 800)['columns'], 2)
-        self.assertEqual(layout.geometry(720, 900)['columns'], 1)
+        self.assertEqual(layout.geometry(1100, 800)['columns'], 3)
+        self.assertEqual(layout.geometry(720, 900)['columns'], 2)
 
     def test_enlarged_modes_use_readable_fonts_and_compact_fits_1080p(self):
         compact = layout.geometry(1920, 1080, 'compact')
@@ -40,11 +40,38 @@ class GeometryTests(unittest.TestCase):
         self.assertGreater(comfortable['font_size'], compact['font_size'])
         self.assertLessEqual(comfortable['font_size'], 20)
         self.assertLessEqual(compact['font_size'], 17)
-        total = sum(compact[key] for key in ('top_height', 'middle_height', 'bottom_height'))
-        self.assertLessEqual(total + 2 * compact['padding'] + 90 + 2 * compact['gap'], 1080)
+        total = sum(compact[key] for key in ('calendar_height', 'connectivity_height', 'management_height'))
+        self.assertLessEqual(total + 2 * compact['padding'] + compact['header_height'] + 3 * compact['gap'], 1080)
         for data in (compact, comfortable):
             self.assertGreater(data['album_size'], 54)
             self.assertLessEqual(data['album_size'] + data['media_text_width'] + 16, data['card_width'])
+
+    def test_each_column_fits_without_dashboard_scrolling(self):
+        for width, height in ((1920,1080),(1366,768),(1280,720),(2560,1440),(1000,800)):
+            for mode in ('compact','comfortable'):
+                data = layout.geometry(width,height,mode)
+                for column in [('arch','performance','player'),('system','processes','shares'),('calendar','connectivity','management')]:
+                    total = sum(data[name+'_height'] for name in column)
+                    self.assertLessEqual(total + 2*data['padding'] + data['header_height'] + 3*data['gap'], height)
+                self.assertLess(data['arch_height'], data['player_height'])
+                self.assertGreater(data['calendar_height'], 100)
+
+    def test_resolution_matrix_up_to_4k_and_fractional_scaling(self):
+        physical = [(3840,2160,1),(3840,2160,1.25),(3840,2160,1.5),(3840,2160,2),(3840,2160,3),(2560,1440,1),(1920,1080,1),(1366,768,1),(1280,720,1),(1024,768,1),(720,900,1),(320,480,1)]
+        for width,height,scale in physical:
+            width,height=round(width/scale),round(height/scale)
+            for mode in ('compact','comfortable'):
+                with self.subTest(width=width,height=height,mode=mode):
+                    d=layout.geometry(width,height,mode)
+                    if d['columns']==3:
+                        columns=[('arch','performance','player'),('system','processes','shares'),('calendar','connectivity','management')]
+                    else:
+                        ordered=['arch','system','calendar','performance','processes','connectivity','player','shares','management']
+                        columns=[ordered[i::d['columns']] for i in range(d['columns'])]
+                    for cards in columns:
+                        used=sum(d[name+'_height'] for name in cards)+(len(cards)-1)*d['gap']+d['header_height']+d['gap']+2*d['padding']
+                        self.assertLessEqual(used,height)
+                    self.assertLessEqual(d['columns']*(d['card_width']+2*d['card_padding']+4)+(d['columns']-1)*d['gap']+d['rail_width']+d['gap']+2*d['padding'],width)
 
     def test_app_captions_are_secondary_and_fit_the_rail(self):
         for mode, size in [('compact', 10), ('comfortable', 11)]:
@@ -118,11 +145,11 @@ class DashboardStructureTests(unittest.TestCase):
         for path in (ROOT / 'apps/poedash/assets/templates/eww.yuck',):
             with self.subTest(path=path):
                 text = path.read_text()
-                wide = text.split('(defwidget dashboard-grid []')[1].split('layout.columns == 2')[0]
-                positions = []
+                wide = layout.geometry(1920,1080)['grid']
+                self.assertIn('(literal :content dashboard_grid)', text)
                 for row in cards:
-                    positions.extend(wide.index(f'({card}-card :height') for card in row)
-                self.assertEqual(positions, sorted(positions))
+                    for card in row:
+                        self.assertIn(f'({card}-card :height', wide)
                 self.assertIn(':text {layout.hostname}', text)
                 self.assertIn('layout.py toggle', text)
                 self.assertIn('layout.py listen', text)

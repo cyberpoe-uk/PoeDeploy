@@ -14,14 +14,20 @@
 (defpoll calendar_text :run-while home_visible :interval "1m" :initial "" `./scripts/calendar.sh`)
 (defpoll calendar_events :run-while home_visible :interval "1m" :initial '{"connected":false,"status":"Checking Thunderbird calendars","events":[]}' `./scripts/thunderbird-calendar.py`)
 (defpoll system_info :run-while home_visible :interval "5m" :initial '{"host":"--","os":"--","kernel":"--","cpu":"--","gpu":"--","memory":"--","disk":"--","load":"--"}' `./scripts/system-info.py`)
+(defvar power_tab "idle")
 (defvar power '{"present":false,"on_battery":false,"available":false,"watts":"--","battery":"--","status":"--","remaining":""}')
 (defvar processes '[{"name":"Collecting process data","pid":"","cpu":"","memory":""}]')
 (defvar shares '["Checking mounted shares"]')
 (defvar media '{"available":false,"player":"No media","title":"Nothing playing","artist":"","status":"Stopped","position":"0:00","length":"0:00","progress":0,"icon":"♪","art":""}')
 ;; Start with narrow geometry until the monitor listener reports the actual size.
-(deflisten layout :initial '{"density": "comfortable", "columns": 1, "gap": 8, "row_gap": 6, "padding": 10, "rail_width": 52, "rail_labels": false, "rail_content_width": 24, "rail_name_chars": 3, "app_name_size": 11, "card_width": 204, "card_padding": 14, "top_height": 360, "middle_height": 242, "bottom_height": 220, "list_height": 164, "share_height": 142, "power_height": 164, "font_size": 16, "small_size": 14, "heading_size": 18, "title_size": 32, "media_title_size": 20, "media_control": 34, "album_size": 69, "media_text_width": 119, "process_name_chars": 10, "key_width": 79, "calendar_size": 14, "calendar_inline": false, "month_width": 186, "agenda_width": 204, "agenda_height": 96, "hostname_width": 12, "stat_key_chars": 10, "text_width": 4, "hostname": "Loading…"}' `./scripts/layout.py listen`)
+(defvar layout '{"density": "comfortable", "columns": 0, "gap": 4, "row_gap": 4, "padding": 6, "rail_width": 44, "rail_labels": false, "rail_content_width": 24, "app_name_size": 9, "rail_name_chars": 3, "card_width": 232, "card_padding": 10, "arch_height": 40, "system_height": 40, "calendar_height": 40, "performance_height": 40, "processes_height": 40, "connectivity_height": 40, "player_height": 40, "shares_height": 40, "management_height": 40, "header_height": 59, "top_height": 40, "middle_height": 40, "bottom_height": 40, "list_height": 20, "share_height": 20, "power_height": 20, "font_size": 11, "small_size": 9, "heading_size": 13, "title_size": 23, "media_title_size": 15, "media_control": 34, "album_size": 28, "media_text_width": 188, "process_name_chars": 24, "key_width": 51, "calendar_size": 9, "calendar_inline": true, "month_width": 120, "agenda_width": 108, "agenda_height": 30, "hostname_width": 18, "stat_key_chars": 15, "text_width": 17, "hostname": "Loading\u2026", "grid": "(box)"}')
+(deflisten dashboard_grid :initial "(box)" `exec ./scripts/layout.py listen`)
 
 (deflisten refresh_status :initial "starting" `exec ./scripts/refresh.py`)
+
+(deflisten power_profile :initial '{"supported":false,"source":"unknown","active":"Unavailable","available":[],"mode":"Unavailable","enabled":false,"message":"Checking power profiles"}' `exec ./scripts/power-control.py listen`)
+
+(deflisten idle :initial '{"screen":0,"lock":0,"suspend":0,"dirty":false,"supported":false,"message":"Detecting idle manager","config":""}' `exec ./scripts/idle-control.py listen`)
 
 (deflisten app_lists :initial '{"pinned":[],"recent":[]}' `./scripts/desktop.py listen`)
 
@@ -40,13 +46,13 @@
 
 (defwidget meter [name value display action]
   (button :onclick action
-    (box :space-evenly false :spacing 10 :class "meter-row" :vexpand true
+    (box :space-evenly false :spacing 10 :class "meter-row" :style "min-height: ${layout.font_size + 6}px;" :vexpand true
       (label :show-truncated false :class "stat-name" :text name :width 36 :halign "start")
       (progress :value value :hexpand true :valign "center")
       (label :class "stat-value" :text display :width 56 :xalign 1))))
 
 (defwidget arch-card [height]
-  (box :class "card arch-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+  (box :class "card arch-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
     (section-title :text "ARCH")
     (stat-row :name "Kernel" :value {arch.kernel})
     (stat-row :name "Uptime" :value {arch.uptime})
@@ -56,7 +62,7 @@
         (stat-row :name "Updates" :value updates)))))
 
 (defwidget system-card [height]
-  (box :class "card system-card" :tooltip "SYSTEM SPECIFICATIONS" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+  (box :class "card system-card" :style "padding: ${layout.card_padding}px;" :vexpand true :tooltip "SYSTEM SPECIFICATIONS" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
     (section-title :text "SYSTEM")
     (info-row :name "OS" :value {system_info.os})
     (info-row :name "CPU" :value {system_info.cpu})
@@ -66,7 +72,7 @@
 
 (defwidget calendar-card [height]
   (button :timeout "15s" :onclick "./scripts/desktop.py calendar" :tooltip "Open Thunderbird Calendar"
-    (box :class "card calendar-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+    (box :class "card calendar-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
       (section-title :text "CALENDAR")
       (box :orientation {layout.calendar_inline ? "h" : "v"} :space-evenly false :spacing {layout.gap} :vexpand true
         (box :orientation "v" :space-evenly false :spacing 6 :width {layout.calendar_inline ? layout.month_width : layout.card_width} :height 0
@@ -83,7 +89,7 @@
                   (label :show-truncated false :text {event.title} :width {layout.agenda_width} :height 0 :wrap true :xalign 0))))))))))
 
 (defwidget performance-card [height]
-  (box :class "card metrics-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+  (box :class "card metrics-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
     (button :onclick "./scripts/launch.sh system" :tooltip "Open btop" (section-title :text "PERFORMANCE"))
     (meter :name "CPU" :value cpu :display "${cpu}%" :action "./scripts/launch.sh system")
     (meter :name "GPU" :value {gpu.usage} :display {gpu.label} :action "./scripts/launch.sh gpu")
@@ -102,7 +108,7 @@
       (label :text "RAM ${process.memory}" :halign "start"))))
 
 (defwidget processes-card [height]
-  (box :class "card processes-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+  (box :class "card processes-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
     (button :onclick "./scripts/launch.sh system" :tooltip "Open btop" (section-title :text "TOP PROCESSES"))
     (label :show-truncated false :class "column-heading" :style "font-size: ${layout.small_size}px;" :text "PROCESS / PID · CPU / RAM" :halign "start")
     (scroll :hscroll false :vscroll true :width 0 :height {layout.list_height} :vexpand true
@@ -111,7 +117,7 @@
           (process-row :process process))))))
 
 (defwidget connectivity-card [height]
-  (box :class "card connectivity-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+  (box :class "card connectivity-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
     (button :onclick "./scripts/launch.sh network" :tooltip "View addresses and routes" (section-title :text "CONNECTIVITY"))
     (stat-row :name "Network" :value {network.state})
     (stat-row :name "Interface" :value {network.interface})
@@ -126,7 +132,7 @@
     (label :show-truncated false :text icon)))
 
 (defwidget player-card [height]
-  (box :class "card media-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+  (box :class "card media-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
     (section-title :text "PLAYER")
     (box :space-evenly false :spacing 16 :vexpand true
       (button :class "player-logo" :timeout "12s" :width {layout.album_size} :height {layout.album_size} :valign "center" :onclick "./scripts/media-control.sh open" :tooltip "Open the playing application"
@@ -145,7 +151,7 @@
       (media-control :action "next" :icon "" :tooltip "Next"))))
 
 (defwidget shares-card [height]
-  (box :class "card shares-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+  (box :class "card shares-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
     (section-title :text "MOUNTED SHARES")
     (label :show-truncated false :class "subheading" :style "font-size: ${layout.small_size}px;" :text "SMB / NFS SHARES" :halign "start")
     (scroll :hscroll false :vscroll true :width 0 :height {layout.share_height} :vexpand true
@@ -153,85 +159,45 @@
         (for share in shares
           (label :show-truncated false :class "share-row" :text share :xalign 0 :wrap true :hexpand true :width {layout.card_width - 16} :height 0 :tooltip share))))))
 
+(defwidget profile-controls []
+  (box :orientation "v" :space-evenly false :spacing {layout.row_gap}
+    (box :orientation {layout.card_width > 450 || layout.font_size <= 14 ? "h" : "v"} :space-evenly false :spacing {layout.row_gap}
+      (for profile in {power_profile.available}
+        (button :class {profile == power_profile.active ? "density-toggle profile-option profile-selected" : "density-toggle profile-option"} :onclick "./scripts/power-control.py set ${profile}" :timeout "20s" (label :text {profile == "power-saver" ? "Power Saver" : profile == "performance" ? "Performance" : "Balanced"} :style "font-size: ${layout.small_size}px;"))))
+    (label :visible {power_profile.message != ""} :text {power_profile.message} :tooltip {power_profile.message} :wrap true :xalign 0 :width {layout.card_width - 32} :height 0 :style "font-size: ${layout.small_size}px;")))
+
+(defwidget idle-setting [name field value]
+  (box :space-evenly false :spacing {layout.row_gap}
+    (label :text name :halign "start" :hexpand true)
+    (button :active {idle.supported} :onclick "./scripts/idle-control.py adjust ${field} -1" :timeout "5s" (label :text "−"))
+    (label :class "idle-number" :text value :width 34 :height 0)
+    (button :active {idle.supported} :onclick "./scripts/idle-control.py adjust ${field} 1" :timeout "5s" (label :text "+"))
+    (label :text "min" :class "micro")))
+
 (defwidget power-card [height]
-  (box :visible {power.present} :class "card power-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
-    (section-title :text "POWER")
-    (stat-row :name "Battery" :value {power.battery})
-    (box :visible {power.available} (stat-row :name "Power draw" :value {power.watts}))
-    (stat-row :name "Status" :value {power.status})
-    (label :visible {power.remaining != ""} :show-truncated false :text {power.remaining} :halign "start")))
+  (box :class "card power-idle-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+    (section-title :text "POWER & IDLE")
+    (label :text "${power_profile.source} · ${power_profile.active} · ${power_profile.mode}" :width {layout.card_width - 16} :height 0 :wrap true :xalign 0 :style "font-size: ${layout.small_size}px;")
+    (box :space-evenly true :spacing {layout.row_gap}
+      (button :class {power_tab == "idle" ? "profile-selected" : ""} :onclick "eww --config . update power_tab=idle" (label :text "Idle"))
+      (button :class {power_tab == "power" ? "profile-selected" : ""} :onclick "eww --config . update power_tab=power" (label :text "Power")))
+    (scroll :hscroll false :vscroll true :width 0 :height {layout.power_height} :vexpand true
+      (box :orientation "v" :space-evenly false :spacing {layout.row_gap}
+        (box :visible {power_tab == "idle"} :orientation "v" :space-evenly false :spacing {layout.row_gap}
+          (idle-setting :name "Screen Off" :field "screen" :value {idle.screen})
+          (idle-setting :name "Lock Screen" :field "lock" :value {idle.lock})
+          (idle-setting :name "Auto Suspend" :field "suspend" :value {idle.suspend})
+          (label :text {idle.message} :tooltip {idle.message} :wrap true :xalign 0 :width {layout.card_width - 16} :height 0 :style "font-size: ${layout.small_size}px;")
+          (button :active {idle.supported && idle.dirty} :halign "end" :onclick "./scripts/idle-control.py apply" :timeout "25s" (label :text "Apply")))
+        (box :visible {power_tab == "power"} :orientation "v" :space-evenly false :spacing {layout.row_gap}
+          (box :visible {power.present} :orientation "v" :space-evenly false :spacing {layout.row_gap}
+            (label :text "${power.battery} · ${power.status}" :halign "start")
+            (label :visible {power.available} :text "Power draw: ${power.watts}" :halign "start")
+            (label :visible {power.remaining != ""} :text {power.remaining} :halign "start"))
+          (profile-controls))))))
 
 (defwidget dashboard-grid []
-  (box :orientation "v" :space-evenly false :vexpand true
-    (box :visible {layout.columns == 3} :orientation "v" :space-evenly false :spacing {layout.gap} :vexpand true
-      (box :space-evenly true :spacing {layout.gap} :vexpand true
-        (arch-card :height {layout.top_height})
-        (system-card :height {layout.top_height})
-        (calendar-card :height {layout.top_height})
-      )
-      (box :space-evenly true :spacing {layout.gap} :vexpand true
-        (performance-card :height {layout.middle_height})
-        (processes-card :height {layout.middle_height})
-        (connectivity-card :height {layout.middle_height})
-      )
-      (box :space-evenly true :spacing {layout.gap} :vexpand true
-        (player-card :height {layout.bottom_height})
-        (shares-card :height {layout.bottom_height})
-        (power-card :height {layout.bottom_height})
-      )
-    )
-    (box :visible {layout.columns == 2} :orientation "v" :space-evenly false :spacing {layout.gap} :vexpand true
-      (box :space-evenly true :spacing {layout.gap} :vexpand true
-        (arch-card :height {layout.top_height})
-        (system-card :height {layout.top_height})
-      )
-      (box :space-evenly true :spacing {layout.gap} :vexpand true
-        (calendar-card :height {layout.top_height})
-        (performance-card :height {layout.middle_height})
-      )
-      (box :space-evenly true :spacing {layout.gap} :vexpand true
-        (processes-card :height {layout.middle_height})
-        (connectivity-card :height {layout.middle_height})
-      )
-      (box :space-evenly true :spacing {layout.gap} :vexpand true
-        (player-card :height {layout.bottom_height})
-        (shares-card :height {layout.bottom_height})
-      )
-      (box :visible {power.present} :space-evenly true :spacing {layout.gap}
-        (power-card :height {layout.bottom_height})
-        (box :width {layout.card_width} :height 0)
-      )
-    )
-    (box :visible {layout.columns == 1} :orientation "v" :space-evenly false :spacing {layout.gap} :vexpand true
-      (box :space-evenly true :spacing {layout.gap} :vexpand true
-        (arch-card :height {layout.top_height})
-      )
-      (box :space-evenly true :spacing {layout.gap} :vexpand true
-        (system-card :height {layout.top_height})
-      )
-      (box :space-evenly true :spacing {layout.gap} :vexpand true
-        (calendar-card :height {layout.top_height})
-      )
-      (box :space-evenly true :spacing {layout.gap} :vexpand true
-        (performance-card :height {layout.middle_height})
-      )
-      (box :space-evenly true :spacing {layout.gap} :vexpand true
-        (processes-card :height {layout.middle_height})
-      )
-      (box :space-evenly true :spacing {layout.gap} :vexpand true
-        (connectivity-card :height {layout.middle_height})
-      )
-      (box :space-evenly true :spacing {layout.gap} :vexpand true
-        (player-card :height {layout.bottom_height})
-      )
-      (box :space-evenly true :spacing {layout.gap} :vexpand true
-        (shares-card :height {layout.bottom_height})
-      )
-      (box :visible {power.present} :space-evenly true :spacing {layout.gap}
-        (power-card :height {layout.bottom_height})
-      )
-    )
-  ))
+  (literal :content dashboard_grid))
 
 (defwidget app-shortcut [app pinned]
   (button :class {pinned ? "recent-app pinned-app" : "recent-app"} :timeout "10s"
@@ -243,7 +209,7 @@
       (label :visible {layout.rail_labels} :text {app.name} :limit-width {layout.rail_name_chars} :width {layout.rail_content_width} :height 0 :wrap true :style "font-size: ${layout.app_name_size}px;"))))
 
 (defwidget recent-apps-card []
-  (box :class "card recent-rail" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.rail_width} :height 0 :vexpand true
+  (box :class "card recent-rail" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.rail_width} :height 0 :vexpand true
     (scroll :hscroll false :vscroll true :vexpand true
       (box :orientation "v" :space-evenly false :spacing {layout.row_gap}
         (label :visible {arraylength(app_lists.pinned) > 0} :show-truncated false :class "card-title" :text {layout.rail_labels ? "PINNED" : ""} :style "font-size: ${layout.small_size}px;")
@@ -269,7 +235,7 @@
           (label :show-truncated false :class "date" :style "font-size: ${layout.small_size}px;" :text today :halign "end")))
       (box :orientation "h" :space-evenly false :spacing {layout.gap} :vexpand true
         (recent-apps-card)
-        (scroll :hscroll false :vscroll true :hexpand true :vexpand true
+        (box :hexpand true :vexpand true
           (dashboard-grid))))))
 
 (defwindow dashboard

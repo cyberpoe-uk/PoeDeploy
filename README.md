@@ -111,19 +111,21 @@ BlackArch, security tools and official Burp are independent optional application
 The dashboard shows the current machine's hostname prominently in the top-left
 corner. Its Compact/Comfortable button changes text size and internal spacing
 immediately, and remembers the choice across restarts and updates. On wide
-screens the cards use three aligned rows:
+screens the cards use three columns with individually sized cards:
 
 | | | |
 | --- | --- | --- |
 | Arch | System | Calendar |
 | Performance | Top Processes | Connectivity |
-| Player | Mounted Shares | Power |
+| Player | Mounted Shares | Power & Idle |
 
 The layout accounts for display scaling and desktop bars, and switches to fewer
-columns on narrow displays. Compact uses 14–17 px body text and the default Comfortable uses
-16–20 px, scaling with the available card width. Artwork grows with the player
-card and song names wrap. Long process, share and laptop activity lists scroll
-inside their cards. Both modes can use vertical scrolling on short screens.
+columns on narrow displays. It is validated through native 3840×2160 and scaled
+4K desktops. On very small displays, cards retain bounded frames and scroll their
+contents individually. Text, padding and card heights adapt to the available screen area. Comfortable
+remains larger than Compact, with smaller text used on shorter laptop displays. Artwork grows with the player
+card and song names wrap. The dashboard itself does not scroll. Long lists scroll
+inside their cards.
 
 A narrow app card sits below the hostname and dashboard name on the left, aligned
 with the other cards and using the same theme. Right-click an app to pin or unpin
@@ -134,14 +136,57 @@ playing that media. The calendar includes an upcoming-events area from
 Thunderbird's local calendar cache, and opens Thunderbird when clicked. Without
 a configured calendar it shows the month grid with an empty events area.
 
-The Power card appears only for system batteries. Remaining time appears only
-when the OS supplies a valid estimate. Without a battery the other cards expand
-into its space. General metrics refresh every two seconds on battery. Playing
+Battery details appear only when a system battery is detected. Remaining time appears only
+when the OS supplies a valid estimate. Power-profile and idle controls remain available on desktops. General metrics refresh every two seconds on battery. Playing
 media refreshes independently every second, with paused/stopped media checked
 every five seconds. AC metric intervals remain unchanged. Hidden dashboards
 pause metric collectors. Laptop GPU monitoring uses passive telemetry by default.
 Set `"gpu_monitoring": "detailed"` in `~/.config/poedash/layout.json` to request
 active GPU measurements, or `"passive"` to avoid NVIDIA queries on any machine.
+
+PoeDash also provides a **Power & Idle Management** card in the main grid. Its Idle and Power tabs share the ninth card, with
+the current profile always visible. Its numerical steppers edit Screen Off, Lock Screen and Auto Suspend in
+minutes. Zero disables only that timer. Apply is enabled only for pending changes.
+It discovers the running Hypridle instance and its config, including custom paths,
+source files and dotfile symlinks. It backs up the resolved files, preserves other
+listeners and security hooks, restarts only Hypridle, and checks runtime timer
+registration and configuration readback. Failures retain the draft and restore the
+previous config. Custom/ambiguous timers or missing idle managers are reported
+rather than silently replaced. Both AC and battery currently use the same timers.
+Hyprlock and logind retain their authentication and suspend-inhibitor behaviour.
+The card requires an existing running Hypridle configuration and desktop autostart.
+It does not install a competing idle manager or edit logind defaults.
+
+Automatic power profiles belong to PoeDash's installation and the independent
+`poedash-power.service` user service. System power supplies determine the source,
+not chassis type. On battery the default is Power Saver. On AC and on desktops it
+is Performance. An unavailable default falls back to Balanced, or the first
+supported profile, with an explanation. The existing power-profiles API (including
+compatible tuned-ppd providers) is preferred. Native tuned supports the installed
+`throughput-performance`, `balanced` and `powersave` profiles. Conflicting managers
+are reported, and no competing backend is installed or enabled automatically.
+
+Manual profile buttons apply and verify real changes immediately. A manual choice
+survives dashboard restarts and reinstalls until an actual source transition.
+Each new boot initialises the automatic default at user-session startup. The user
+service listens for power-supply and profile events even when the dashboard is
+closed, with a 60-second recovery reconciliation for missed events. The Power tab provides profile controls on both laptops and desktops. Battery
+details are omitted on desktops.
+
+```bash
+poedash power status
+poedash power disable
+poedash power enable
+systemctl --user status poedash-power.service
+journalctl --user -u poedash-power.service -b
+```
+
+Disabling automatic profiles stops and removes its owned service while retaining
+the current real profile and the disabled preference for future updates. Disabling
+the dashboard window alone leaves power management running. Uninstall removes the
+owned service. Hypridle keeps its existing startup and configuration independently.
+Missing profile services or permissions produce actionable feedback instead of
+claiming success. These settings do not require running PoeDash as root.
 
 The dashboard shows on workspace 1 using widget visibility rather than global
 opacity. Its workspace observer supports nonzero monitor IDs and reconnects if

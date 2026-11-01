@@ -13,14 +13,15 @@ The wide layout uses three columns:
 | --- | --- | --- |
 | Arch | System | Calendar |
 | Performance | Top Processes | Connectivity |
-| Player | Mounted Shares | Power, when a system battery exists |
+| Player | Mounted Shares | Power & Idle |
 
 The layout adapts to display scaling, desktop bars and narrower monitors.
-Comfortable is the default with 16–20 px body text. Compact uses 14–17 px.
+Comfortable is the default. Compact uses smaller text and spacing. Card heights
+and typography adapt to the viewport so the dashboard itself does not scroll.
 The dashboard button changes density live and saves the selection. App captions
 use smaller text, with icons as their primary visual identifiers.
 
-The Power card hides completely on desktops and the remaining cards reflow.
+Battery details hide on desktops, while profile and idle controls remain visible.
 Remaining time appears only when the OS supplies a valid estimate. General
 metrics update every two seconds on battery, with existing intervals preserved
 on AC. Playing media updates independently every second. Hidden dashboards
@@ -32,6 +33,26 @@ Clicking artwork or the track title opens the playing application. The calendar
 reads Thunderbird's enabled local calendars and cached events without modifying
 them. Titles wrap and the agenda scrolls. With no connected calendar, it shows
 an empty agenda. Clicking the calendar opens Thunderbird Calendar.
+
+## Power and idle settings
+
+The always-visible Power & Idle Management card is the ninth card in the main
+grid, with Idle and Power tabs and a persistent current-profile summary.
+Screen Off, Lock Screen and Auto Suspend use independent minute controls, with
+zero disabling a timer. Apply backs up and updates the discovered Hypridle config,
+restarts the existing daemon and verifies registered timers. Other listeners,
+source files, symlinks, before-sleep locks and resume hooks are retained. Unsupported
+custom actions require manual review. Missing Hypridle/autostart configuration is
+reported. No new idle service or privileged dashboard process is introduced.
+
+Power-profile controls appear in the Power tab on both laptops and desktops. The installer configures a single user service that listens for
+power-supply events independently of the dashboard. Battery selects Power Saver,
+AC and desktops select Performance, with a reported supported fallback when needed.
+Manual overrides last until the next real power-source transition and survive
+UI restarts. A new boot restores the automatic default at user-session startup.
+Existing power-profiles or tuned backends are reused. Competing managers are never
+installed. Use `poedash power disable`/`enable` to manage this feature separately
+from dashboard visibility. Reinstall retains a disabled preference.
 
 ## Install and refresh
 
