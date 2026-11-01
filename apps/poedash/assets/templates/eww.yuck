@@ -2,7 +2,7 @@
 (defpoll clock :interval "10s" :initial "--:--" `date '+%H:%M'`)
 (defpoll today :interval "30s" :initial "" `LC_ALL=C date '+%a %d %b' | tr '[:lower:]' '[:upper:]'`)
 (defpoll month :interval "1m" :initial "" `LC_ALL=C date '+%B %Y'`)
-(deflisten home_visible :initial false `./scripts/workspace.sh --listen`)
+(deflisten home_visible :initial true `./scripts/workspace.py --listen`)
 (defpoll cpu :interval "2s" :initial 0 `./scripts/cpu.sh`)
 (defpoll ram :interval "3s" :initial 0 `./scripts/arch-status.sh ram`)
 (defpoll gpu :interval "5s" :initial '{"usage":0,"label":"--","temperature":"--"}' `./scripts/gpu.sh`)
@@ -209,7 +209,7 @@
   ))
 
 (defwidget dashboard-content []
-  (box :class {home_visible ? "dashboard-home" : "dashboard-away"} :space-evenly false :hexpand true :vexpand true
+  (box :class "dashboard-surface" :visible home_visible :space-evenly false :hexpand true :vexpand true
     (box :class {layout.density == "compact" ? "dashboard-panel compact" : "dashboard-panel comfortable"} :style "padding: ${layout.padding}px;" :hexpand true :vexpand true :orientation "v" :space-evenly false :spacing {layout.gap}
       (box :class "header" :orientation {layout.columns == 1 ? "v" : "h"} :space-evenly false :spacing 16
         (box :orientation "v" :space-evenly false :hexpand true :spacing 4
@@ -226,7 +226,7 @@
 (defwindow dashboard
   :monitor 0
   :geometry (geometry :x "0px" :y "0px" :width "100%" :height "100%" :anchor "center")
-  :stacking "bg"
+  :stacking "bottom"
   :exclusive false
   :focusable false
   (dashboard-content))

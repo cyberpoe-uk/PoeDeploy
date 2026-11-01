@@ -251,6 +251,8 @@ def install(args, root):
         shutil.copytree(assets / directory, root / directory, dirs_exist_ok=True)
     shutil.copy2(SOURCE.parent / 'shared/dashboard-layout.py', root / 'scripts/layout.py')
     (root / 'scripts/layout.py').chmod(0o755)
+    shutil.copy2(SOURCE.parent / 'shared/workspace-state.py', root / 'scripts/workspace.py')
+    (root / 'scripts/workspace.py').chmod(0o755)
     atomic(root / 'dashboard-id', 'poedash\n', 0o600)
     for filename in ('colors.scss', 'settings.example.json', 'media-placeholder.svg'):
         shutil.copy2(assets / filename, root / filename)

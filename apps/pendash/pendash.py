@@ -184,6 +184,8 @@ def install_dashboard(dry_run, preserve_colors=False):
             (destination / name).write_bytes(preserved[name])
     shutil.copy2(SOURCE.parent / 'shared/dashboard-layout.py', destination / 'scripts/layout.py')
     (destination / 'scripts/layout.py').chmod(0o755)
+    shutil.copy2(SOURCE.parent / 'shared/workspace-state.py', destination / 'scripts/workspace.py')
+    (destination / 'scripts/workspace.py').chmod(0o755)
     (destination / 'dashboard-id').write_text('pendash\n')
     if state_copy:
         shutil.copytree(state_copy, destination / 'state', dirs_exist_ok=True)

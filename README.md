@@ -123,6 +123,11 @@ The layout accounts for display scaling and desktop bars, and switches to fewer
 columns on narrow displays. Long process, share and laptop activity lists scroll
 inside their cards. Comfortable mode can use vertical scrolling on short screens.
 
+The dashboard shows on workspace 1 using widget visibility rather than global
+opacity. Its workspace observer supports nonzero monitor IDs and reconnects if
+Hyprland's event socket is temporarily unavailable. Dashboard surfaces sit above
+wallpapers on the Wayland bottom layer, with application windows above them.
+
 PoeDash is the general dashboard. Its installer offers `PoeDash` as the default
 subtitle and lets the user enter another subtitle. It shows performance, laptop power
 and battery data when available, the top ten processes, host specifications,

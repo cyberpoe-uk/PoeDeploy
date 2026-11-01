@@ -14,6 +14,8 @@ if ! timeout 3 eww --config "$root" ping >/dev/null 2>&1; then
     eww --config "$root" --force-wayland daemon 9>&-
 else
     eww --config "$root" reload
+    # Recreate this surface so updated layer and monitor settings take effect.
+    eww --config "$root" close dashboard >/dev/null 2>&1 || true
 fi
 for ((attempt=0; attempt<10; attempt++)); do
     if timeout 3 eww --config "$root" active-windows | grep -q '^dashboard: dashboard$'; then exit 0; fi

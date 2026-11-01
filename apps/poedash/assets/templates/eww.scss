@@ -3,8 +3,6 @@
 * { all: unset; font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", monospace; color: $foreground; }
 window { background-color: transparent; }
 .dashboard-panel { background-color: rgba($background, 0.50); border: 1px solid rgba($border, 0.45); }
-.dashboard-home { opacity: 1; }
-.dashboard-away { opacity: 0; }
 .compact, .compact label { font-size: 13px; }
 .comfortable, .comfortable label { font-size: 14px; }
 .header { padding-bottom: 12px; border-bottom: 1px solid rgba($border, 0.30); }

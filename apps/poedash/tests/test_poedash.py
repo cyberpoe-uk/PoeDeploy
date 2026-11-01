@@ -59,6 +59,7 @@ class Installation(unittest.TestCase):
         self.assertTrue((self.root / 'disabled').exists())
         self.assertEqual(json.loads((self.root / 'layout.json').read_text())['density'], 'comfortable')
         self.assertTrue((self.root / 'scripts/layout.py').stat().st_mode & 0o111)
+        self.assertTrue((self.root / 'scripts/workspace.py').stat().st_mode & 0o111)
         self.assertEqual((self.root / 'dashboard-id').read_text(), 'poedash\n')
         self.assertEqual((self.home / '.config/poedeploy/dashboard').read_text(), 'poedash\n')
         import tomllib
@@ -161,8 +162,8 @@ class Installation(unittest.TestCase):
                         'Tailscale IP', ':wrap true', 'media.art'):
             self.assertIn(feature, yuck)
         self.assertIn(':visible {power.available}', yuck)
-        self.assertNotIn(':visible home_visible', yuck)
-        self.assertIn('dashboard-away', yuck)
+        self.assertIn(':visible home_visible', yuck)
+        self.assertNotIn('dashboard-away', yuck)
         self.assertIn('deflisten home_visible', yuck)
         self.assertIn(':text {layout.hostname}', yuck)
         self.assertIn('spotify-launcher', (self.root / 'scripts/media-control.sh').read_text())

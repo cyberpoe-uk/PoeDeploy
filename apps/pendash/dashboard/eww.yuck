@@ -1,5 +1,5 @@
 ;; BlackArch home screen. Collectors live in scripts/; GTK styling in eww.scss.
-(deflisten home_visible :initial false `~/.config/eww/scripts/workspace-watch.py`)
+(deflisten home_visible :initial true `~/.config/eww/scripts/workspace.py --listen`)
 (defpoll clock :run-while home_visible :interval "10s" :initial "--:--" `date '+%H:%M'`)
 (defpoll today :run-while home_visible :interval "30s" :initial "" `LC_ALL=C date '+%a %d %b' | tr '[:lower:]' '[:upper:]'`)
 (defpoll month :run-while home_visible :interval "1m" :initial "" `LC_ALL=C date '+%B %Y'`)
@@ -220,7 +220,7 @@
   ))
 
 (defwidget dashboard-content []
-  (box :class {home_visible ? "dashboard-home" : "dashboard-away"} :space-evenly false :hexpand true :vexpand true :visible home_visible
+  (box :class "dashboard-surface" :space-evenly false :hexpand true :vexpand true :visible home_visible
     (box :class {layout.density == "compact" ? "dashboard-panel compact" : "dashboard-panel comfortable"} :style "padding: ${layout.padding}px;" :hexpand true :vexpand true :orientation "v" :space-evenly false :spacing {layout.gap}
       (box :class "header" :orientation {layout.columns == 1 ? "v" : "h"} :space-evenly false :spacing 16
         (box :orientation "v" :space-evenly false :hexpand true :spacing 4
@@ -237,7 +237,7 @@
 (defwindow dashboard
   :monitor 0
   :geometry (geometry :x "0px" :y "0px" :width "100%" :height "100%" :anchor "center")
-  :stacking "bg"
+  :stacking "bottom"
   :exclusive false
   :focusable false
   (dashboard-content))

@@ -40,6 +40,14 @@ and refreshes the layout when monitor configuration changes. Legacy PoeDash
 pixel-size settings are retained for compatibility while the responsive grid
 sets card widths automatically. The configured PoeDash name appears as a subtitle.
 
+Workspace changes show and hide the widgets directly, without dashboard-wide
+opacity rules that can leave an invisible surface with active tooltips. Both
+dashboards use the shared workspace observer, matching Eww's monitor index or
+connector name rather than assuming monitor ID 0. It preserves confirmed state
+during IPC failures and rechecks periodically to recover missed events. The
+Wayland bottom layer keeps the dashboard above wallpapers and below applications,
+and startup recreates its surface so updated layer settings apply immediately.
+
 Both dashboard update buttons download PoeDeploy's latest `main` branch, where
 these applications are maintained, rather than waiting for a stable release tag.
 The public `poedash-latest` and `pendash-latest` launchers also use the bundled

@@ -102,7 +102,7 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual((root / 'layout.json').read_text(), '{"density":"comfortable"}')
             self.assertFalse((root / 'obsolete-interface-file').exists())
             self.assertIn('defwindow', (root / 'eww.yuck').read_text())
-            for name in ('layout.py', 'media.py', 'media-control.sh', 'system-info.py', 'processes.py', 'shares.py'):
+            for name in ('workspace.py', 'layout.py', 'media.py', 'media-control.sh', 'system-info.py', 'processes.py', 'shares.py'):
                 self.assertTrue((root / 'scripts' / name).stat().st_mode & 0o111)
             for name in ('ctf-control.py', 'ctf-status.sh', 'target.sh', 'launch-app.sh'):
                 self.assertFalse((root / 'scripts' / name).exists())
