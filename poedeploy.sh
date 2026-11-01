@@ -3283,12 +3283,12 @@ select_applications() {
 
     if [[ " ${SELECTED_PACKAGES[*]} " == *" @poedash "* ]]; then
         local requested_name
-        if ! ui_prompt requested_name "Dashboard name [PoeDash]: "; then
+        if ! ui_prompt requested_name "Dashboard subtitle [PoeDash]: "; then
             requested_name=""
         fi
         requested_name=${requested_name:-PoeDash}
         if (( ${#requested_name} > 32 )) || [[ "$requested_name" == *$'\n'* || "$requested_name" == *$'\r'* ]]; then
-            warning "Dashboard name must contain 1–32 printable characters. Using PoeDash."
+            warning "Dashboard subtitle must contain 1–32 printable characters. Using PoeDash."
             requested_name="PoeDash"
         fi
         POEDASH_NAME="$requested_name"

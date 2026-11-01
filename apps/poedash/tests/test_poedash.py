@@ -48,6 +48,7 @@ class Installation(unittest.TestCase):
         (self.root / 'colors.scss').write_text('// custom palette')
         (self.root / 'obsolete-interface-file').write_text('remove me')
         (self.root / 'disabled').touch()
+        (self.root / 'layout.json').write_text('{"density":"comfortable"}')
         self.hypr.write_text(self.hypr.read_text() + '-- later user edit\n')
         self.install()
         self.assertEqual(self.hypr.read_text().count(poedash.BEGIN), 1)
@@ -56,6 +57,8 @@ class Installation(unittest.TestCase):
         self.assertEqual((self.root / 'colors.scss').read_text(), '// custom palette')
         self.assertFalse((self.root / 'obsolete-interface-file').exists())
         self.assertTrue((self.root / 'disabled').exists())
+        self.assertEqual(json.loads((self.root / 'layout.json').read_text())['density'], 'comfortable')
+        self.assertTrue((self.root / 'scripts/layout.py').stat().st_mode & 0o111)
         import tomllib
         theme = self.home / '.config/matugen/config.toml'
         self.assertIn('poedash', tomllib.loads(theme.read_text())['templates'])
@@ -115,7 +118,7 @@ class Installation(unittest.TestCase):
         for unwanted in ('QUICK LAUNCH', 'CTF FIREFOX', 'WIRESHARK', 'START WEB CTF'):
             self.assertNotIn(unwanted, yuck)
 
-    def test_auto_scale_and_custom_dimensions(self):
+    def test_responsive_layout_preserves_settings_and_readable_text(self):
         self.install()
         cfg = poedash.settings(self.root)
         cfg['layout']['system_width'] = 600
@@ -123,9 +126,10 @@ class Installation(unittest.TestCase):
         with patch.object(poedash, 'monitor_info', return_value={'name': 'DP-2', 'width': 2560, 'height': 1440, 'scale': 2}):
             poedash.render(self.root)
         yuck = (self.root / 'eww.yuck').read_text()
-        self.assertIn(':width 400', yuck)
+        self.assertIn(':width {layout.card_width}', yuck)
         self.assertIn(':monitor 0', yuck)
-        self.assertIn('font-size: 22.6667px', (self.root / 'eww.scss').read_text())
+        self.assertIn('.comfortable', (self.root / 'eww.scss').read_text())
+        self.assertEqual(poedash.settings(self.root)['layout']['system_width'], 600)
         self.assertNotIn('/home/', yuck)
 
     def test_named_monitor_supports_gtk_model_names(self):
@@ -151,14 +155,14 @@ class Installation(unittest.TestCase):
         self.assertEqual(poedash.settings(self.root)['name'], 'Studio PC')
         yuck = (self.root / 'eww.yuck').read_text()
         for feature in ('TOP PROCESSES', 'Power draw', 'SMB / NFS SHARES',
-                        '${system_info.host} SPECIFICATIONS', 'media-control.sh spotify',
+                        'SPECIFICATIONS', 'media-control.sh spotify',
                         'Tailscale IP', ':wrap true', 'media.art'):
             self.assertIn(feature, yuck)
         self.assertIn(':visible {power.available}', yuck)
         self.assertNotIn(':visible home_visible', yuck)
         self.assertIn('dashboard-away', yuck)
         self.assertIn('deflisten home_visible', yuck)
-        self.assertIn(':width 520', yuck)
+        self.assertIn(':text {layout.hostname}', yuck)
         self.assertIn('spotify-launcher', (self.root / 'scripts/media-control.sh').read_text())
         self.assertIn('updates > 50 ? "updates critical"', yuck)
         for script in ('system-info.py', 'processes.py', 'shares.py', 'power.py', 'media.py'):

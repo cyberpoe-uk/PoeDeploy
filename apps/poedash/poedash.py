@@ -70,22 +70,8 @@ def monitor_info(monitor):
 
 def render(root):
     cfg = settings(root)
-    scale = cfg['layout']['scale']
     monitor = monitor_info(cfg['monitor'])
-    if scale == 'auto':
-        scale = 1.0
-        if monitor:
-            width, height = monitor['width'], monitor['height']
-            if monitor.get('transform', 0) % 2:
-                width, height = height, width
-            scale = min(1.0, width / monitor.get('scale', 1) / 1920,
-                        height / monitor.get('scale', 1) / 1080)
-            scale = max(.5, scale)
     yuck = (root / 'templates/eww.yuck').read_text()
-    yuck = yuck.replace(':width 620', ':width ' + str(cfg['layout']['system_width']))
-    yuck = yuck.replace(':width 520', ':width ' + str(cfg['layout']['network_width']))
-    yuck = yuck.replace(':height 250', ':height ' + str(cfg['layout']['lower_height']))
-    yuck = re.sub(r':(width|height|spacing) (\d+)', lambda m: ':' + m[1] + ' ' + str(max(1, round(int(m[2]) * scale))), yuck)
     dashboard_name = json.dumps(cfg['name'], ensure_ascii=False).replace('${', r'\${')
     yuck = yuck.replace('"@@DASHBOARD_NAME@@"', dashboard_name)
     selector = cfg['monitor']
@@ -96,13 +82,12 @@ def render(root):
         selector = json.dumps(matchers)
     yuck = yuck.replace(':monitor 0', ':monitor ' + json.dumps(selector))
     css = (root / 'templates/eww.scss').read_text()
-    css = re.sub(r'(\d+(?:\.\d+)?)px', lambda m: f'{max(1, float(m[1]) * scale):g}px', css)
     start = shlex.join([str(root / 'scripts/start.sh')])
     lua = (root / 'templates/hyprland.lua').read_text().replace('@@START@@', json.dumps(start, ensure_ascii=False))
     # Validate everything before replacing any generated file.
     for name, content in [('eww.yuck', yuck), ('eww.scss', css), ('hyprland.lua', lua)]:
         atomic(root / name, content)
-    print(f'Rendered {root} (scale {scale:g})')
+    print(f'Rendered {root} (responsive layout)')
 
 
 def dependencies(dry_run=False):
@@ -181,9 +166,9 @@ def chosen_name(args, root):
     elif args.non_interactive or not sys.stdin.isatty():
         value = current
     else:
-        value = input(f'Dashboard name [{current}]: ').strip() or current
+        value = input(f'Dashboard subtitle [{current}]: ').strip() or current
     if not 1 <= len(value) <= 32 or any(ord(char) < 32 for char in value):
-        raise ValueError('Dashboard name must contain 1–32 printable characters.')
+        raise ValueError('Dashboard subtitle must contain 1–32 printable characters.')
     return value
 
 
@@ -252,7 +237,7 @@ def install(args, root):
             shutil.copy2(matugen, backup / 'matugen.toml')
         retire_legacy_dashboard(config_home, backup)
     preserved = {}
-    for preserved_name in ('settings.json', 'colors.scss', 'disabled'):
+    for preserved_name in ('settings.json', 'colors.scss', 'disabled', 'layout.json'):
         path = root / preserved_name
         if path.is_file():
             preserved[preserved_name] = path.read_bytes()
@@ -264,7 +249,9 @@ def install(args, root):
     root.mkdir(parents=True, exist_ok=True)
     for directory in ('scripts', 'templates'):
         shutil.copytree(assets / directory, root / directory, dirs_exist_ok=True)
-    for filename in ('colors.scss', 'settings.example.json'):
+    shutil.copy2(SOURCE.parent / 'shared/dashboard-layout.py', root / 'scripts/layout.py')
+    (root / 'scripts/layout.py').chmod(0o755)
+    for filename in ('colors.scss', 'settings.example.json', 'media-placeholder.svg'):
         shutil.copy2(assets / filename, root / filename)
     if 'colors.scss' in preserved:
         (root / 'colors.scss').write_bytes(preserved['colors.scss'])
@@ -287,6 +274,8 @@ def install(args, root):
     atomic(root / 'settings.json', json.dumps(new_settings, indent=2) + '\n')
     if 'disabled' in preserved:
         (root / 'disabled').write_bytes(preserved['disabled'])
+    if 'layout.json' in preserved:
+        (root / 'layout.json').write_bytes(preserved['layout.json'])
     shutil.copy2(SOURCE / 'poedash.py', root / 'poedash.py')
     render(root)
     run([sys.executable, root / 'scripts/dashboard-control.py', '--root', root, 'prepare'])

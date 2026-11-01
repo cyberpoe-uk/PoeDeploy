@@ -157,7 +157,7 @@ def install_dashboard(dry_run, preserve_colors=False):
         print(f'Would back up and install the PenDash dashboard into {destination}.')
         return
     preserved = {}
-    for name in ('colors.scss', 'disabled'):
+    for name in ('colors.scss', 'disabled', 'layout.json'):
         path = destination / name
         if path.is_file():
             preserved[name] = path.read_bytes()
@@ -179,8 +179,11 @@ def install_dashboard(dry_run, preserve_colors=False):
                 target.chmod(0o755)
     if preserve_colors and 'colors.scss' in preserved:
         (destination / 'colors.scss').write_bytes(preserved['colors.scss'])
-    if 'disabled' in preserved:
-        (destination / 'disabled').write_bytes(preserved['disabled'])
+    for name in ('disabled', 'layout.json'):
+        if name in preserved:
+            (destination / name).write_bytes(preserved[name])
+    shutil.copy2(SOURCE.parent / 'shared/dashboard-layout.py', destination / 'scripts/layout.py')
+    (destination / 'scripts/layout.py').chmod(0o755)
     if state_copy:
         shutil.copytree(state_copy, destination / 'state', dirs_exist_ok=True)
         shutil.rmtree(state_copy.parent)

@@ -28,6 +28,18 @@ PowerTOP scans. Its collectors pause when the dashboard is hidden and refresh
 less often on battery. The content area scrolls on smaller screens. Missing
 players, mounts or sensors show an empty state.
 
+Both dashboards use the local hostname as their main heading and provide a live
+Compact/Comfortable toggle. The grid is Arch/System/Calendar, then
+Performance/Top Processes/Connectivity, then Player/Mounted Shares/Power. On
+narrow displays it adapts to two or one columns. Text size and internal spacing
+change immediately without restarting Eww or its collectors. The density choice
+is saved in each installed dashboard's `layout.json` and preserved during updates.
+The shared `shared/dashboard-layout.py` helper is installed as `scripts/layout.py`
+for both dashboards. It measures logical monitor dimensions and reserved bars,
+and refreshes the layout when monitor configuration changes. Legacy PoeDash
+pixel-size settings are retained for compatibility while the responsive grid
+sets card widths automatically. The configured PoeDash name appears as a subtitle.
+
 Both dashboard update buttons download PoeDeploy's latest `main` branch, where
 these applications are maintained, rather than waiting for a stable release tag.
 The public `poedash-latest` and `pendash-latest` launchers also use the bundled

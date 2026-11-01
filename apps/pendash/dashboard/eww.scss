@@ -1,74 +1,53 @@
 @import "colors.scss";
 
-* {
-  all: unset;
-  font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", monospace;
-  font-size: 16px;
-  color: $foreground;
-}
+* { all: unset; font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", monospace; color: $foreground; }
 window { background-color: transparent; }
-.dashboard-panel {
-  background-color: rgba($background, 0.50);
-  border: 1px solid rgba($border, 0.45);
-  border-radius: 0;
-  padding: 40px;
-}
-.header { padding-bottom: 24px; border-bottom: 1px solid rgba($border, 0.30); }
-.title { font-size: 48px; font-weight: 800; letter-spacing: 3px; }
-.subtitle { color: $muted; font-size: 16px; letter-spacing: 1.3px; }
-.clock { font-size: 48px; font-weight: 500; letter-spacing: 1px; }
-.date { color: $secondary; font-size: 15px; }
-.card {
-  background-color: rgba($card, 0.55);
-  border: 1px solid rgba($border, 0.30);
-  border-radius: 11px;
-  padding: 24px;
-}
-.card-title { color: $accent; font-size: 15px; font-weight: 700; letter-spacing: 1.6px; margin-bottom: 3px; }
-.stat-name { color: $secondary; font-size: 14px; }
-.stat-value { font-size: 16px; font-weight: 600; }
-.meter-row { min-height: 38px; }
-progressbar trough { min-width: 65px; min-height: 6px; background-color: rgba($border, 0.45); border-radius: 3px; }
-progressbar progress { min-height: 6px; background-color: $accent; border-radius: 3px; }
-.temperature { border-top: 1px solid rgba($border, 0.30); padding-top: 24px; }
-.online { color: $accent; }
-.offline { color: $muted; }
-.status-dot { font-size: 25px; }
-.micro { font-size: 13px; color: $muted; letter-spacing: 1px; }
-.connection { font-size: 15px; letter-spacing: 1px; }
-.network-interface { color: $secondary; }
-.network-address { font-size: 21px; font-weight: 600; }
-.calendar-month { font-size: 16px; }
-.calendar-text { font-size: 20px; }
-.current .stat-value { color: $accent; }
-.pending .stat-value { color: #e6b86a; }
-.unknown .stat-value { color: $muted; }
-.critical .stat-value { color: #ff5c68; font-weight: 800; }
-button:hover .card-title, button:hover .stat-name { color: $foreground; }
-button:hover progress { background-color: $foreground; }
-tooltip { background-color: $card; border: 1px solid $border; border-radius: 6px; padding: 6px; }
-
-
-/* Battery telemetry stays compact in the lower card row. */
-.power-card label { font-size: 13px; }
-.power-card .card-title { font-size: 15px; }
-.power-card .micro { font-size: 11px; letter-spacing: 0; }
-.power-scan label { color: $accent; }
-.power-scan { margin-top: 3px; }
-
-.specifications, .shares { border-top: 1px solid rgba($border, 0.30); padding-top: 12px; }
-.info-key, .subheading, .column-heading { color: $muted; font-size: 12px; }
-.info-value, .process-row, .share-row { color: $secondary; font-size: 13px; }
-.process-heading, .process-row { font-family: "JetBrains Mono", monospace; }
-.process-row { padding: 5px 0; border-bottom: 1px solid rgba($border, 0.18); }
-.share-row { padding: 3px 0; }
-.player-logo { min-width: 54px; min-height: 54px; border-radius: 12px; background-color: rgba($accent, 0.18); }
+.dashboard-panel { background-color: rgba($background, 0.50); border: 1px solid rgba($border, 0.45); }
+.dashboard-home { opacity: 1; }
+.dashboard-away { opacity: 0; }
+.compact, .compact label { font-size: 13px; }
+.comfortable, .comfortable label { font-size: 14px; }
+.header { padding-bottom: 12px; border-bottom: 1px solid rgba($border, 0.30); }
+.title, .clock { font-weight: 700; letter-spacing: 1px; }
+.compact .title, .compact .clock { font-size: 28px; }
+.comfortable .title, .comfortable .clock { font-size: 32px; }
+.subtitle, .date { color: $secondary; font-size: 12px; }
+.comfortable .subtitle, .comfortable .date { font-size: 13px; }
+.card { background-color: rgba($card, 0.58); border: 1px solid rgba($border, 0.32); border-radius: 11px; padding: 14px; }
+.comfortable .card { padding: 20px; }
+.compact .card-title, .card-title { color: $accent; font-size: 13px; font-weight: 700; letter-spacing: 1px; }
+.comfortable .card-title { font-size: 14px; }
+.stat-name, .info-key { color: $secondary; }
+.stat-value { font-weight: 600; }
+.info-value { color: $secondary; }
+.compact .info-key, .compact .subheading, .compact .column-heading, .compact .micro { color: $muted; font-size: 11px; }
+.comfortable .info-key, .comfortable .subheading, .comfortable .column-heading, .comfortable .micro { font-size: 12px; }
+.meter-row { min-height: 26px; }
+.comfortable .meter-row { min-height: 32px; }
+progressbar trough { min-width: 40px; min-height: 5px; background-color: rgba($border, 0.45); border-radius: 3px; }
+progressbar progress { min-height: 5px; background-color: $accent; border-radius: 3px; }
+.calendar-month { color: $secondary; }
+.compact .process-row { font-size: 12px; padding: 4px 0; border-bottom: 1px solid rgba($border, 0.18); }
+.comfortable .process-row { font-size: 13px; padding: 5px 0; }
+.process-row, .column-heading { font-family: "JetBrains Mono", monospace; }
+.share-row, .empty-state { color: $secondary; }
+.share-row { padding: 4px 0; }
+.player-logo { min-width: 54px; min-height: 54px; border-radius: 10px; background-color: rgba($accent, 0.18); }
 .player-logo label { font-size: 28px; color: $accent; }
 .player-logo:hover { background-color: rgba($accent, 0.35); }
-.media-title { font-size: 16px; font-weight: 700; }
-.media-artist, .media-time { color: $secondary; font-size: 13px; }
-.media-control { min-width: 34px; min-height: 30px; border-radius: 8px; }
-.media-control label { color: $secondary; font-size: 17px; }
+.media-title { font-weight: 700; }
+.media-artist, .media-time { color: $secondary; }
+.media-control { min-width: 28px; min-height: 28px; border-radius: 8px; }
+.media-control label { font-size: 16px; }
 .media-control:hover { background-color: rgba($accent, 0.18); }
 .media-unavailable { opacity: 0.4; }
-.media-progress trough { min-height: 5px; }
+.density-toggle { border: 1px solid rgba($accent, 0.60); border-radius: 8px; padding: 8px 12px; }
+.density-toggle label, .power-scan label { color: $accent; }
+.density-toggle:hover { background-color: rgba($accent, 0.18); }
+.current .stat-value { color: #8dd5a0; }
+.pending .stat-value { color: #e6a85c; }
+.critical .stat-value { color: #ff5c68; font-weight: 800; }
+.unknown .stat-value { color: $muted; }
+button:hover .card-title, button:hover .stat-name { color: $foreground; }
+scrollbar slider { min-width: 4px; min-height: 24px; border-radius: 2px; background-color: rgba($border, 0.65); }
+tooltip { background-color: $card; border: 1px solid $border; border-radius: 6px; padding: 6px; }

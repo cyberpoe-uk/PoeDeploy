@@ -17,114 +17,211 @@
 (defpoll processes :interval "3s" :initial '["Collecting process data"]' `./scripts/processes.py`)
 (defpoll shares :interval "15s" :initial '["Checking mounted shares"]' `./scripts/shares.py`)
 (defpoll media :interval "2s" :initial '{"available":false,"player":"No media","title":"Nothing playing","artist":"","status":"Stopped","position":"0:00","length":"0:00","progress":0,"icon":"♪","art":""}' `./scripts/media.py`)
+;; Start with narrow geometry until the monitor listener reports the actual size.
+(deflisten layout :initial '{"density": "compact", "columns": 1, "gap": 10, "row_gap": 6, "padding": 20, "card_width": 244, "card_padding": 14, "top_height": 195, "middle_height": 225, "bottom_height": 175, "list_height": 135, "share_height": 107, "power_height": 107, "key_width": 41, "calendar_size": 12, "hostname_width": 14, "text_width": 18, "hostname": "Loading…"}' `./scripts/layout.py listen`)
+
 
 (defwidget section-title [text]
   (label :show-truncated false :class "card-title" :text text :halign "start"))
 
 (defwidget stat-row [name value]
-  (box :space-evenly false :spacing 18 :hexpand true
+  (box :space-evenly false :spacing 10 :hexpand true
     (label :show-truncated false :class "stat-name" :text name :halign "start" :hexpand true)
-    (label :show-truncated false :class "stat-value" :text value :halign "end")))
-
-(defwidget meter [name value display action]
-  (button :vexpand true :onclick action
-    (box :space-evenly false :spacing 16 :class "meter-row" :vexpand true
-      (label :show-truncated false :class "stat-name" :text name :width 42 :halign "start")
-      (progress :value value :hexpand true :valign "center")
-      (label :show-truncated false :class "stat-value" :text display :width 62 :xalign 1))))
+    (label :class "stat-value" :text value :halign "end" :limit-width {layout.text_width} :tooltip value)))
 
 (defwidget info-row [name value]
-  (box :space-evenly false :spacing 14
-    (label :class "info-key" :text name :width 86 :halign "start")
-    (label :class "info-value" :text value :halign "start" :limit-width 42)))
+  (box :space-evenly false :spacing 10
+    (label :show-truncated false :class "info-key" :text name :width {layout.key_width} :height 0 :halign "start")
+    (label :class "info-value" :text value :halign "start" :hexpand true :limit-width {layout.text_width} :tooltip value)))
+
+(defwidget meter [name value display action]
+  (button :onclick action
+    (box :space-evenly false :spacing 10 :class "meter-row"
+      (label :show-truncated false :class "stat-name" :text name :width 36 :halign "start")
+      (progress :value value :hexpand true :valign "center")
+      (label :class "stat-value" :text display :width 56 :xalign 1))))
+
+(defwidget arch-card [height]
+  (box :class "card arch-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+    (section-title :text "ARCH")
+    (stat-row :name "Kernel" :value {arch.kernel})
+    (stat-row :name "Uptime" :value {arch.uptime})
+    (stat-row :name "Packages" :value packages)
+    (button :onclick "./scripts/launch.sh updates" :tooltip "Check Arch repository updates"
+      (box :class {updates == "0" ? "updates current" : updates == "--" ? "updates unknown" : updates > 50 ? "updates critical" : "updates pending"}
+        (stat-row :name "Updates" :value updates)))))
+
+(defwidget system-card [height]
+  (box :class "card system-card" :tooltip "SYSTEM SPECIFICATIONS" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+    (section-title :text "SYSTEM")
+    (info-row :name "OS" :value {system_info.os})
+    (info-row :name "CPU" :value {system_info.cpu})
+    (info-row :name "GPU" :value {system_info.gpu})
+    (info-row :name "MEMORY" :value {system_info.memory})
+    (info-row :name "HOME DISK" :value {system_info.disk})))
+
+(defwidget calendar-card [height]
+  (box :class "card calendar-card" :orientation "v" :space-evenly false :spacing 6 :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+    (section-title :text "CALENDAR")
+    (label :show-truncated false :class "calendar-month" :text month :halign "start")
+    (label :show-truncated false :class "calendar-text" :style "font-size: ${layout.calendar_size}px;" :markup calendar_text :unindent false :halign "center" :valign "center" :vexpand true)))
+
+(defwidget performance-card [height]
+  (box :class "card metrics-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+    (button :onclick "./scripts/launch.sh system" :tooltip "Open btop" (section-title :text "PERFORMANCE"))
+    (meter :name "CPU" :value cpu :display "${cpu}%" :action "./scripts/launch.sh system")
+    (meter :name "GPU" :value {gpu.usage} :display {gpu.label} :action "./scripts/launch.sh gpu")
+    (meter :name "RAM" :value ram :display "${ram}%" :action "./scripts/launch.sh system")
+    (stat-row :name "GPU temperature" :value {gpu.temperature})
+    (stat-row :name "Load 1 / 5 / 15m" :value {system_info.load})))
+
+;; Specify both dimensions so Eww 0.6 does not retain a previous allocated width.
+(defwidget processes-card [height]
+  (box :class "card processes-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+    (button :onclick "./scripts/launch.sh system" :tooltip "Open btop" (section-title :text "TOP PROCESSES"))
+    (label :show-truncated false :class "column-heading" :text "PROCESS              PID    CPU    RAM" :halign "start")
+    (scroll :hscroll {layout.columns == 1} :vscroll true :width 0 :height {layout.list_height} :vexpand true
+      (box :orientation "v" :space-evenly false
+        (for process in processes
+          (label :show-truncated false :class "process-row" :text process :halign "start"))))))
+
+(defwidget connectivity-card [height]
+  (box :class "card connectivity-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+    (button :onclick "./scripts/launch.sh network" :tooltip "View addresses and routes" (section-title :text "CONNECTIVITY"))
+    (stat-row :name "Network" :value {network.state})
+    (stat-row :name "Interface" :value {network.interface})
+    (stat-row :name "Address" :value {network.ip})
+    (stat-row :name "Tailscale IP" :value {network.tailscale})
+    (stat-row :name "Tailscale" :value {vpn.tailscale_state})
+    (stat-row :name "Proton VPN" :value {vpn.proton_state})
+    (stat-row :name "Active VPNs" :value {vpn.summary})))
 
 (defwidget media-control [action icon tooltip]
-  (button :class "media-control" :onclick "./scripts/media-control.sh ${action}" :tooltip tooltip
-    (label :text icon)))
+  (button :class {media.available ? "media-control" : "media-control media-unavailable"} :onclick "./scripts/media-control.sh ${action}" :tooltip tooltip
+    (label :show-truncated false :text icon)))
+
+(defwidget player-card [height]
+  (box :class "card media-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+    (section-title :text "PLAYER")
+    (box :space-evenly false :spacing 12 :vexpand true
+      (button :class "player-logo" :valign "center" :onclick "./scripts/media-control.sh spotify" :tooltip "Open Spotify on the next available workspace"
+        (box
+          (image :visible {media.art != ""} :path {media.art != "" ? media.art : "media-placeholder.svg"} :image-width 54 :image-height 54)
+          (label :show-truncated false :visible {media.art == ""} :text {media.icon})))
+      (box :orientation "v" :space-evenly false :spacing 6 :hexpand true :valign "center"
+        (label :class "media-title" :hexpand true :xalign 0 :text {media.title} :halign "start" :limit-width {layout.text_width} :tooltip {media.title})
+        (label :class "media-artist" :hexpand true :xalign 0 :text {media.artist != "" ? media.artist : media.player} :halign "start" :limit-width {layout.text_width})))
+    (progress :class "media-progress" :value {media.progress})
+    (box :space-evenly false :spacing 10
+      (label :show-truncated false :class "media-time" :text "${media.position} / ${media.length}" :halign "start" :hexpand true)
+      (media-control :action "previous" :icon "" :tooltip "Previous")
+      (media-control :action "play-pause" :icon {media.status == "Playing" ? "" : ""} :tooltip "Play or pause")
+      (media-control :action "next" :icon "" :tooltip "Next"))))
+
+(defwidget shares-card [height]
+  (box :class "card shares-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+    (section-title :text "MOUNTED SHARES")
+    (label :show-truncated false :class "subheading" :text "SMB / NFS SHARES" :halign "start")
+    (scroll :hscroll false :vscroll true :width 0 :height {layout.share_height} :vexpand true
+      (box :orientation "v" :space-evenly false :spacing 6
+        (for share in shares
+          (label :show-truncated false :class "share-row" :text share :xalign 0 :wrap true :hexpand true :width {layout.card_width - 16} :height 0 :tooltip share))))))
+
+(defwidget power-card [height]
+  (box :class "card power-card" :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+    (section-title :text "POWER")
+    (box :visible {power.available} :orientation "v" :space-evenly false :spacing {layout.row_gap}
+      (stat-row :name "Power draw" :value {power.watts})
+      (stat-row :name "Battery" :value {power.battery})
+      (stat-row :name "Status" :value {power.status}))
+    (label :show-truncated false :visible {!power.available} :class "empty-state" :text "No battery power sensor available" :halign "start" :wrap true)))
+
+(defwidget dashboard-grid []
+  (box :orientation "v" :space-evenly false
+    (box :visible {layout.columns == 3} :orientation "v" :space-evenly false :spacing {layout.gap}
+      (box :space-evenly true :spacing {layout.gap}
+        (arch-card :height {layout.top_height})
+        (system-card :height {layout.top_height})
+        (calendar-card :height {layout.top_height})
+      )
+      (box :space-evenly true :spacing {layout.gap}
+        (performance-card :height {layout.middle_height})
+        (processes-card :height {layout.middle_height})
+        (connectivity-card :height {layout.middle_height})
+      )
+      (box :space-evenly true :spacing {layout.gap}
+        (player-card :height {layout.bottom_height})
+        (shares-card :height {layout.bottom_height})
+        (power-card :height {layout.bottom_height})
+      )
+    )
+    (box :visible {layout.columns == 2} :orientation "v" :space-evenly false :spacing {layout.gap}
+      (box :space-evenly true :spacing {layout.gap}
+        (arch-card :height {layout.top_height})
+        (system-card :height {layout.top_height})
+      )
+      (box :space-evenly true :spacing {layout.gap}
+        (calendar-card :height {layout.top_height})
+        (performance-card :height {layout.middle_height})
+      )
+      (box :space-evenly true :spacing {layout.gap}
+        (processes-card :height {layout.middle_height})
+        (connectivity-card :height {layout.middle_height})
+      )
+      (box :space-evenly true :spacing {layout.gap}
+        (player-card :height {layout.bottom_height})
+        (shares-card :height {layout.bottom_height})
+      )
+      (box :space-evenly true :spacing {layout.gap}
+        (power-card :height {layout.bottom_height})
+        (box :width {layout.card_width} :height 0)
+      )
+    )
+    (box :visible {layout.columns == 1} :orientation "v" :space-evenly false :spacing {layout.gap}
+      (box :space-evenly true :spacing {layout.gap}
+        (arch-card :height {layout.top_height})
+      )
+      (box :space-evenly true :spacing {layout.gap}
+        (system-card :height {layout.top_height})
+      )
+      (box :space-evenly true :spacing {layout.gap}
+        (calendar-card :height {layout.top_height})
+      )
+      (box :space-evenly true :spacing {layout.gap}
+        (performance-card :height {layout.middle_height})
+      )
+      (box :space-evenly true :spacing {layout.gap}
+        (processes-card :height {layout.middle_height})
+      )
+      (box :space-evenly true :spacing {layout.gap}
+        (connectivity-card :height {layout.middle_height})
+      )
+      (box :space-evenly true :spacing {layout.gap}
+        (player-card :height {layout.bottom_height})
+      )
+      (box :space-evenly true :spacing {layout.gap}
+        (shares-card :height {layout.bottom_height})
+      )
+      (box :space-evenly true :spacing {layout.gap}
+        (power-card :height {layout.bottom_height})
+      )
+    )
+  ))
 
 (defwidget dashboard-content []
-  (box :space-evenly false
-    (box :class {home_visible ? "dashboard-panel dashboard-home" : "dashboard-panel dashboard-away"} :hexpand true :vexpand true :orientation "v" :space-evenly false :spacing 20
-      (box :class "header" :space-evenly false
-        (box :orientation "v" :space-evenly false :hexpand true :spacing 5
-          (label :show-truncated false :class "title" :text "@@DASHBOARD_NAME@@" :halign "start")
-          (label :show-truncated false :class "subtitle" :text "SYSTEM OVERVIEW" :halign "start"))
-        (box :orientation "v" :space-evenly false :spacing 5
+  (box :class {home_visible ? "dashboard-home" : "dashboard-away"} :space-evenly false :hexpand true :vexpand true
+    (box :class {layout.density == "compact" ? "dashboard-panel compact" : "dashboard-panel comfortable"} :style "padding: ${layout.padding}px;" :hexpand true :vexpand true :orientation "v" :space-evenly false :spacing {layout.gap}
+      (box :class "header" :orientation {layout.columns == 1 ? "v" : "h"} :space-evenly false :spacing 16
+        (box :orientation "v" :space-evenly false :hexpand true :spacing 4
+          (label :show-truncated false :class "title" :hexpand true :xalign 0 :text {layout.hostname} :limit-width {layout.hostname_width} :tooltip {layout.hostname})
+          (label :show-truncated false :class "subtitle" :text "@@DASHBOARD_NAME@@" :halign "start" :limit-width 34))
+        (button :class "density-toggle" :timeout "6s" :onclick "./scripts/layout.py toggle" :tooltip {layout.density == "compact" ? "Switch to Comfortable spacing" : "Switch to Compact spacing"}
+          (label :show-truncated false :text {layout.density == "compact" ? "Compact" : "Comfortable"}))
+        (box :orientation "v" :space-evenly false :spacing 4
           (label :show-truncated false :class "clock" :text clock :halign "end")
           (label :show-truncated false :class "date" :text today :halign "end")))
-
-      (box :spacing 18 :space-evenly false :height 250
-        (box :class "card details-card" :orientation "v" :space-evenly false :spacing 11 :hexpand true
-          (section-title :text "${system_info.host} SPECIFICATIONS")
-          (box :space-evenly false :spacing 32 :vexpand true
-            (box :orientation "v" :space-evenly false :spacing 10 :hexpand true
-              (info-row :name "OS" :value {system_info.os})
-              (info-row :name "KERNEL" :value {system_info.kernel})
-              (info-row :name "UPTIME" :value {arch.uptime}))
-            (box :orientation "v" :space-evenly false :spacing 10 :hexpand true
-              (info-row :name "CPU" :value {system_info.cpu})
-              (info-row :name "GPU" :value {system_info.gpu})
-              (info-row :name "MEMORY" :value {system_info.memory})
-              (info-row :name "HOME DISK" :value {system_info.disk}))
-            (box :orientation "v" :space-evenly false :spacing 10 :width 280
-              (stat-row :name "Packages" :value packages)
-              (box :class {updates == "0" ? "updates current" : updates == "--" ? "updates unknown" : updates > 50 ? "updates critical" : "updates pending"}
-                (stat-row :name "Updates" :value updates)))))
-
-        (box :class "card calendar-card" :orientation "v" :space-evenly false :spacing 10 :width 520
-          (section-title :text "CALENDAR")
-          (label :class "calendar-month" :text month :halign "start")
-          (label :class "calendar-text" :markup calendar_text :unindent false :halign "center" :valign "center" :vexpand true)))
-
-      (box :spacing 18 :space-evenly false :vexpand true
-        (box :class "card metrics-card" :orientation "v" :space-evenly false :spacing 18 :width 620
-          (button :onclick "./scripts/launch.sh system" :tooltip "Open btop" (section-title :text "PERFORMANCE"))
-          (meter :name "CPU" :value cpu :display "${cpu}%" :action "./scripts/launch.sh system")
-          (meter :name "GPU" :value {gpu.usage} :display {gpu.label} :action "./scripts/launch.sh gpu")
-          (meter :name "RAM" :value ram :display "${ram}%" :action "./scripts/launch.sh system")
-          (stat-row :name "GPU temperature" :value {gpu.temperature})
-          (stat-row :name "Load 1 / 5 / 15m" :value {system_info.load})
-          (box :class "power-strip" :visible {power.available} :orientation "v" :space-evenly false :spacing 10
-            (stat-row :name "Power draw" :value {power.watts})
-            (stat-row :name {power.status} :value {power.battery})))
-
-        (box :class "card processes-card" :orientation "v" :space-evenly false :spacing 12 :width 520
-          (button :onclick "./scripts/launch.sh system" :tooltip "Open btop" (section-title :text "TOP PROCESSES"))
-          (label :class "column-heading process-heading" :text "PROCESS              PID    CPU    RAM" :halign "start")
-          (for process in processes
-            (label :class "process-row" :text process :halign "start")))
-
-        (box :orientation "v" :space-evenly false :spacing 18 :width 520
-          (box :class "card connectivity-card" :orientation "v" :space-evenly false :spacing 13 :vexpand true
-            (section-title :text "CONNECTIVITY")
-            (stat-row :name "Network" :value {network.state})
-            (stat-row :name "Interface" :value {network.interface})
-            (stat-row :name "Address" :value {network.ip})
-            (stat-row :name "Tailscale IP" :value {network.tailscale})
-            (stat-row :name "Tailscale" :value {vpn.tailscale_state})
-            (stat-row :name "Proton VPN" :value {vpn.proton_state})
-            (stat-row :name "VPN" :value {vpn.summary})
-            (box :class "shares" :orientation "v" :space-evenly false :spacing 7 :vexpand true
-              (label :class "subheading" :text "SMB / NFS SHARES" :halign "start")
-              (for share in shares
-                (label :class "share-row" :text share :halign "start" :wrap true :hexpand true))))
-
-          (box :class "card media-card" :orientation "v" :space-evenly false :spacing 12
-            (box :space-evenly false :spacing 14
-              (button :class "player-logo" :onclick "./scripts/media-control.sh spotify" :tooltip "Open Spotify on the next available workspace"
-                (box
-                  (image :visible {media.art != ""} :path {media.art} :image-width 54 :image-height 54 :preserve-aspect-ratio true)
-                  (label :visible {media.art == ""} :text {media.icon})))
-              (box :orientation "v" :space-evenly false :hexpand true
-                (label :class "media-title" :text {media.title} :halign "start" :limit-width 32)
-                (label :class "media-artist" :text {media.artist != "" ? media.artist : media.player} :halign "start" :limit-width 36)))
-            (progress :class "media-progress" :value {media.progress})
-            (box :space-evenly false :spacing 12
-              (label :class "media-time" :text "${media.position} / ${media.length}" :halign "start" :hexpand true)
-              (media-control :action "previous" :icon "" :tooltip "Previous")
-              (media-control :action "play-pause" :icon {media.status == "Playing" ? "" : ""} :tooltip "Play or pause")
-              (media-control :action "next" :icon "" :tooltip "Next")))))
-  )))
+      (scroll :hscroll false :vscroll true :vexpand true
+        (dashboard-grid)))))
 
 (defwindow dashboard
   :monitor 0

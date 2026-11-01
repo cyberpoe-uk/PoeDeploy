@@ -108,13 +108,28 @@ Visual Studio Code, and VLC.
 PoeDash and PenDash are bundled under `apps/` and install directly from the
 PoeDeploy release. Choose only one dashboard.
 
+Both dashboards show the current machine's hostname prominently in the top-left
+corner. Their Compact/Comfortable button changes text size and internal spacing
+immediately, and remembers the choice across restarts and updates. On wide
+screens the cards use three aligned rows:
+
+| | | |
+| --- | --- | --- |
+| Arch | System | Calendar |
+| Performance | Top Processes | Connectivity |
+| Player | Mounted Shares | Power |
+
+The layout accounts for display scaling and desktop bars, and switches to fewer
+columns on narrow displays. Long process, share and laptop activity lists scroll
+inside their cards. Comfortable mode can use vertical scrolling on short screens.
+
 PoeDash is the general dashboard. Its installer offers `PoeDash` as the default
-display name and lets the user enter another name. It shows performance, laptop power
+subtitle and lets the user enter another subtitle. It shows performance, laptop power
 and battery data when available, the top ten processes, host specifications,
 MPRIS media controls, active VPN interfaces, mounted
 SMB/NFS shares, package updates, and a compact calendar.
 
-PoeDeploy asks for the PoeDash name during the visible application-planning
+PoeDeploy asks for the PoeDash subtitle during the visible application-planning
 step. The background installation and dashboard updates are non-interactive, so
 they cannot stall behind the static progress screen.
 
