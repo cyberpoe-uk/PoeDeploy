@@ -67,7 +67,7 @@ prompts can read every keystroke. Their output appears directly in the terminal,
 then the progress dashboard returns when they finish.
 
 Sections with menus or confirmations (Plymouth, UKI, ML4W, SDDM, browser,
-network shares, fingerprint authentication, and Secure Boot) keep the normal terminal for the whole section.
+network shares, fingerprint authentication, MateBook audio, and Secure Boot) keep the normal terminal for the whole section.
 This keeps descriptions, menu choices, and questions together. The progress
 dashboard returns between sections and uses a compact view in small terminals.
 
@@ -302,6 +302,19 @@ requires `systemd-resolved`. PoeDeploy does not change your DNS configuration.
 If an optional application is taking too long, press **Ctrl+C** once. You can
 then skip that application, retry it, or stop PoeDeploy. Skipping an application
 does not remove anything that was already installed.
+
+## Huawei MateBook 14s audio (optional)
+
+The **Huawei MateBook 14s audio workaround** section offers the confirmed
+speaker/headphone routing fix only for product `HKF-WXX` with codec subsystem
+`0x19e53285`. It requires explicit consent and leaves other hardware untouched.
+A blocking ALSA event listener handles jack/route changes. Sound-device events
+and a resume hook handle device arrival and suspend. There is no periodic codec
+polling, replacement driver, or change to PulseAudio or PipeWire/WirePlumber policy.
+
+See [hardware checks, installation, testing and removal](docs/matebook-audio.md).
+Speaker routing has been confirmed on the affected laptop. Persistent operation
+and headphone switching still require on-device testing.
 
 ## Fingerprint authentication
 
