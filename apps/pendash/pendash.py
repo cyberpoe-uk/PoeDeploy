@@ -17,8 +17,9 @@ HOME = Path.home()
 STATE = Path(os.environ.get('XDG_STATE_HOME', HOME / '.local/state')) / 'pendash'
 STAMP = datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
 BACKUP = STATE / 'backups' / STAMP
-DASHBOARD = ['hyprland', 'jq', 'python', 'kitty', 'btop', 'nvtop', 'rofi',
-             'powertop', 'brightnessctl', 'libnotify']
+DASHBOARD = ['hyprland', 'jq', 'python', 'kitty', 'btop', 'nvtop',
+             'powertop', 'brightnessctl', 'libnotify', 'playerctl', 'pciutils',
+             'procps-ng', 'util-linux', 'iproute2', 'coreutils']
 CURATED = ['burpsuite', 'ffuf', 'gobuster', 'nmap', 'sqlmap', 'wfuzz',
            'wireshark-qt', 'jwt-tool']
 PACMAN_CONFIG = Path('/etc/pacman.conf')

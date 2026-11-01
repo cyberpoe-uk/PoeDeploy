@@ -90,6 +90,7 @@ class InstallerTests(unittest.TestCase):
             repository.assert_called_once_with(False)
             packages.assert_called_once()
             self.assertIn('burpsuite', packages.call_args.args[0])
+            self.assertIn('playerctl', packages.call_args.args[0])
             enable.assert_not_called()
             self.assertEqual((root / 'colors.scss').read_text(), 'custom palette')
             self.assertFalse((root / 'browser.json').exists())
@@ -99,6 +100,10 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue((root / 'disabled').exists())
             self.assertFalse((root / 'obsolete-interface-file').exists())
             self.assertIn('defwindow', (root / 'eww.yuck').read_text())
+            for name in ('media.py', 'media-control.sh', 'system-info.py', 'processes.py', 'shares.py'):
+                self.assertTrue((root / 'scripts' / name).stat().st_mode & 0o111)
+            for name in ('ctf-control.py', 'ctf-status.sh', 'target.sh', 'launch-app.sh'):
+                self.assertFalse((root / 'scripts' / name).exists())
 
     def test_managed_lua_block_is_idempotent_and_preserves_user_content(self):
         block = (REPO / 'assets/custom.lua').read_text()
@@ -202,7 +207,11 @@ class InstallerTests(unittest.TestCase):
         self.assertIn(':run-while home_visible', yuck)
         self.assertIn('adaptive-run.py cpu 2 15', yuck)
         self.assertIn('LAPTOP POWER', yuck)
-        self.assertIn('START WEB CTF', yuck)
+        for feature in ('CONNECTIVITY', 'Tailscale IP', 'SMB / NFS SHARES',
+                        'SPECIFICATIONS', 'TOP PROCESSES', 'media.art', 'media-control.sh'):
+            self.assertIn(feature, yuck)
+        for removed in ('QUICK LAUNCH', 'START WEB CTF', 'ctf_status', 'ctf_target', 'launch-app.sh'):
+            self.assertNotIn(removed, yuck)
 
 
 if __name__ == '__main__':

@@ -4,52 +4,32 @@ PoeDash and PenDash are shipped with PoeDeploy so their installation does not
 depend on separate websites or GitHub repositories. These directories contain
 the program files, assets and focused tests required by each installer.
 
-`poedash/` is the general dashboard with system, process, power, VPN, and
-mounted-share monitoring. `pendash/` is the laptop-specific pentesting
-dashboard. PenDash supports a dashboard-only mode that skips BlackArch, Burp
-Suite, NVIDIA configuration and laptop power configuration.
+`poedash/` is the general workstation dashboard. `pendash/` provides the same
+monitoring features alongside laptop telemetry and installs Chromium and a
+curated set of BlackArch security tools. PenDash no longer includes Quick Launch,
+CTF sessions, a target field, or readiness checks. Launch applications through
+your desktop as usual; configure Chromium and Burp manually.
 
-Dashboard updates are delivered by updating and rerunning PoeDeploy.
+Both dashboards show:
 
-PenDash installs Chromium, NSS (`certutil`), and OpenSSL automatically. There is
-no browser selection or separate CTF profile. Existing browser data is preserved;
-PenDash does not change the system default browser.
+- CPU, GPU and memory status, system specifications, load, and home disk usage.
+- The ten busiest processes, including PID, CPU usage, and memory usage.
+- Network state, route interface, local IPv4 and Tailscale addresses, Tailscale
+  and Proton VPN client states, active tunnels, and mounted SMB/NFS shares.
+- A media player with artwork, title, artist, playback progress, elapsed time,
+  and previous/play-pause/next controls. Playing MPRIS players take priority over
+  paused players. The logo opens an installed Spotify client on an unused
+  workspace; Spotify installation is optional.
+- Arch package counts and update indicators, kernel, uptime, and a calendar.
 
-Chromium's persistent `~/.config/chromium-flags.conf` routes HTTP and HTTPS through
-Burp at `127.0.0.1:8080`, including loopback targets. Existing unrelated flags are
-retained and replaced configuration files are backed up. This affects every
-normal Chromium launch, so Chromium requires Burp's listener for browsing. Restart
-Chromium after installation; the CTF launcher refuses to reuse an existing process
-with incompatible proxy settings. Sandbox, certificate checks and web security
-remain enabled.
+PenDash retains passive GPU monitoring and its laptop power card, including
+battery discharge, remaining time, CPU profile, app activity and on-demand
+PowerTOP scans. Its collectors pause when the dashboard is hidden and refresh
+less often on battery. The content area scrolls on smaller screens. Missing
+players, mounts or sensors show an empty state.
 
-Quick Launch provides BURP, CTF CHROMIUM, TERMINAL, CODE, and WIRESHARK. Save an IP,
-hostname or HTTP(S) URL with the existing TARGET control, then click START WEB CTF.
-It opens the existing native Burp installation, waits up to 30 seconds for the
-listener, and opens Chromium with the saved target (bare hosts use HTTP). Target
-arguments are validated and shell-quoted. Burp at `~/BurpSuite/BurpSuite` is reused.
-
-CA trust requires user consent and is never configured unattended. Export your own
-Burp CA from `http://burpsuite` through the proxy, normally to
-`~/Downloads/cacert.der`, then run:
-
-```sh
-pendash setup-burp-ca --certificate ~/Downloads/cacert.der
-pendash setup-burp-ca --action status
-pendash setup-burp-ca --action remove
-```
-
-The command validates CA basic constraints and expiration with OpenSSL, displays
-subject, issuer and SHA-256 fingerprint, then asks before importing or replacing
-`PenDash Burp CA` with `C,,` trust. Repeat imports skip an identical trusted CA.
-Removal requires confirmation and touches only that nickname. Compare the shown
-fingerprint with your Burp instance before consenting. If import fails during
-replacement, the previous entry is restored.
-
-The NSS database is shared across Chromium profiles and may be used by other
-applications: there is no CA trust isolation. System trust stores are untouched.
-Following Chromium's Linux certificate documentation, an existing `~/.pki/nssdb`
-is preferred; otherwise Chromium M146+ uses `~/.local/share/pki/nssdb` and older
-versions use the legacy path. An unknown version fails rather than guessing.
-Missing Burp/listener/CA is optional during installation. A real browser/Burp HTTPS
-interception test still requires a desktop session and the user's own trusted CA.
+Dashboard updates are delivered by updating and rerunning PoeDeploy with
+`--install-dashboard pendash`. Updates install missing dashboard dependencies,
+including `playerctl`, and preserve colours, saved state, and the dashboard's
+enabled/disabled setting. Existing browser data and user-configured proxy or
+certificate settings are retained.

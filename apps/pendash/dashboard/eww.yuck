@@ -12,37 +12,13 @@
 (defpoll cpu :run-while home_visible :interval "2s" :initial 0 `~/.config/eww/scripts/adaptive-run.py cpu 2 15 ~/.config/eww/scripts/cpu.sh`)
 (defpoll ram :run-while home_visible :interval "2s" :initial 0 `~/.config/eww/scripts/adaptive-run.py ram 2 15 ~/.config/eww/scripts/arch-status.sh ram`)
 (defpoll gpu :run-while home_visible :interval "5s" :initial '{"usage":0,"label":"--","temperature":"--"}' `~/.config/eww/scripts/adaptive-run.py gpu 5 30 ~/.config/eww/scripts/gpu.sh`)
-(defpoll network :run-while home_visible :interval "5s" :initial '{"interface":"--","ip":"--","state":"Offline"}' `~/.config/eww/scripts/adaptive-run.py network 5 30 ~/.config/eww/scripts/network.sh`)
-(defpoll vpn :run-while home_visible :interval "5s" :initial '{"tailscale":false,"lab":false,"tailscale_state":"Checking","proton_state":"Checking"}' `~/.config/eww/scripts/adaptive-run.py vpn 5 30 ~/.config/eww/scripts/vpn.sh`)
-(defpoll ctf_status :run-while home_visible :interval "10s" :initial '{"ready":false,"label":"CHECK","detail":"Checking workstation requirements"}' `~/.config/eww/scripts/adaptive-run.py ctf-status 10 60 ~/.config/eww/scripts/ctf-status.sh`)
-(defpoll ctf_target :run-while home_visible :interval "10s" :initial "NOT SET" `~/.config/eww/scripts/adaptive-run.py ctf-target 10 60 ~/.config/eww/scripts/target.sh`)
+(defpoll network :run-while home_visible :interval "5s" :initial '{"interface":"--","ip":"--","tailscale":"--","state":"Offline"}' `~/.config/eww/scripts/adaptive-run.py connectivity 5 30 ~/.config/eww/scripts/network.sh`)
+(defpoll vpn :run-while home_visible :interval "5s" :initial '{"tailscale":false,"lab":false,"summary":"Checking VPNs","count":"0","tailscale_state":"Checking","proton_state":"Checking"}' `~/.config/eww/scripts/adaptive-run.py vpn 5 30 ~/.config/eww/scripts/vpn.sh`)
 (defpoll power :run-while home_visible :interval "2s" :initial '{"laptop":false,"battery":"--","draw":"--","remaining":"--","status":"--","profile":"--","effects":"--","top1":"","top2":"","top3":"","pt_label":"PowerTOP scan","pt_detail":""}' `~/.config/eww/scripts/adaptive-run.py power 2 15 ~/.config/eww/scripts/power-status.py`)
-
-(defwidget launch-button [name app]
-  (button :class "launch-button" :onclick "~/.config/eww/scripts/launch-app.sh ${app}"
-    (label :show-truncated false :text name)))
-
-(defwidget quick-launch []
-  (box :class "quick-launch" :orientation "v" :space-evenly false :spacing 7
-    (label :class "quick-title" :text "QUICK LAUNCH" :halign "start" :show-truncated false)
-    (box :space-evenly true :spacing 12
-      (launch-button :name "BURP" :app "burp")
-      (launch-button :name "CHROMIUM" :app "chromium")
-      (launch-button :name "TERMINAL" :app "terminal")
-      (launch-button :name "CODE" :app "code")
-      (launch-button :name "WIRESHARK" :app "wireshark"))
-    (box :space-evenly true :spacing 12
-      (launch-button :name "Tailscale · ${vpn.tailscale_state}" :app "tailscale")
-      (launch-button :name "Proton VPN · ${vpn.proton_state}" :app "proton"))
-    (box :space-evenly false :spacing 18
-      (button :class "launch-button ctf-start" :width 260 :onclick "~/.config/eww/scripts/launch-app.sh web-ctf"
-        (label :text "START WEB CTF" :show-truncated false))
-      (label :class "target-caption" :text "TARGET:" :show-truncated false)
-      (button :class "target-field" :hexpand true :tooltip "Click to edit target. Enter saves; Escape cancels. No connection or scan is performed." :onclick "~/.config/eww/scripts/target.sh edit"
-        (label :text ctf_target :xalign 0 :limit-width 70))
-      (box :class {ctf_status.ready ? "ctf-ready" : "ctf-check"} :tooltip {ctf_status.detail} :space-evenly false :spacing 8
-        (label :text "●" :show-truncated false)
-        (label :text {ctf_status.label} :show-truncated false)))))
+(defpoll system_info :run-while home_visible :interval "5m" :initial '{"host":"--","os":"--","kernel":"--","cpu":"--","gpu":"--","memory":"--","disk":"--","load":"--"}' `~/.config/eww/scripts/adaptive-run.py system-info 300 600 ~/.config/eww/scripts/system-info.py`)
+(defpoll processes :run-while home_visible :interval "3s" :initial '["Collecting process data"]' `~/.config/eww/scripts/adaptive-run.py processes 3 15 ~/.config/eww/scripts/processes.py`)
+(defpoll shares :run-while home_visible :interval "15s" :initial '["Checking mounted shares"]' `~/.config/eww/scripts/adaptive-run.py shares 15 60 ~/.config/eww/scripts/shares.py`)
+(defpoll media :run-while home_visible :interval "2s" :initial '{"available":false,"player":"No media","title":"Nothing playing","artist":"","status":"Stopped","position":"0:00","length":"0:00","progress":0,"icon":"♪","art":""}' `~/.config/eww/scripts/adaptive-run.py media 2 5 ~/.config/eww/scripts/media.py`)
 
 (defwidget section-title [text]
   (label :show-truncated false :class "card-title" :text text :halign "start"))
@@ -65,6 +41,15 @@
     (label :show-truncated false :text name :halign "start" :hexpand true)
     (label :show-truncated false :class "micro" :text {connected ? "UP" : "OFF"})))
 
+(defwidget info-row [name value]
+  (box :space-evenly false :spacing 12
+    (label :class "info-key" :text name :width 72 :halign "start")
+    (label :class "info-value" :text value :halign "start" :limit-width 36 :tooltip value)))
+
+(defwidget media-control [action icon tooltip]
+  (button :class {media.available ? "media-control" : "media-control media-unavailable"} :onclick "~/.config/eww/scripts/media-control.sh ${action}" :tooltip tooltip
+    (label :text icon)))
+
 (defwidget dashboard-content []
   ;; Only the blocking workspace listener remains active while hidden.
   (box :space-evenly false
@@ -76,57 +61,87 @@
         (box :orientation "v" :space-evenly false :spacing 10
           (label :show-truncated false :class "clock" :text clock :halign "end")
           (label :show-truncated false :class "date" :text today :halign "end")))
-      (box :spacing 22 :space-evenly false :vexpand true
-        (box :class "card system-card" :orientation "v" :space-evenly false :spacing 16 :width 540
-          (button :onclick "~/.config/eww/scripts/launch.sh system" :tooltip "Open btop"
-            (section-title :text "SYSTEM"))
-          (meter :name "CPU" :value cpu :display "${cpu}%" :action "~/.config/eww/scripts/launch.sh system")
-          (meter :name "GPU" :value {gpu.usage} :display {gpu.label} :action "~/.config/eww/scripts/launch.sh gpu")
-          (meter :name "RAM" :value ram :display "${ram}%" :action "~/.config/eww/scripts/launch.sh system")
-          (box :class "temperature" :space-evenly false :vexpand true :valign "end"
-            (stat-row :name "GPU TEMP" :value {gpu.temperature})))
-        (button :onclick "~/.config/eww/scripts/launch.sh network" :tooltip "View addresses and routes"
-          (box :class "card network-card" :orientation "v" :space-evenly false :spacing 28 :width 450
-            (section-title :text "NETWORK")
-            (box :space-evenly false :spacing 8
-              (label :show-truncated false :class {network.state == "Connected" ? "online" : "offline"} :text "●")
-              (label :show-truncated false :class "connection" :text {network.state == "Connected" ? "CONNECTED" : "OFFLINE"}))
-            (label :show-truncated false :class "network-interface" :text {network.interface} :halign "start" :limit-width 22)
-            (label :show-truncated false :class "network-address" :text {network.ip} :halign "start")
-            (label :show-truncated false :class "micro" :text "IPv4 / ROUTE" :halign "start" :valign "end" :vexpand true)))
-        (box :class "card calendar-card" :orientation "v" :space-evenly false :spacing 20 :hexpand true
-          (section-title :text "CALENDAR")
-          (label :show-truncated false :class "calendar-month" :text month :halign "start")
-          (label :show-truncated false :class "calendar-text" :markup calendar_text :unindent false :halign "center" :valign "center" :vexpand true)))
-      (box :spacing 22 :space-evenly false :height 260
-        (box :class "card vpn-card" :orientation "v" :space-evenly false :spacing 20 :width 280
-          (section-title :text "VPN")
-          (stat-row :name "Tailscale" :value {vpn.tailscale_state})
-          (stat-row :name "Proton VPN" :value {vpn.proton_state})
-          (vpn-row :name "Lab VPN" :connected {vpn.lab}))
-        (box :class "card arch-card" :orientation "v" :space-evenly false :spacing 20 :hexpand true
-          (section-title :text "ARCH")
-          (box :space-evenly false :spacing 28
-            (box :orientation "v" :space-evenly false :spacing 20 :hexpand true
+      (scroll :hscroll true :vscroll true :vexpand true
+        (box :orientation "v" :space-evenly false :spacing 18
+          (box :spacing 18 :space-evenly false
+            (box :class "card system-card" :orientation "v" :space-evenly false :spacing 12 :hexpand true
+              (button :onclick "~/.config/eww/scripts/launch.sh system" :tooltip "Open btop"
+                (section-title :text "SYSTEM"))
+              (meter :name "CPU" :value cpu :display "${cpu}%" :action "~/.config/eww/scripts/launch.sh system")
+              (meter :name "GPU" :value {gpu.usage} :display {gpu.label} :action "~/.config/eww/scripts/launch.sh gpu")
+              (meter :name "RAM" :value ram :display "${ram}%" :action "~/.config/eww/scripts/launch.sh system")
+              (stat-row :name "GPU TEMP" :value {gpu.temperature})
+              (stat-row :name "Load 1 / 5 / 15m" :value {system_info.load})
+              (box :class "specifications" :orientation "v" :space-evenly false :spacing 8
+                (section-title :text "${system_info.host} SPECIFICATIONS")
+                (info-row :name "OS" :value {system_info.os})
+                (info-row :name "CPU" :value {system_info.cpu})
+                (info-row :name "GPU" :value {system_info.gpu})
+                (info-row :name "MEMORY" :value {system_info.memory})
+                (info-row :name "HOME DISK" :value {system_info.disk})))
+            (box :class "card processes-card" :orientation "v" :space-evenly false :spacing 10 :hexpand true
+              (button :onclick "~/.config/eww/scripts/launch.sh system" :tooltip "Open btop"
+                (section-title :text "TOP PROCESSES"))
+              (label :class "column-heading process-heading" :text "PROCESS              PID    CPU    RAM" :halign "start")
+              (for process in processes
+                (label :class "process-row" :text process :halign "start")))
+            (box :orientation "v" :space-evenly false :spacing 18 :hexpand true
+              (box :class "card connectivity-card" :orientation "v" :space-evenly false :spacing 10 :vexpand true
+                (button :onclick "~/.config/eww/scripts/launch.sh network" :tooltip "View addresses and routes"
+                  (section-title :text "CONNECTIVITY"))
+                (stat-row :name "Network" :value {network.state})
+                (stat-row :name "Interface" :value {network.interface})
+                (stat-row :name "Address" :value {network.ip})
+                (stat-row :name "Tailscale IP" :value {network.tailscale})
+                (stat-row :name "Tailscale" :value {vpn.tailscale_state})
+                (stat-row :name "Proton VPN" :value {vpn.proton_state})
+                (stat-row :name "VPN" :value {vpn.summary})
+                (vpn-row :name "Lab VPN" :connected {vpn.lab})
+                (box :class "shares" :orientation "v" :space-evenly false :spacing 7
+                  (label :class "subheading" :text "SMB / NFS SHARES" :halign "start")
+                  (for share in shares
+                    (label :class "share-row" :text share :halign "start" :wrap true :hexpand true))))
+              (box :class "card media-card" :orientation "v" :space-evenly false :spacing 10
+                (section-title :text "PLAYER")
+                (box :space-evenly false :spacing 14
+                  (button :class "player-logo" :onclick "~/.config/eww/scripts/media-control.sh spotify" :tooltip "Open Spotify on the next available workspace"
+                    (box
+                      (image :visible {media.art != ""} :path {media.art != "" ? media.art : "media-placeholder.svg"} :image-width 54 :image-height 54)
+                      (label :visible {media.art == ""} :text {media.icon})))
+                  (box :orientation "v" :space-evenly false :hexpand true
+                    (label :class "media-title" :text {media.title} :halign "start" :limit-width 26 :tooltip {media.title})
+                    (label :class "media-artist" :text {media.artist != "" ? media.artist : media.player} :halign "start" :limit-width 30)))
+                (progress :class "media-progress" :value {media.progress})
+                (box :space-evenly false :spacing 12
+                  (label :class "media-time" :text "${media.position} / ${media.length}" :halign "start" :hexpand true)
+                  (media-control :action "previous" :icon "" :tooltip "Previous")
+                  (media-control :action "play-pause" :icon {media.status == "Playing" ? "" : ""} :tooltip "Play or pause")
+                  (media-control :action "next" :icon "" :tooltip "Next")))))
+          (box :spacing 18 :space-evenly false
+            (box :class "card calendar-card" :orientation "v" :space-evenly false :spacing 12 :hexpand true
+              (section-title :text "CALENDAR")
+              (label :show-truncated false :class "calendar-month" :text month :halign "start")
+              (label :show-truncated false :class "calendar-text" :markup calendar_text :unindent false :halign "center" :valign "center" :vexpand true))
+            (box :class "card arch-card" :orientation "v" :space-evenly false :spacing 14 :hexpand true
+              (section-title :text "ARCH")
               (stat-row :name "Kernel" :value {arch.kernel})
-              (stat-row :name "Uptime" :value {arch.uptime}))
-            (box :orientation "v" :space-evenly false :spacing 20 :width 240
+              (stat-row :name "Uptime" :value {arch.uptime})
               (stat-row :name "Packages" :value packages)
               (button :onclick "~/.config/eww/scripts/launch.sh updates" :tooltip "Check Arch repository updates"
-                (box :class {updates == "0" ? "updates current" : updates == "--" ? "updates unknown" : "updates pending"}
-                  (stat-row :name "Updates" :value updates))))))
-        (box :class "card power-card" :visible {power.laptop} :orientation "v" :space-evenly false :spacing 6 :width 450
-          (section-title :text "LAPTOP POWER")
-          (label :halign "start" :text "${power.battery} · ${power.status} · ${power.draw}")
-          (label :halign "start" :text {power.remaining})
-          (label :halign "start" :text "CPU: ${power.profile} · FX: ${power.effects}")
-          (label :class "micro" :halign "start" :text "TOP APP ACTIVITY · CPU, NOT WATTS")
-          (label :halign "start" :text {power.top1})
-          (label :halign "start" :text {power.top2})
-          (label :halign "start" :text {power.top3})
-          (button :class "power-scan" :tooltip {power.pt_detail} :onclick "~/.config/eww/scripts/powertop-scan.py"
-            (label :halign "start" :text {power.pt_label}))))
-      (quick-launch))))
+                (box :class {updates == "0" ? "updates current" : updates == "--" ? "updates unknown" : updates > 50 ? "updates critical" : "updates pending"}
+                  (stat-row :name "Updates" :value updates))))
+            (box :class "card power-card" :visible {power.laptop} :orientation "v" :space-evenly false :spacing 6 :hexpand true
+              (section-title :text "LAPTOP POWER")
+              (label :halign "start" :text "${power.battery} · ${power.status} · ${power.draw}")
+              (label :halign "start" :text {power.remaining})
+              (label :halign "start" :text "CPU: ${power.profile} · FX: ${power.effects}")
+              (label :class "micro" :halign "start" :text "TOP APP ACTIVITY · CPU, NOT WATTS")
+              (label :halign "start" :text {power.top1})
+              (label :halign "start" :text {power.top2})
+              (label :halign "start" :text {power.top3})
+              (button :class "power-scan" :tooltip {power.pt_detail} :onclick "~/.config/eww/scripts/powertop-scan.py"
+                (label :halign "start" :text {power.pt_label}))))))
+    )))
 
 (defwindow dashboard
   :monitor 0

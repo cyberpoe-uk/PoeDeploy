@@ -27,7 +27,7 @@ window { background-color: transparent; }
 .card-title { color: $accent; font-size: 15px; font-weight: 700; letter-spacing: 1.6px; margin-bottom: 3px; }
 .stat-name { color: $secondary; font-size: 14px; }
 .stat-value { font-size: 16px; font-weight: 600; }
-.meter-row { min-height: 60px; }
+.meter-row { min-height: 38px; }
 progressbar trough { min-width: 65px; min-height: 6px; background-color: rgba($border, 0.45); border-radius: 3px; }
 progressbar progress { min-height: 6px; background-color: $accent; border-radius: 3px; }
 .temperature { border-top: 1px solid rgba($border, 0.30); padding-top: 24px; }
@@ -43,29 +43,11 @@ progressbar progress { min-height: 6px; background-color: $accent; border-radius
 .current .stat-value { color: $accent; }
 .pending .stat-value { color: #e6b86a; }
 .unknown .stat-value { color: $muted; }
+.critical .stat-value { color: #ff5c68; font-weight: 800; }
 button:hover .card-title, button:hover .stat-name { color: $foreground; }
 button:hover progress { background-color: $foreground; }
 tooltip { background-color: $card; border: 1px solid $border; border-radius: 6px; padding: 6px; }
 
-
-/* Compact CTF control strip. Existing dashboard styles remain unchanged. */
-.quick-title { color: $accent; font-size: 12px; font-weight: 700; letter-spacing: 1.8px; }
-.launch-button, .target-field {
-  background-color: rgba($card, 0.55);
-  border: 1px solid rgba($border, 0.45);
-  border-radius: 11px;
-  padding: 7px 14px;
-}
-.quick-launch label { font-size: 13px; }
-.launch-button:hover, .target-field:hover {
-  background-color: rgba($card, 0.80);
-  border-color: rgba($accent, 0.70);
-}
-.ctf-start { border-color: rgba($accent, 0.80); background-color: rgba($accent, 0.12); }
-.ctf-start label { color: $accent; font-weight: 700; }
-.target-caption { color: $secondary; }
-.ctf-ready label { color: #8dd5a0; }
-.ctf-check label { color: #e6b86a; }
 
 /* Battery telemetry stays compact in the lower card row. */
 .power-card label { font-size: 13px; }
@@ -73,3 +55,20 @@ tooltip { background-color: $card; border: 1px solid $border; border-radius: 6px
 .power-card .micro { font-size: 11px; letter-spacing: 0; }
 .power-scan label { color: $accent; }
 .power-scan { margin-top: 3px; }
+
+.specifications, .shares { border-top: 1px solid rgba($border, 0.30); padding-top: 12px; }
+.info-key, .subheading, .column-heading { color: $muted; font-size: 12px; }
+.info-value, .process-row, .share-row { color: $secondary; font-size: 13px; }
+.process-heading, .process-row { font-family: "JetBrains Mono", monospace; }
+.process-row { padding: 5px 0; border-bottom: 1px solid rgba($border, 0.18); }
+.share-row { padding: 3px 0; }
+.player-logo { min-width: 54px; min-height: 54px; border-radius: 12px; background-color: rgba($accent, 0.18); }
+.player-logo label { font-size: 28px; color: $accent; }
+.player-logo:hover { background-color: rgba($accent, 0.35); }
+.media-title { font-size: 16px; font-weight: 700; }
+.media-artist, .media-time { color: $secondary; font-size: 13px; }
+.media-control { min-width: 34px; min-height: 30px; border-radius: 8px; }
+.media-control label { color: $secondary; font-size: 17px; }
+.media-control:hover { background-color: rgba($accent, 0.18); }
+.media-unavailable { opacity: 0.4; }
+.media-progress trough { min-height: 5px; }
