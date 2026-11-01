@@ -27,7 +27,7 @@
 
 (deflisten power_profile :initial '{"supported":false,"source":"unknown","active":"Unavailable","available":[],"mode":"Unavailable","enabled":false,"message":"Checking power profiles"}' `exec ./scripts/power-control.py listen`)
 
-(deflisten idle :initial '{"screen":0,"lock":0,"suspend":0,"dirty":false,"supported":false,"known":false,"message":"Detecting idle manager","config":""}' `exec ./scripts/idle-control.py listen`)
+(deflisten idle :initial '{"screen":0,"lock":0,"suspend":0,"dirty":false,"supported":false,"known":false,"screen_text":"—","lock_text":"—","suspend_text":"—","screen_detail":"","lock_detail":"","suspend_detail":"","message":"Detecting idle manager","config":""}' `exec ./scripts/idle-control.py listen`)
 
 (deflisten app_lists :initial '{"pinned":[],"recent":[]}' `./scripts/desktop.py listen`)
 
@@ -166,11 +166,11 @@
         (button :class {profile == power_profile.active ? "density-toggle profile-option profile-selected" : "density-toggle profile-option"} :onclick "./scripts/power-control.py set ${profile}" :timeout "20s" (label :text {profile == "power-saver" ? "Power Saver" : profile == "performance" ? "Performance" : "Balanced"} :style "font-size: ${layout.small_size}px;"))))
     (label :visible {power_profile.message != ""} :text {power_profile.message} :tooltip {power_profile.message} :wrap true :xalign 0 :width {layout.card_width - 32} :height 0 :style "font-size: ${layout.small_size}px;")))
 
-(defwidget idle-setting [name field value]
+(defwidget idle-setting [name field value detail]
   (box :space-evenly false :spacing {layout.row_gap}
     (label :text name :halign "start" :hexpand true)
     (button :active {idle.supported} :onclick "./scripts/idle-control.py adjust ${field} -1" :timeout "5s" (label :text "−"))
-    (label :class "idle-number" :text {idle.known ? value : "—"} :width 34 :height 0)
+    (label :class "idle-number" :text {idle.known ? value : "—"} :tooltip detail :width 34 :height 0)
     (button :active {idle.supported} :onclick "./scripts/idle-control.py adjust ${field} 1" :timeout "5s" (label :text "+"))
     (label :text "min" :class "micro")))
 
@@ -184,9 +184,9 @@
     (scroll :hscroll false :vscroll true :width 0 :height {layout.power_height} :vexpand true
       (box :orientation "v" :space-evenly false :spacing {layout.row_gap}
         (box :visible {power_tab == "idle"} :orientation "v" :space-evenly false :spacing {layout.row_gap}
-          (idle-setting :name "Screen Off" :field "screen" :value {idle.screen})
-          (idle-setting :name "Lock Screen" :field "lock" :value {idle.lock})
-          (idle-setting :name "Auto Suspend" :field "suspend" :value {idle.suspend})
+          (idle-setting :name "Screen Off" :field "screen" :value {idle.screen_text} :detail {idle.screen_detail})
+          (idle-setting :name "Lock Screen" :field "lock" :value {idle.lock_text} :detail {idle.lock_detail})
+          (idle-setting :name "Auto Suspend" :field "suspend" :value {idle.suspend_text} :detail {idle.suspend_detail})
           (label :text {idle.message} :tooltip {idle.message} :wrap true :xalign 0 :width {layout.card_width - 16} :height 0 :style "font-size: ${layout.small_size}px;")
           (button :active {idle.supported && idle.dirty} :halign "end" :onclick "./scripts/idle-control.py apply" :timeout "25s" (label :text "Apply")))
         (box :visible {power_tab == "power"} :orientation "v" :space-evenly false :spacing {layout.row_gap}

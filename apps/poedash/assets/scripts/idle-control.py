@@ -4,6 +4,7 @@ import argparse
 import fcntl
 import glob
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -15,7 +16,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 KINDS = ('screen', 'lock', 'suspend')
-ACTIONS = {'screen': 'hyprctl dispatch dpms off', 'lock': 'loginctl lock-session',
+ACTIONS = {'screen': 'hyprctl dispatch \'hl.dsp.dpms({ action = "disable" })\'', 'lock': 'loginctl lock-session',
            'suspend': 'systemctl suspend'}
 MAX_MINUTES = 1440
 
@@ -122,6 +123,46 @@ def masked(text):
     return ''.join(chars)
 
 
+def screen_off_action(command):
+    if command == 'hyprctl dispatch dpms off': return True
+    try: argv = shlex.split(command)
+    except ValueError: return False
+    if len(argv) != 3 or argv[0] not in ('hyprctl','/usr/bin/hyprctl'):
+        return False
+    expression = argv[2].strip().removesuffix(';').strip()
+    if argv[1] == 'eval':
+        outer = re.fullmatch(r'hl\.dispatch\s*\((.*)\)',expression,re.S)
+        if not outer: return False
+        expression = outer.group(1).strip()
+    elif argv[1] != 'dispatch': return False
+    call = re.fullmatch(r'hl\.dsp\.dpms\s*\(\s*\{(.*?)\}\s*\)',expression,re.S)
+    if not call: return False
+    # Only literal fields are recognised. Lua and shell text are never evaluated.
+    table, fields, offset = call.group(1), {}, 0
+    pattern = r"""(action|monitor)\s*=\s*(["'])([^"'\\\n]*)\2"""
+    for match in re.finditer(pattern,table):
+        gap = table[offset:match.start()].strip()
+        if gap != (',' if fields else '') or match[1] in fields: return False
+        fields[match[1]] = match[3]
+        offset = match.end()
+    return table[offset:].strip() in ('',',') and fields.get('action') in ('disable','off')
+
+
+def same_values(left, right):
+    return all(round(left[key]*60) == round(right[key]*60) for key in KINDS)
+
+
+def display_values(data):
+    for key in KINDS:
+        if data.get('known'):
+            seconds = round(data[key]*60)
+            data[key+'_text'] = f'{seconds/60:.2f}'.rstrip('0').rstrip('.')
+            data[key+'_detail'] = f'{seconds} seconds ({seconds//60} min {seconds%60} sec)'
+        else:
+            data[key+'_text'], data[key+'_detail'] = '—', data.get('message','')
+    return data
+
+
 def blocks(text):
     clean = masked(text)
     for match in re.finditer(r'(?m)^[ \t]*listener\s*\{', clean):
@@ -136,6 +177,7 @@ def blocks(text):
         fields = dict(re.findall(r'(?m)^\s*([\w-]+)\s*=\s*(.*?)\s*$', raw))
         action = fields.get('on-timeout', '').strip()
         key = next((key for key, command in ACTIONS.items() if action == command), None)
+        if screen_off_action(action): key = 'screen'
         if action in ('hyprlock', 'pidof hyprlock || hyprlock'):
             key = 'lock'
         if not key and re.search(r'dpms|lock|suspend|hibernate|screen.?off', action, re.I):
@@ -161,8 +203,8 @@ def load(config):
             if key in rules:
                 raise RuntimeError(f'Multiple {key} idle timers exist. Resolve the duplicate timers first.')
             seconds = fields.get('timeout', '')
-            if not re.fullmatch(r'[0-9]+', seconds) or int(seconds) % 60:
-                raise RuntimeError(f'The {key} timeout is not a whole number of minutes. Review {path}.')
+            if not re.fullmatch(r'[0-9]+', seconds):
+                raise RuntimeError(f'The {key} timeout is not a literal number of seconds. Review {path}.')
             if not 0 < int(seconds) <= MAX_MINUTES * 60:
                 raise RuntimeError(f'The {key} timeout is outside the supported 1–{MAX_MINUTES} minute range.')
             rules[key] = (path, start, end, fields)
@@ -183,7 +225,7 @@ def load(config):
             for match in matches: visit(Path(match))
         active.remove(path)
     visit(config)
-    values = {key: int(rules[key][3]['timeout']) // 60 if key in rules else 0 for key in KINDS}
+    values = {key: int(rules[key][3]['timeout']) / 60 if key in rules else 0 for key in KINDS}
     return documents, rules, values
 
 
@@ -191,8 +233,8 @@ def validate(values):
     if set(values) != set(KINDS):
         raise ValueError('Screen Off, Lock Screen and Auto Suspend must all be supplied.')
     for key, value in values.items():
-        if type(value) is not int or not 0 <= value <= MAX_MINUTES:
-            raise ValueError(f'{key}: enter whole minutes between 0 and {MAX_MINUTES}. Zero disables this timer.')
+        if type(value) not in (int,float) or not 0 <= value <= MAX_MINUTES or not math.isfinite(value) or abs(value*60-round(value*60)) > 1e-6:
+            raise ValueError(f'{key}: enter minutes between 0 and {MAX_MINUTES}, with whole-second precision. Zero disables this timer.')
 
 
 def plan(config, values):
@@ -203,12 +245,12 @@ def plan(config, values):
         if key in rules:
             path, start, end, fields = rules[key]
             raw = documents[path][start:end]
-            replacement = re.sub(r'(?m)^(\s*timeout\s*=\s*)[0-9]+', lambda m: m[1] + str(values[key] * 60), raw) if values[key] else ''
+            replacement = re.sub(r'(?m)^(\s*timeout\s*=\s*)[0-9]+', lambda m: m[1] + str(round(values[key] * 60)), raw) if values[key] else ''
             edits.setdefault(path, []).append((start, end, replacement))
         elif values[key]:
             if key == 'lock' and not any(re.search(r'(?m)^\s*lock_cmd\s*=\s*\S', uncomment(t)) for t in documents.values()):
                 raise RuntimeError('No existing Hypridle lock_cmd is configured. Configure hyprlock before enabling idle locking.')
-            additions.append(f'\nlistener {{\n    timeout = {values[key] * 60}\n    on-timeout = {ACTIONS[key]}\n' + ('    on-resume = hyprctl dispatch dpms on\n' if key == 'screen' else '') + '}\n')
+            additions.append(f'\nlistener {{\n    timeout = {round(values[key] * 60)}\n    on-timeout = {ACTIONS[key]}\n' + ('    on-resume = hyprctl dispatch \'hl.dsp.dpms({ action = "enable" })\'\n' if key == 'screen' else '') + '}\n')
     for path, changes in edits.items():
         for start, end, replacement in sorted(changes, reverse=True):
             documents[path] = documents[path][:start] + replacement + documents[path][end:]
@@ -311,7 +353,7 @@ def apply(values, root=ROOT):
         for path, text in updated.items():
             if text != documents[path]: atomic(path, text)
         activate(config, proc, root)
-        if load(config)[2] != values:
+        if not same_values(load(config)[2], values):
             raise RuntimeError('Hypridle configuration readback did not match the requested settings.')
     except Exception as exc:
         for path, text in documents.items(): atomic(path, text)
@@ -334,11 +376,11 @@ def snapshot(root=ROOT):
                       dirty=stale, message='Configuration changed since Hypridle started. Apply to activate and verify these values.' if stale else 'Minutes · 0 disables a timer' if proc else 'Hypridle is configured but not running.')
     except (OSError, ValueError, RuntimeError) as exc:
         result['message'] = str(exc)
-    return result
+    return display_values(result)
 
 
 def publish(data, root):
-    run(['eww', '--config', root, 'update', 'idle=' + json.dumps(data)])
+    run(['eww', '--config', root, 'update', 'idle=' + json.dumps(display_values(data))])
 
 
 def main():
@@ -375,16 +417,16 @@ def main():
                         data = snapshot()
                 if not data.get('dirty'):
                     fresh = snapshot()
-                    if not fresh.get('dirty') and fresh.get('supported') and all(data.get(k) == fresh[k] for k in KINDS) and data.get('message', '').startswith('Applied and verified'):
+                    if not fresh.get('dirty') and fresh.get('supported') and all(data.get(k) == fresh[k] for k in KINDS) and str(data.get('message', '')).startswith('Applied and verified'):
                         fresh['message'] = data['message']
                     data = fresh
-                encoded = json.dumps(data)
+                encoded = json.dumps(display_values(data))
                 if encoded != previous:
                     print(encoded, flush=True)
                     previous = encoded
             except (OSError, ValueError, RuntimeError) as exc:
                 data = dict(screen=0, lock=0, suspend=0, dirty=False, supported=False, known=False, message=str(exc), config='')
-                print(json.dumps(data), flush=True)
+                print(json.dumps(display_values(data)), flush=True)
             time.sleep(5)
     with (state.parent / '.idle-edit.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -396,7 +438,7 @@ def main():
             if not data['supported']: raise RuntimeError(data['message'])
             data[args.field] = max(0, min(MAX_MINUTES, data[args.field] + args.delta))
             actual = snapshot()
-            data['dirty'] = any(data[k] != actual[k] for k in KINDS)
+            data['dirty'] = not same_values(data, actual)
             data['message'] = 'Unsaved changes · minutes · 0 disables' if data['dirty'] else actual['message']
         else:
             try:
@@ -404,7 +446,7 @@ def main():
                 data.update(dirty=False, message='Applied and verified in Hypridle')
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
                 data.update(dirty=True, message=str(exc))
-        state.write_text(json.dumps(data))
+        state.write_text(json.dumps(display_values(data)))
         publish(data, ROOT)
 
 

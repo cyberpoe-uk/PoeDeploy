@@ -57,8 +57,8 @@ class IdleConfiguration(unittest.TestCase):
             self.assertEqual(idle.load(self.config)[2], values)
             self.assertIn('before_sleep_cmd', self.config.read_text())
 
-    def test_negative_fraction_boolean_and_injected_values_rejected(self):
-        for value in (-1, 1.5, True, '5; touch /tmp/unsafe', 1441, None):
+    def test_invalid_precision_boolean_and_injected_values_rejected(self):
+        for value in (-1, 1/7, float('nan'), float('inf'), 10**500, True, '5; touch /tmp/unsafe', 1441, None):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 idle.plan(self.config, dict(screen=value, lock=5, suspend=0))
 
@@ -136,3 +136,64 @@ class IdleConfiguration(unittest.TestCase):
         self.assertNotIn(':onchange', card)
         self.assertIn('idle.supported && idle.dirty', card)
         self.assertIn('adjust ${field} -1', card)
+
+class ModernHyprland(unittest.TestCase):
+    def test_lua_actions_and_second_precision_are_preserved(self):
+        off = """hyprctl dispatch 'hl.dsp.dpms({ action = "disable" })'"""
+        resume = """hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })' && brightnessctl -r"""
+        config = CONFIG.replace('timeout = 3600','timeout = 330').replace('hyprctl dispatch dpms off',off).replace('on-resume = hyprctl dispatch dpms on','on-resume = '+resume)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'hypridle.conf'
+            path.write_text(config)
+            values=idle.load(path)[2]
+            self.assertEqual(values['screen'],5.5)
+            changed=idle.plan(path,dict(values,lock=10))[path]
+            self.assertIn('timeout = 330',changed)
+            self.assertIn(off,changed)
+            self.assertIn(resume,changed)
+            path.write_text(changed)
+            changed=idle.plan(path,dict(values,screen=6.5,lock=10))[path]
+            self.assertIn('timeout = 390',changed)
+            self.assertNotIn('390.0',changed)
+            self.assertEqual(idle.display_values(dict(values,known=True))['screen_text'],'5.5')
+
+    def test_recogniser_accepts_only_literal_off_actions(self):
+        valid = [
+            """hyprctl dispatch 'hl.dsp.dpms({action="off"})'""",
+            """hyprctl eval 'hl.dispatch(hl.dsp.dpms({ monitor="eDP-1", action="disable", }))'""",
+            """hyprctl dispatch "hl.dsp.dpms({action='disable'})" """,
+        ]
+        invalid = [
+            """hyprctl dispatch 'hl.dsp.dpms({action="toggle"})'""",
+            """hyprctl dispatch 'hl.dsp.dpms({action=read_state()})'""",
+            """hyprctl dispatch 'hl.dsp.dpms({action="disable"}); run_other()'""",
+            """hyprctl dispatch 'hl.dsp.dpms({action="disable"})' && other-command""",
+            """hyprctl dispatch 'hl.dsp.dpms({action="disable", action="enable"})'""",
+        ]
+        for action in valid:
+            with self.subTest(action=action): self.assertTrue(idle.screen_off_action(action))
+        for action in invalid:
+            with self.subTest(action=action): self.assertFalse(idle.screen_off_action(action))
+
+    def test_fractional_minutes_keep_exact_seconds_when_adjusting_other_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'idle.conf'
+            path.write_text(CONFIG.replace('timeout = 3600','timeout = 500'))
+            values=idle.load(path)[2]
+            data=idle.display_values(dict(values,known=True))
+            self.assertEqual(data['screen_text'],'8.33')
+            self.assertIn('500 seconds',data['screen_detail'])
+            changed=idle.plan(path,dict(values,lock=8))[path]
+            self.assertIn('timeout = 500',changed)
+            path.write_text(changed)
+            self.assertTrue(idle.same_values(idle.load(path)[2],dict(values,lock=8)))
+
+    def test_new_screen_timer_uses_modern_off_and_resume_commands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'idle.conf'
+            path.write_text('general {\n lock_cmd = hyprlock\n}\n')
+            content=idle.plan(path,dict(screen=5,lock=0,suspend=0))[path]
+            self.assertIn('action = "disable"',content)
+            self.assertIn('action = "enable"',content)
+            path.write_text(content)
+            self.assertEqual(idle.load(path)[2]['screen'],5)

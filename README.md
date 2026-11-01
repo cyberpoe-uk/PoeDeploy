@@ -148,7 +148,9 @@ PoeDash also provides a **Power & Idle Management** card in the main grid. Its I
 the current profile always visible. Its numerical steppers edit Screen Off, Lock Screen and Auto Suspend in
 minutes. Zero disables only that timer. Apply is enabled only for pending changes. Timers are read from the detected
 configuration. Unknown/loading values show an em dash, while zero means the
-corresponding timer is genuinely disabled.
+corresponding timer is genuinely disabled. Legacy and Lua-style Hyprland DPMS
+actions are recognised. Existing second-level timings are preserved, including
+fractional minutes such as 5.5. Hover over a value to see its exact seconds.
 It discovers the running Hypridle instance and its config, including custom paths,
 source files and dotfile symlinks. It backs up the resolved files, preserves other
 listeners and security hooks, restarts only Hypridle, and checks runtime timer
