@@ -3182,7 +3182,11 @@ declare -A APPLICATIONS=(
 
     ["PowerTOP"]="powertop"
 
-    ["PenDash (dashboard + security tools)"]="@pendash-dashboard"
+    ["BlackArch repository (optional)"]="@blackarch"
+
+    ["Security tools (requires BlackArch repository)"]="@security-tools"
+
+    ["Burp Suite (official PortSwigger installer)"]="@burp"
 
     ["PoeDash (dashboard)"]="@poedash"
 
@@ -3391,6 +3395,14 @@ install_selected_applications() {
             @poedash)
                 install_bundled_dashboard_application PoeDash poedash \
                     --skip-deps --non-interactive --name "$POEDASH_NAME"
+                continue
+                ;;
+            @blackarch|@security-tools|@burp)
+                if ui_run_interactive python3 "$SCRIPT_DIR/installer/security-tools.py" "${package#@}"; then
+                    INSTALLED_PACKAGES+=("$package")
+                else
+                    FAILED_PACKAGES+=("$package")
+                fi
                 continue
                 ;;
             @pendash-dashboard)

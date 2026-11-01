@@ -17,6 +17,7 @@ install_bundled_dashboard_application() {
         return 0
     fi
     local files_only=false option
+    [[ "$relative_source" != pendash ]] || files_only=true
     for option in "$@"; do
         case "$option" in --skip-deps|--skip-packages|--update-dashboard) files_only=true ;; esac
     done

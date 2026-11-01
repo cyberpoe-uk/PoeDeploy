@@ -179,7 +179,7 @@ def retire_legacy_dashboard(config_home, backup):
         return False
     text = definition.read_text(errors='replace')
     fingerprints = ('MY DASHBOARD', 'START WEB CTF', 'BlackArch home screen')
-    if not any(marker in text for marker in fingerprints):
+    if not any(marker in text for marker in fingerprints) and not ((legacy / 'dashboard-id').is_file() and (legacy / 'dashboard-id').read_text().strip() == 'pendash'):
         return False
     if shutil.which('eww'):
         subprocess.run(['eww', '--config', str(legacy), 'kill'],
@@ -237,16 +237,22 @@ def install(args, root):
             shutil.copy2(matugen, backup / 'matugen.toml')
         retire_legacy_dashboard(config_home, backup)
     preserved = {}
+    legacy_backup = backup / 'retired-legacy-eww'
     for preserved_name in ('settings.json', 'colors.scss', 'disabled', 'layout.json'):
         path = root / preserved_name
         if path.is_file():
             preserved[preserved_name] = path.read_bytes()
+        elif (legacy_backup / preserved_name).is_file():
+            preserved[preserved_name] = (legacy_backup / preserved_name).read_bytes()
     if root.exists():
         if shutil.which('eww'):
             subprocess.run(['eww', '--config', str(root), 'kill'], check=False,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         shutil.rmtree(root)
     root.mkdir(parents=True, exist_ok=True)
+    for state_source in (legacy_backup / 'state', backup / 'config/state'):
+        if state_source.is_dir():
+            shutil.copytree(state_source, root / 'state', dirs_exist_ok=True)
     for directory in ('scripts', 'templates'):
         shutil.copytree(assets / directory, root / directory, dirs_exist_ok=True)
     shutil.copy2(SOURCE.parent / 'shared/dashboard-layout.py', root / 'scripts/layout.py')

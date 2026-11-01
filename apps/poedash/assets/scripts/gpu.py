@@ -1,13 +1,24 @@
 #!/usr/bin/env python3
 """NVIDIA first, then the first AMD DRM device exposing gpu_busy_percent."""
 import json
+import argparse
 from pathlib import Path
 import subprocess
 
 
-def reading(sysfs=Path('/sys/class/drm')):
+def reading(sysfs=Path('/sys/class/drm'), passive=False):
     usage = temperature = None
+    if passive:
+        for device in sorted(sysfs.glob('card[0-9]*/device')):
+            try:
+                if (device / 'vendor').read_text().strip() == '0x10de':
+                    state = (device / 'power/runtime_status').read_text().strip()
+                    return {'usage': 0, 'label': 'Asleep' if state == 'suspended' else 'Active' if state == 'active' else '--', 'temperature': '--'}
+            except OSError:
+                continue
     try:
+        if passive:
+            raise FileNotFoundError
         result = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu,temperature.gpu', '--format=csv,noheader,nounits'], capture_output=True, text=True, timeout=3)
         if result.returncode == 0:
             fields = result.stdout.splitlines()[0].split(',')
@@ -33,4 +44,6 @@ def reading(sysfs=Path('/sys/class/drm')):
 
 
 if __name__ == '__main__':
-    print(json.dumps(reading()))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--passive', action='store_true')
+    print(json.dumps(reading(passive=parser.parse_args().passive)))

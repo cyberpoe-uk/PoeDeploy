@@ -101,8 +101,8 @@ class OfficialBurpTests(unittest.TestCase):
 
 
 class InstallerTests(unittest.TestCase):
-    def test_pendash_restores_curated_tools_and_keeps_chromium(self):
-        for options in ([], ['--non-interactive']):
+    def test_legacy_install_migrates_to_poedash_without_security_packages(self):
+        for options in ([], ['--non-interactive'], ['--update-dashboard']):
             with self.subTest(options=options), \
                  patch.object(p.sys, 'argv', ['pendash.py', *options]), \
                  patch.object(p.os, 'geteuid', return_value=1000), \
@@ -112,19 +112,11 @@ class InstallerTests(unittest.TestCase):
                  patch.object(p, 'install_dashboard') as dashboard, \
                  patch.object(p, 'run') as command:
                 self.assertEqual(p.main(), 0)
-                repository.assert_called_once_with(False)
-                packages.assert_called_once()
-                selected = packages.call_args.args[0]
-                self.assertTrue({'chromium', 'ffuf', 'gobuster', 'nmap',
-                                 'sqlmap', 'wfuzz', 'wireshark-qt', 'jwt-tool'}.issubset(selected))
-                self.assertNotIn('burpsuite', selected)
-                burp.assert_called_once_with(False)
-                self.assertFalse(set(selected).intersection({
-                    'nvidia-prime', 'hypridle', 'hyprlock', 'power-profiles-daemon',
-                    'tailscale', 'proton-vpn-gtk-app', 'blackarch',
-                }))
-                dashboard.assert_called_once_with(False)
-                command.assert_not_called()
+                repository.assert_not_called()
+                packages.assert_not_called()
+                burp.assert_not_called()
+                dashboard.assert_not_called()
+                self.assertEqual(command.call_args.args[0], ['bash', p.SOURCE.parent / 'poedash/install.sh', '--skip-deps', '--non-interactive'])
 
     def test_retired_system_setup_flags_are_rejected_before_installation(self):
         for options in (['--tool-mode', 'all'], ['--skip-nvidia'], ['--burp-installer', '/tmp/installer.sh'], ['setup-burp-ca']):
@@ -156,45 +148,11 @@ class InstallerTests(unittest.TestCase):
                 self.assertEqual(p.main(), 2)
                 command.assert_not_called()
 
-    def test_dashboard_update_preserves_user_data_without_packages_or_repositories(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
-            root = home / '.config/eww'
-            root.mkdir(parents=True)
-            (root / 'eww.yuck').write_text('old')
-            (root / 'browser.json').write_text('{"browser": "chromium"}')
-            (root / 'colors.scss').write_text('custom palette')
-            (root / 'disabled').touch()
-            (root / 'layout.json').write_text('{"density":"comfortable"}')
-            flags = home / '.config/chromium-flags.conf'
-            flags.write_text('--proxy-server=http://manual:9999\n--custom-option\n')
-            cookies = home / '.config/chromium/Default/Cookies'
-            cookies.parent.mkdir(parents=True)
-            cookies.write_bytes(b'keep cookies')
-            (root / 'obsolete-interface-file').write_text('remove me')
-            profile = root / 'state/chromium-ctf'
-            profile.mkdir(parents=True)
-            (profile / 'keep').write_text('profile data')
-            with patch.dict(os.environ, {'XDG_CONFIG_HOME': str(home / '.config')}), patch.object(p.shutil, 'which', return_value='/usr/bin/mock'), patch.object(p, 'HOME', home), patch.object(p, 'BACKUP', home / 'backup'), patch.object(p.sys, 'argv', ['pendash.py', '--update-dashboard']), patch.object(p, 'ensure_blackarch') as repository, patch.object(p, 'install_packages') as packages, patch.object(p, 'install_burp') as burp, patch.object(p, 'dashboard_enabled') as enable:
-                self.assertEqual(p.main(), 0)
-            repository.assert_not_called()
-            packages.assert_not_called()
-            burp.assert_not_called()
-            self.assertEqual((home / '.config/poedeploy/dashboard').read_text(), 'pendash\n')
-            enable.assert_not_called()
-            self.assertEqual((root / 'colors.scss').read_text(), 'custom palette')
-            self.assertFalse((root / 'browser.json').exists())
-            self.assertEqual(flags.read_text(), '--proxy-server=http://manual:9999\n--custom-option\n')
-            self.assertEqual(cookies.read_bytes(), b'keep cookies')
-            self.assertEqual((profile / 'keep').read_text(), 'profile data')
-            self.assertTrue((root / 'disabled').exists())
-            self.assertEqual((root / 'layout.json').read_text(), '{"density":"comfortable"}')
-            self.assertFalse((root / 'obsolete-interface-file').exists())
-            self.assertIn('defwindow', (root / 'eww.yuck').read_text())
-            for name in ('workspace.py', 'layout.py', 'desktop.py', 'thunderbird-calendar.py', 'media.py', 'media-control.sh', 'system-info.py', 'processes.py', 'shares.py'):
-                self.assertTrue((root / 'scripts' / name).stat().st_mode & 0o111)
-            for name in ('ctf-control.py', 'ctf-status.sh', 'target.sh', 'launch-app.sh'):
-                self.assertFalse((root / 'scripts' / name).exists())
+    def test_legacy_dry_run_remains_non_mutating(self):
+        with patch.object(p.sys, 'argv', ['pendash.py', '--dry-run']), \
+             patch.object(p.os, 'geteuid', return_value=1000), patch.object(p, 'run') as command:
+            self.assertEqual(p.main(), 0)
+            self.assertIn('--dry-run', command.call_args.args[0])
 
     def test_managed_lua_block_is_idempotent_and_preserves_user_content(self):
         block = (REPO / 'assets/custom.lua').read_text()

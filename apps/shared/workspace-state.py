@@ -61,6 +61,14 @@ class Observer:
             self.state = bool(reading)
         self.last_query = time.monotonic()
         if self.state != self.emitted:
+            try:
+                path = self.root / 'state/home-visible'
+                path.parent.mkdir(parents=True, exist_ok=True)
+                temporary = path.with_suffix('.tmp')
+                temporary.write_text('true' if self.state else 'false')
+                temporary.replace(path)
+            except OSError:
+                pass
             print('true' if self.state else 'false', flush=True)
             self.emitted = self.state
 

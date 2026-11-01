@@ -106,6 +106,23 @@ class Installation(unittest.TestCase):
         self.assertNotIn('.config/eww/scripts/start.sh', custom.read_text())
         self.assertIn('-- keep me', custom.read_text())
 
+    def test_pendash_preferences_and_state_migrate_and_existing_poedash_wins(self):
+        legacy = self.home / '.config/eww'
+        legacy.mkdir(parents=True)
+        (legacy / 'eww.yuck').write_text('(label :text "MY DASHBOARD")')
+        (legacy / 'colors.scss').write_text('// laptop palette')
+        (legacy / 'layout.json').write_text('{"density":"compact"}')
+        (legacy / 'disabled').touch()
+        (legacy / 'state').mkdir()
+        (legacy / 'state/custom.json').write_text('{"keep":true}')
+        self.install()
+        self.assertEqual((self.root / 'colors.scss').read_text(), '// laptop palette')
+        self.assertEqual(json.loads((self.root / 'layout.json').read_text())['density'], 'compact')
+        self.assertTrue((self.root / 'disabled').exists())
+        self.assertTrue((self.root / 'state/custom.json').exists())
+        self.install()
+        self.assertTrue((self.root / 'state/custom.json').exists())
+
     def test_old_launcher_settings_are_migrated_to_general_dashboard(self):
         self.install()
         old = {'monitor': 0, 'layout': {'scale': 'auto', 'system_width': 540,
@@ -161,7 +178,7 @@ class Installation(unittest.TestCase):
                         'SPECIFICATIONS', 'media-control.sh open',
                         'Tailscale IP', ':wrap true', 'media.art'):
             self.assertIn(feature, yuck)
-        self.assertIn(':visible {power.available}', yuck)
+        self.assertIn(':visible {power.present}', yuck)
         self.assertIn(':visible home_visible', yuck)
         self.assertNotIn('dashboard-away', yuck)
         self.assertIn('deflisten home_visible', yuck)

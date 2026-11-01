@@ -102,14 +102,15 @@ the normal terminal.
 The application list includes:
 
 7-Zip, Discord, Firefox, GIMP, HyprMod, LibreOffice, LocalSend, OBS Studio,
-PenDash, PoeDash, PowerTOP, Proton VPN, Spotify, Tailscale, Thunderbird,
+PoeDash, PowerTOP, Proton VPN, Spotify, Tailscale, Thunderbird,
 Visual Studio Code, and VLC.
 
-PoeDash and PenDash are bundled under `apps/` and install directly from the
-PoeDeploy release. Choose only one dashboard.
+PoeDash is the single maintained dashboard bundled under `apps/`. Legacy PenDash
+installers and refresh controls migrate to PoeDash without installing packages.
+BlackArch, security tools and official Burp are independent optional applications.
 
-Both dashboards show the current machine's hostname prominently in the top-left
-corner. Their Compact/Comfortable button changes text size and internal spacing
+The dashboard shows the current machine's hostname prominently in the top-left
+corner. Its Compact/Comfortable button changes text size and internal spacing
 immediately, and remembers the choice across restarts and updates. On wide
 screens the cards use three aligned rows:
 
@@ -120,8 +121,8 @@ screens the cards use three aligned rows:
 | Player | Mounted Shares | Power |
 
 The layout accounts for display scaling and desktop bars, and switches to fewer
-columns on narrow displays. Compact uses 16–20 px body text and Comfortable uses
-20–24 px, scaling with the available card width. Artwork grows with the player
+columns on narrow displays. Compact uses 14–17 px body text and the default Comfortable uses
+16–20 px, scaling with the available card width. Artwork grows with the player
 card and song names wrap. Long process, share and laptop activity lists scroll
 inside their cards. Both modes can use vertical scrolling on short screens.
 
@@ -133,6 +134,15 @@ restarts and updates. Clicking album artwork or a song name opens the applicatio
 playing that media. The calendar includes an upcoming-events area from
 Thunderbird's local calendar cache, and opens Thunderbird when clicked. Without
 a configured calendar it shows the month grid with an empty events area.
+
+The Power card appears only for system batteries. Remaining time appears only
+when the OS supplies a valid estimate. Without a battery the other cards expand
+into its space. General metrics refresh every two seconds on battery. Playing
+media refreshes independently every second, with paused/stopped media checked
+every five seconds. AC metric intervals remain unchanged. Hidden dashboards
+pause metric collectors. Laptop GPU monitoring uses passive telemetry by default.
+Set `"gpu_monitoring": "detailed"` in `~/.config/poedash/layout.json` to request
+active GPU measurements, or `"passive"` to avoid NVIDIA queries on any machine.
 
 The dashboard shows on workspace 1 using widget visibility rather than global
 opacity. Its workspace observer supports nonzero monitor IDs and reconnects if
@@ -149,17 +159,15 @@ PoeDeploy asks for the PoeDash subtitle during the visible application-planning
 step. The background installation and dashboard updates are non-interactive, so
 they cannot stall behind the static progress screen.
 
-**PenDash (dashboard + security tools)** adds the BlackArch repository using
-its [official, checksum-verified bootstrapper](https://blackarch.org/downloads.html)
-and installs ffuf, Gobuster, Nmap, sqlmap, Wfuzz, Wireshark, and jwt-tool alongside
-the dashboard and Chromium. Burp comes directly from
-[PortSwigger's official downloads](https://portswigger.net/burp/downloads), using
-the current native Linux installer and its published SHA-256 checksum. It does
-not use the pacman or AUR `burpsuite` package. The native installer includes its
-Java runtime and installs for the desktop user. Use Community Edition, or
-activate an existing Professional license.
-Chromium launches normally. Configure its Burp proxy and certificates manually.
-PenDash does not configure NVIDIA or apply laptop power rules.
+**BlackArch repository (optional)** uses its
+[official, checksum-verified bootstrapper](https://blackarch.org/downloads.html).
+**Security tools (requires BlackArch repository)** installs ffuf, Gobuster, Nmap,
+sqlmap, Wfuzz, Wireshark and jwt-tool only when explicitly selected. Select the
+repository first if it is not already configured.
+**Burp Suite (official PortSwigger installer)** independently installs the native
+Linux build from [PortSwigger](https://portswigger.net/burp/downloads), verified
+against its published SHA-256 checksum. It does not use the AUR package.
+Dashboard installation and refresh never install these tools or repositories.
 
 Existing setups can install the official Burp build separately:
 
@@ -172,11 +180,12 @@ Existing native PortSwigger installations are retained and use Burp's own update
 Existing repository packages are retained. Use the native installer's desktop
 entry or `~/.local/bin/burpsuite` to launch the PortSwigger build.
 
-When updating an older PenDash setup, the installer backs up and removes known,
-unmodified proxy/certificate helper scripts and their exact managed Chromium
-flags. Custom flags, browser profiles, and certificate stores are retained.
+Migrating PenDash backs up its recognised Eww configuration and keeps its palette,
+density, enabled state and dashboard state. Existing PoeDash preferences take
+precedence. Shared application history and pins, browser profiles and certificates
+are retained. The legacy PenDash installer remains a compatibility entry point.
 
-Both dashboards add enable/disable and update controls to a supported ML4W
+PoeDash adds enable/disable and update controls to a supported ML4W
 QuickShell status bar. The update control downloads the latest PoeDeploy `main`
 branch and refreshes the selected dashboard from its maintained bundled copy.
 Dashboard changes are available as soon as they are pushed, without a release
@@ -186,8 +195,7 @@ the same dashboard in PoeDeploy performs the same clean refresh: managed
 interface files are replaced while Eww itself, dashboard preferences, the
 enabled state, colour palette, and browser state are retained. Dashboard refreshes
 only replace dashboard files and bar integration. They do not add repositories,
-install security tools, or install or upgrade packages. BlackArch and curated
-security tools belong to the explicit initial PenDash installation.
+install security tools, or install or upgrade packages. BlackArch, curated security tools and Burp are separate optional installer choices.
 
 Installers record the selected dashboard in `~/.config/poedeploy/dashboard`.
 Updates from stale controls for another dashboard are rejected before setup runs.
@@ -200,7 +208,7 @@ PoeDeploy's full setup installs Tailscale and enables `tailscaled` at boot.
 Selecting Tailscale in Optional applications also enables and starts its service.
 For a selected-section run, choose Tailscale service to install and enable it.
 The user completes authentication with `sudo tailscale up`.
-PoeDash and PenDash do not install Tailscale or Proton VPN. They display
+PoeDash does not install Tailscale or Proton VPN. They display
 `Not installed` when a client is absent, and its connection state when present.
 
 [Proton VPN's Arch installation](https://protonvpn.com/support/linux-vpn-arch)
@@ -321,7 +329,8 @@ python3 -m unittest discover -s tests -v
 The existing setup functions remain in `poedeploy.sh`, while the new runtime is
 split into three layers:
 
-- `installer/applications.sh` dispatches the bundled PoeDash and PenDash installers.
+- `installer/applications.sh` dispatches PoeDash and legacy PenDash migration.
+- `installer/security-tools.py` handles explicit optional security installations.
 - `apps/poedash/` and `apps/pendash/` contain their program files, assets, and
   focused regression tests.
 - `ui/progress.sh` owns stage state and real progress calculations.

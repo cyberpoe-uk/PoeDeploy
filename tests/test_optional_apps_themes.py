@@ -48,32 +48,20 @@ install_selected_applications
         self.assertIn('DASHBOARD:PoeDash:poedash:--skip-deps', output)
         self.assertIn('DASHBOARD:PenDash dashboard:pendash:--non-interactive', output)
 
-    def test_dashboard_choices_are_mutually_exclusive(self):
-        output = self.check(r'''
+    def test_single_dashboard_and_independent_security_choices(self):
+        self.check(r'''
 gum() { :; }
-attempt_file=$(mktemp)
-printf '0\n' >"$attempt_file"
 choose_checklist() {
     options=$(cat)
     [[ "$options" == *'PoeDash (dashboard)'* ]] || exit 91
-    [[ "$options" == *'PenDash (dashboard + security tools)'* ]] || exit 92
-    [[ "$options" != *'PenDash (full laptop setup)'* ]] || exit 93
-    [[ ${#APPLICATIONS[@]} -gt 2 && $(dashboard_application_selection_count "${!APPLICATIONS[@]}") == 2 ]] || exit 94
-    calls=$(<"$attempt_file")
-    calls=$((calls + 1))
-    printf '%s\n' "$calls" >"$attempt_file"
-    if ((calls == 1)); then
-        printf '%s\n' 'PoeDash (dashboard)' 'PenDash (dashboard + security tools)'
-    else
-        printf '%s\n' 'PenDash (dashboard + security tools)'
-    fi
+    [[ "$options" != *'PenDash (dashboard + security tools)'* ]] || exit 92
+    [[ "$options" == *'Burp Suite (official PortSwigger installer)'* ]] || exit 93
+    [[ $(dashboard_application_selection_count "${!APPLICATIONS[@]}") == 1 ]] || exit 94
+    echo 'Security tools (requires BlackArch repository)'
 }
 select_applications
-[[ "$(<"$attempt_file")" == 2 ]]
-[[ "${SELECTED_PACKAGES[*]}" == '@pendash-dashboard' ]]
-rm -f -- "$attempt_file"
+[[ "${SELECTED_PACKAGES[*]}" == '@security-tools' ]]
 ''')
-        self.assertIn('cannot be installed together', output)
 
     def test_poedash_name_is_collected_before_background_installation(self):
         self.check(r'''
@@ -87,29 +75,11 @@ install_bundled_dashboard_application() {
 install_selected_applications
 ''')
 
-    def test_pendash_needs_no_browser_selection(self):
+    def test_legacy_pendash_installer_is_files_only(self):
         self.check(r'''
-gum() { :; }
-choose_checklist() { cat >/dev/null; echo 'PenDash (dashboard + security tools)'; }
-ui_prompt() { return 99; }
-select_applications
-[[ -z "${PENDASH_BROWSER:-}" ]]
-install_bundled_dashboard_application() {
-    [[ "$*" == 'PenDash dashboard pendash --non-interactive' ]]
-}
-install_selected_applications
-''')
-
-    def test_pendash_installer_prepares_python_and_eww_build_helper(self):
-        self.check(r'''
-ensure_command_dependencies() { [[ "$*" == python3:python ]] || exit 91; }
-command() {
-    case "$*" in '-v eww'|'-v paru'|'-v yay') return 1 ;; esac
-    builtin command "$@"
-}
-install_yay() { helper_ready=true; }
+ensure_command_dependencies() { exit 91; }
+install_yay() { exit 92; }
 ui_run_interactive() {
-    [[ "$helper_ready" == true ]] || exit 92
     [[ "$*" == "bash $SCRIPT_DIR/apps/pendash/install.sh --non-interactive" ]] || exit 93
 }
 install_bundled_dashboard_application PenDash pendash --non-interactive

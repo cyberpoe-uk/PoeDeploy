@@ -19,7 +19,7 @@ class GeometryTests(unittest.TestCase):
             for mode in ('compact', 'comfortable'):
                 with self.subTest(width=width, height=height, mode=mode):
                     data = layout.geometry(width, height, mode)
-                    padding = 20 if mode == 'comfortable' else 14
+                    padding = 14 if mode == 'comfortable' else 10
                     total = (data['columns'] * (data['card_width'] + 2 * padding + 4)
                              + (data['columns'] - 1) * data['gap'] + 2 * data['padding']
                              + data['rail_width'] + data['gap'])
@@ -36,13 +36,22 @@ class GeometryTests(unittest.TestCase):
         comfortable = layout.geometry(1920, 1080, 'comfortable')
         self.assertLess(compact['row_gap'], comfortable['row_gap'])
         self.assertLess(compact['padding'], comfortable['padding'])
-        self.assertGreaterEqual(compact['font_size'], 16)
-        self.assertGreaterEqual(comfortable['font_size'], compact['font_size'] + 3)
+        self.assertGreaterEqual(compact['font_size'], 14)
+        self.assertGreater(comfortable['font_size'], compact['font_size'])
+        self.assertLessEqual(comfortable['font_size'], 20)
+        self.assertLessEqual(compact['font_size'], 17)
         total = sum(compact[key] for key in ('top_height', 'middle_height', 'bottom_height'))
         self.assertLessEqual(total + 2 * compact['padding'] + 90 + 2 * compact['gap'], 1080)
         for data in (compact, comfortable):
             self.assertGreater(data['album_size'], 54)
             self.assertLessEqual(data['album_size'] + data['media_text_width'] + 16, data['card_width'])
+
+    def test_app_captions_are_secondary_and_fit_the_rail(self):
+        for mode, size in [('compact', 10), ('comfortable', 11)]:
+            data = layout.geometry(1920, 1080, mode)
+            self.assertEqual(data['app_name_size'], size)
+            self.assertLess(size, data['small_size'])
+            self.assertLess((data['rail_name_chars'] + 3) * size * .62, data['rail_content_width'] + 1)
 
     def test_monitor_uses_logical_pixels_and_reserved_bars(self):
         monitors = [dict(name='eDP-1', width=2560, height=1440, scale=2, reserved=[0, 30, 0, 0]),
@@ -68,13 +77,13 @@ class PreferenceTests(unittest.TestCase):
                 patch.object(layout.socket, 'gethostname', return_value='my-other-laptop'):
             self.assertEqual(layout.snapshot(Path(tmp))['hostname'], 'my-other-laptop')
 
-    def test_missing_corrupt_or_unknown_preferences_default_to_compact(self):
+    def test_missing_corrupt_or_unknown_preferences_default_to_comfortable(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            self.assertEqual(layout.density(root), 'compact')
+            self.assertEqual(layout.density(root), 'comfortable')
             for content in ('broken json', '[]', '{"density":"unknown"}'):
                 (root / 'layout.json').write_text(content)
-                self.assertEqual(layout.density(root), 'compact')
+                self.assertEqual(layout.density(root), 'comfortable')
 
     def test_toggle_updates_only_its_running_dashboard_and_persists(self):
         with tempfile.TemporaryDirectory(prefix='layout preference ') as tmp:
@@ -100,7 +109,7 @@ class PreferenceTests(unittest.TestCase):
                 patch.object(layout.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, ['eww'])):
             with self.assertRaises(subprocess.CalledProcessError):
                 layout.toggle(Path(tmp))
-            self.assertEqual(layout.density(Path(tmp)), 'comfortable')
+            self.assertEqual(layout.density(Path(tmp)), 'compact')
 
 
 class DashboardStructureTests(unittest.TestCase):

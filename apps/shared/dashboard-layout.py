@@ -25,8 +25,8 @@ def load(path):
 
 
 def density(root):
-    value = load(root / 'layout.json').get('density', 'compact')
-    return value if value in ('compact', 'comfortable') else 'compact'
+    value = load(root / 'layout.json').get('density', 'comfortable')
+    return value if value in ('compact', 'comfortable') else 'comfortable'
 
 
 def monitor_size(root):
@@ -51,23 +51,24 @@ def monitor_size(root):
         return 1920, 1080
 
 
-def geometry(width, height, mode='compact'):
+def geometry(width, height, mode='comfortable'):
     comfortable = mode == 'comfortable'
-    padding, gap = (28, 16) if comfortable else (20, 10)
+    padding, gap = (20, 10) if comfortable else (14, 8)
     if width < 600:
         padding, gap = 10, 8
-    rail_width = (136 if comfortable else 112) if width >= 900 else (64 if width >= 600 else 52)
-    minimum = 390 if comfortable else 350
+    rail_width = (112 if comfortable else 100) if width >= 900 else (64 if width >= 600 else 52)
+    minimum = 350 if comfortable else 320
     content = max(180, width - 2 * padding - rail_width - gap - 4)
     columns = min(3, max(1, (content + gap) // (minimum + gap)))
     cell_width = max(180, (content - (columns - 1) * gap) // columns)
-    font_size = min(20, max(16, round(cell_width / 34))) + (4 if comfortable else 0)
+    font_size = min(20, max(16, round(cell_width / 34))) if comfortable else min(17, max(14, round(cell_width / 38)))
     small_size = font_size - 2
+    app_name_size = 11 if comfortable else 10
     heading_size = font_size + 2
-    row_gap = 9 if comfortable else 6
+    row_gap = 6 if comfortable else 4
     line_height = math.ceil(font_size * 1.35)
-    header_height = 108 if comfortable else 90
-    card_padding = 20 if comfortable else 14
+    header_height = 90 if comfortable else 80
+    card_padding = 14 if comfortable else 10
     card_width = max(120, cell_width - 2 * card_padding - 4)
     calendar_size = font_size if card_width >= 450 else font_size - 2
     month_width = math.ceil(21 * calendar_size * 0.63)
@@ -80,30 +81,31 @@ def geometry(width, height, mode='compact'):
     # System specifications can wrap onto two lines. Connectivity has seven rows.
     minimum_heights = (max(calendar_height, 2 * card_padding + heading_size + 7 * line_height + 6 * row_gap),
                        2 * card_padding + heading_size + 7 * (line_height + row_gap),
-                       260 if comfortable else 220)
+                       220 if comfortable else 195)
     heights = [max(minimum_height, round(available * ratio))
                for minimum_height, ratio in zip(minimum_heights, (0.32, 0.39, 0.29))]
     # Leave room for CSS padding when GTK calculates a card's minimum width.
     char_width = font_size * 0.62
     key_width = math.ceil(small_size * 0.62 * 9)
-    media_control = 40 if comfortable else 34
-    album_size = min(224 if comfortable else 192, round(card_width * 0.34),
+    media_control = 34 if comfortable else 28
+    album_size = min(192 if comfortable else 144, round(card_width * 0.34),
                      heights[2] - 2 * card_padding - heading_size - media_control - 4 * row_gap - 16)
-    album_size = max(64, album_size)
+    album_size = max(64 if comfortable else 56, album_size)
     media_text_width = max(80, card_width - album_size - 16)
     rail_content_width = max(24, rail_width - 2 * card_padding - 4)
     return {
         'density': mode, 'columns': columns, 'gap': gap, 'row_gap': row_gap, 'padding': padding,
         'rail_width': rail_width, 'rail_labels': width >= 900,
         'rail_content_width': rail_content_width,
-        'rail_name_chars': max(3, int(rail_content_width / (small_size * 0.62)) - 3),
+        'app_name_size': app_name_size,
+        'rail_name_chars': max(3, int(rail_content_width / (app_name_size * 0.62)) - 3),
         'card_width': card_width, 'card_padding': card_padding, 'top_height': heights[0],
         'middle_height': heights[1], 'bottom_height': heights[2],
         'list_height': max(90, heights[1] - 2 * card_padding - 2 * line_height - row_gap),
         'share_height': max(75, heights[2] - 2 * card_padding - 2 * line_height - row_gap),
         'power_height': max(75, heights[2] - 2 * card_padding - line_height - row_gap),
         'font_size': font_size, 'small_size': small_size, 'heading_size': heading_size,
-        'title_size': font_size + 16, 'media_title_size': font_size + 4,
+        'title_size': font_size + (16 if comfortable else 14), 'media_title_size': font_size + 4,
         'media_control': media_control, 'album_size': album_size,
         'media_text_width': media_text_width,
         'process_name_chars': max(6, int((card_width - small_size * 0.62 * 12) / char_width)),

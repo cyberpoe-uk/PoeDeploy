@@ -334,35 +334,24 @@ def main():
     args = parser.parse_args()
     if os.geteuid() == 0:
         parser.error('Run as the desktop user; the installer requests sudo for repository and package installation.')
-    if args.update_dashboard:
-        root = HOME / '.config/eww'
-        if not (root / 'eww.yuck').is_file():
-            raise RuntimeError('Install PenDash before updating it.')
-        install_dashboard(False, preserve_colors=True)
-        if args.waybar_config:
-            run([sys.executable, root / 'scripts/dashboard-control.py', '--root', root, 'waybar', '--config', args.waybar_config])
-        if not (root / 'disabled').exists():
-            dashboard_enabled(root, True)
-        print('PenDash dashboard files updated. Packages and repositories were not changed.')
-        return 0
-    if args.disable_dashboard or args.enable_dashboard:
-        dashboard_enabled(HOME / '.config/eww', args.enable_dashboard)
+    if args.install_burp:
+        install_burp(args.dry_run)
         return 0
     if args.check:
         return 0 if installation_checks() else 2
-    if args.install_burp:
-        install_burp(False)
+    target = SOURCE.parent / 'poedash'
+    if args.disable_dashboard or args.enable_dashboard:
+        run([sys.executable, target / 'poedash.py', 'enable' if args.enable_dashboard else 'disable'])
         return 0
-    if not args.skip_packages:
-        ensure_blackarch(args.dry_run)
-        install_packages(sorted(set(DASHBOARD + CURATED + ['chromium'])), args.dry_run)
-        install_burp(args.dry_run)
-    install_dashboard(args.dry_run)
+    options = ['--skip-deps', '--non-interactive']
+    if args.dry_run:
+        options.append('--dry-run')
+    run(['bash', target / 'install.sh', *options])
     if args.waybar_config and not args.dry_run:
-        root = HOME / '.config/eww'
+        root = Path(os.environ.get('XDG_CONFIG_HOME', HOME / '.config')) / 'poedash'
         run([sys.executable, root / 'scripts/dashboard-control.py', '--root', root,
              'waybar', '--config', args.waybar_config])
-    print('PenDash installation finished. Configure Chromium and Burp manually.')
+    print('PenDash has been consolidated into PoeDash. Packages and repositories were not changed.')
     return 0
 
 
