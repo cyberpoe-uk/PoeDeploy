@@ -19,7 +19,7 @@
 (defvar shares '["Checking mounted shares"]')
 (defvar media '{"available":false,"player":"No media","title":"Nothing playing","artist":"","status":"Stopped","position":"0:00","length":"0:00","progress":0,"icon":"♪","art":""}')
 ;; Start with narrow geometry until the monitor listener reports the actual size.
-(defvar layout '{"density": "comfortable", "columns": 0, "gap": 4, "row_gap": 4, "padding": 6, "rail_width": 44, "rail_labels": false, "rail_content_width": 24, "app_name_size": 9, "rail_name_chars": 3, "card_width": 232, "card_padding": 10, "arch_height": 40, "system_height": 40, "calendar_height": 40, "performance_height": 40, "processes_height": 40, "connectivity_height": 40, "player_height": 40, "shares_height": 40, "management_height": 40, "header_height": 59, "top_height": 40, "middle_height": 40, "bottom_height": 40, "list_height": 20, "share_height": 20, "power_height": 20, "font_size": 11, "small_size": 9, "heading_size": 13, "title_size": 23, "media_title_size": 15, "media_control": 34, "album_size": 28, "media_text_width": 188, "process_name_chars": 24, "key_width": 51, "calendar_size": 9, "calendar_inline": true, "month_width": 120, "agenda_width": 108, "agenda_height": 30, "hostname_width": 18, "stat_key_chars": 15, "text_width": 17, "hostname": "Loading\u2026", "grid": "(box)"}')
+(defvar layout '{"density": "comfortable", "columns": 0, "gap": 4, "row_gap": 4, "padding": 6, "rail_width": 44, "rail_labels": false, "rail_content_width": 24, "app_name_size": 9, "rail_name_chars": 3, "session_width": 69, "card_width": 232, "card_padding": 10, "arch_height": 40, "system_height": 40, "calendar_height": 40, "performance_height": 40, "processes_height": 40, "connectivity_height": 40, "player_height": 40, "shares_height": 40, "management_height": 40, "header_height": 59, "top_height": 40, "middle_height": 40, "bottom_height": 40, "list_height": 20, "share_height": 20, "power_height": 20, "font_size": 11, "small_size": 9, "heading_size": 13, "title_size": 23, "media_title_size": 15, "media_control": 34, "album_size": 28, "media_text_width": 188, "process_name_chars": 24, "key_width": 51, "calendar_size": 9, "calendar_inline": true, "month_width": 120, "agenda_width": 108, "agenda_height": 30, "hostname_width": 18, "stat_key_chars": 15, "text_width": 17, "hostname": "Loading\u2026", "grid": "(box)"}')
 (deflisten dashboard_grid :initial "(box)" `exec ./scripts/layout.py listen`)
 
 (deflisten refresh_status :initial "starting" `exec ./scripts/refresh.py`)
@@ -161,7 +161,7 @@
 (defwidget session-status [heading value detail]
   (box :orientation "v" :space-evenly false :spacing 2
     (label :text heading :halign "start" :style "font-size: ${layout.small_size}px;" :class "micro")
-    (label :text value :tooltip detail :xalign 0 :wrap true :width {(layout.card_width - 16 - 2 * layout.row_gap) / 3} :height 0)))
+    (label :text value :tooltip detail :xalign 0 :wrap true :width {layout.session_width} :height 0)))
 
 (defwidget idle-setting [name field value detail]
   (box :space-evenly false :spacing {layout.row_gap}
@@ -219,8 +219,11 @@
         (box :orientation "v" :space-evenly false :hexpand true :spacing 4
           (label :class "title" :style "font-size: ${layout.title_size}px;" :xalign 0 :text {layout.hostname} :limit-width {layout.hostname_width} :tooltip {layout.hostname})
           (label :show-truncated false :class "subtitle" :style "font-size: ${layout.small_size}px;" :text "@@DASHBOARD_NAME@@" :halign "start"))
+        (box :space-evenly false :spacing {layout.gap}
+        (button :class "density-toggle package-search" :timeout "3s" :onclick "./scripts/packages.py launch" :tooltip "Search repository and AUR packages"
+          (label :text "Packages"))
         (button :class "density-toggle" :timeout "6s" :onclick "./scripts/layout.py toggle" :tooltip {layout.density == "compact" ? "Switch to Comfortable: larger text, artwork and controls" : "Switch to Compact: readable text with tighter spacing"}
-          (label :show-truncated false :text {layout.density == "compact" ? "Compact" : "Comfortable"}))
+          (label :show-truncated false :text {layout.density == "compact" ? "Compact" : "Comfortable"})))
         (box :orientation "v" :space-evenly false :spacing 4
           (label :show-truncated false :class "clock" :style "font-size: ${layout.title_size}px;" :text clock :halign "end")
           (label :show-truncated false :class "date" :style "font-size: ${layout.small_size}px;" :text today :halign "end")))

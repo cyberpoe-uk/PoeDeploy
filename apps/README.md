@@ -17,7 +17,8 @@ The wide layout uses three columns:
 
 The layout adapts to display scaling, desktop bars and narrower monitors.
 Comfortable is the default and uses the former Compact text sizes. Compact text
-is two pixels smaller where readable. Each mode retains its existing card sizes
+is six pixels smaller where readable. Recent/pinned app icons and app-name
+captions keep their previous sizes. Each mode retains its existing card sizes
 and spacing. Card heights
 and typography adapt to the viewport so the dashboard itself does not scroll.
 The dashboard button changes density live and saves the selection. App captions
@@ -50,6 +51,15 @@ read-only. Exclusively locked databases use a bounded private copy with its WAL
 and rollback journal, validated before use and removed afterward. Copies that
 change during reading are retried up to three times. Locked databases larger
 than 64 MiB including journals are reported as unavailable rather than copied.
+
+## Package search
+
+The header's **Packages** button uses the current Rofi configuration, with the
+same popup size and theme as the application launcher. It searches repositories
+and the AUR with alphabetical local filtering, installed/update labels, and
+available icons. Only confirmed actions open an interactive Kitty transaction.
+See [package search](../docs/package-search.md) for update checks, caching,
+network limitations and full-system-upgrade behavior.
 
 ## Power and idle settings
 

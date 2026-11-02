@@ -124,7 +124,8 @@ columns on narrow displays. It is validated through native 3840×2160 and scaled
 4K desktops. On very small displays, cards retain bounded frames and scroll their
 contents individually. Text, padding and card heights adapt to the available
 screen area. Comfortable now uses the former Compact text sizes. Compact text
-is another two pixels smaller, subject to minimum readable sizes. Existing card
+is another six pixels smaller, subject to minimum readable sizes. Recent-app
+icons and app-name captions retain their previous sizes. Existing card
 bounds and spacing are retained in each mode, including on shorter laptop
 displays. Artwork grows with the player card and song names wrap. The dashboard itself does not scroll. Long lists scroll
 inside their cards.
@@ -155,6 +156,13 @@ only calendar caching preferences to the profile's `user.js`, backing up an
 existing file. Normal dashboard refreshes never change Thunderbird settings.
 Locked local databases are read through a temporary private copy, including
 pending committed WAL data. The original database is never changed.
+
+The **Packages** button opens a package search using the current Rofi launcher
+size and theme. Choose repositories, AUR or both, then type for alphabetical
+suggestions. Results show installed/update status and available application icons.
+Install/Update opens a confirmation and an interactive terminal for the selected
+package together with a full system upgrade. Browsing never installs packages.
+See [package search, caching and transaction details](docs/package-search.md).
 
 Battery details appear only when a system battery is detected. Remaining time appears only
 when the OS supplies a valid estimate. Power-profile and idle controls remain available on desktops. General metrics refresh every two seconds on battery. Playing

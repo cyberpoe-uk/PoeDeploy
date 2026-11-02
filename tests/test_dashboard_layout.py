@@ -25,6 +25,8 @@ class GeometryTests(unittest.TestCase):
                              + data['rail_width'] + data['gap'])
                     self.assertLessEqual(total, width)
                     self.assertIn(data['columns'], (1, 2, 3))
+                    self.assertIs(type(data['session_width']), int)
+                    self.assertLessEqual(3 * data['session_width'] + 16 + 2 * data['row_gap'], data['card_width'])
                     for key in ('list_height', 'share_height', 'power_height'):
                         self.assertGreater(data[key], 0)
         self.assertEqual(layout.geometry(1920, 1080)['columns'], 3)
@@ -36,7 +38,7 @@ class GeometryTests(unittest.TestCase):
         comfortable = layout.geometry(1920, 1080, 'comfortable')
         self.assertLess(compact['row_gap'], comfortable['row_gap'])
         self.assertLess(compact['padding'], comfortable['padding'])
-        self.assertGreaterEqual(compact['font_size'], 14)
+        self.assertGreaterEqual(compact['font_size'], 10)
         self.assertGreater(comfortable['font_size'], compact['font_size'])
         self.assertLessEqual(comfortable['font_size'], 20)
         self.assertLessEqual(compact['font_size'], 17)
@@ -61,7 +63,7 @@ class GeometryTests(unittest.TestCase):
                     self.assertEqual(new[key], old[key], (width, mode, key))
                 for key in sizes:
                     floor = 8 if key in ('small_size', 'app_name_size') else 9
-                    expected = baseline[key] if mode == 'comfortable' else max(floor, baseline[key] - 2)
+                    expected = baseline[key] if mode == 'comfortable' else max(floor, baseline[key] - (2 if key == 'app_name_size' else 6))
                     self.assertEqual(new[key], expected, (width, mode, key))
 
     def test_each_column_fits_without_dashboard_scrolling(self):
@@ -95,7 +97,7 @@ class GeometryTests(unittest.TestCase):
         for mode, size in [('compact', 8), ('comfortable', 10)]:
             data = layout.geometry(1920, 1080, mode)
             self.assertEqual(data['app_name_size'], size)
-            self.assertLess(size, data['small_size'])
+            self.assertLessEqual(size, data['small_size'])
             self.assertLess((data['rail_name_chars'] + 3) * size * .62, data['rail_content_width'] + 1)
 
     def test_monitor_uses_logical_pixels_and_reserved_bars(self):
