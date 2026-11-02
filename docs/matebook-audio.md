@@ -61,6 +61,13 @@ resume rediscover the codec. Every routing batch rechecks both identities.
 ALSA jack, speaker/headphone playback-switch, auto-mute and output-route changes
 trigger routing. Volume, microphone and meter events are ignored.
 
+The listener also uses inotify to watch playback-device opens under `/dev/snd`.
+Opening a playback PCM on the matching card schedules the same bounded routing
+checks. This covers playback restarting after runtime power saving silently
+resets codec routing, without an ALSA mixer or device-reset event. The watcher
+does not open a PCM itself. Capture, control, hwdep and other-card opens are
+ignored, so microphone use and the listener's own HDA verbs do not retrigger it.
+
 A burst is coalesced with a 400 ms settling delay, followed by **one** check two
 seconds later. The follow-up reapplies routing after normal WirePlumber/driver
 output-switch writes. Later relevant ALSA route changes also schedule a batch.
@@ -82,11 +89,10 @@ is written after a failed presence read. A partial write failure is logged and
 retried only by the bounded follow-up or another event. Errors and route-state
 changes are logged. Repeated successful states and idle events are silent.
 
-Completely silent codec resets that emit neither an ALSA route event nor a
-sound-device event are not observable without polling. If runtime audio power
-saving exposes such a reset, restart the service and collect logs. Do not disable
-SOF or power saving to hide it. On-device testing must determine whether a
-further kernel-specific event source is needed.
+Completely silent codec resets during an already-open playback stream can still
+escape these event sources. If that happens, restart the service and collect
+logs. Do not disable SOF or power saving to hide it. Playback-open recovery still
+needs physical validation on the affected laptop.
 
 ## Verification on the laptop
 
