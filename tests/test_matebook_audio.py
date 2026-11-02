@@ -110,7 +110,42 @@ class RoutingTests(unittest.TestCase):
             self.assertEqual(run.call_args.kwargs['timeout'], 3)
 
 
+class PlaybackEventTests(unittest.TestCase):
+    def test_real_inotify_filters_card_capture_control_and_our_own_verbs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            names = ['pcmC3D0p', 'pcmC3D2p', 'pcmC4D0p', 'pcmC3D0c',
+                     'controlC3', 'hwC3D2']
+            for name in names:
+                (directory / name).touch()
+            with patch.object(audio, 'DEV', directory):
+                watcher = audio.PlaybackEvents()
+            try:
+                self.assertFalse(watcher.drain(3))
+                for name in names:
+                    with (directory / name).open('rb'):
+                        pass
+                    self.assertEqual(watcher.drain(3), name in names[:2], name)
+                with (directory / 'pcmC4D0p').open('rb'):
+                    pass
+                self.assertTrue(watcher.drain(None))
+            finally:
+                watcher.close()
+
+    def test_queue_overflow_requests_one_recheck(self):
+        watcher = audio.PlaybackEvents.__new__(audio.PlaybackEvents)
+        watcher.fd = 55
+        data = watcher.HEADER.pack(-1, watcher.OVERFLOW, 0, 0)
+        with patch.object(audio.os, 'read', side_effect=[data, BlockingIOError()]):
+            self.assertTrue(watcher.drain(3))
+
+
 class EventTests(unittest.TestCase):
+    def setUp(self):
+        watcher = patch.object(audio, 'PlaybackEvents', return_value=Mock(fd=55))
+        self.playback = watcher.start().return_value
+        self.addCleanup(watcher.stop)
+
     def test_alsa_route_filter_ignores_volume_microphone_and_meters(self):
         for name in ('Headphone Jack', 'Headset Jack', 'Speaker Playback Switch',
                      'Headphone Playback Switch', 'Auto-Mute Mode', 'Playback Route'):
@@ -184,6 +219,34 @@ class EventTests(unittest.TestCase):
             self.assertEqual(apply.call_count, 6)  # bounded pairs for arrival, jack, resume
             self.assertTrue(all(call.kwargs['force'] for call in apply.call_args_list))
         self.assertEqual(timeouts.count(-1), 4)
+
+    def test_playback_open_reapplies_route_after_idle_without_alsa_event(self):
+        now = [0.0]
+        script = iter([(0.5, []), (2.6, []), (20, [(55, select.POLLIN)]),
+                       (20.5, []), (22.6, []), (23, [(11, select.POLLIN)])])
+        def wait(timeout):
+            now[0], events = next(script)
+            return events
+        poller = Mock()
+        poller.poll.side_effect = wait
+        match = (3, Path('/dev/snd/hwC3D2'))
+        with patch.object(Path, 'read_text', return_value='HKF-WXX'), \
+             patch.object(Path, 'exists', return_value=True), \
+             patch.object(audio.time, 'monotonic', side_effect=lambda: now[0]), \
+             patch.object(audio.select, 'poll', return_value=poller), \
+             patch.object(audio.socket, 'socket'), \
+             patch.object(audio.os, 'pipe2', return_value=(11, 12)), \
+             patch.object(audio.os, 'read', return_value=bytes([signal.SIGTERM])), \
+             patch.object(audio.os, 'close'), patch.object(signal, 'set_wakeup_fd'), \
+             patch.object(signal, 'signal'), \
+             patch.object(audio, 'discover', return_value=match), \
+             patch.object(audio, 'Controls', return_value=Mock(fds=[33], has_jack=True)), \
+             patch.object(audio, 'apply_route') as apply:
+            audio.run()
+        self.assertEqual(apply.call_count, 4)
+        self.playback.drain.assert_called_once_with(3)
+        self.assertTrue(all(call.kwargs['force'] for call in apply.call_args_list))
+        self.assertEqual([call.args[0] for call in poller.poll.call_args_list].count(-1), 2)
 
     def test_event_loop_waits_indefinitely_without_hardware_then_handles_resume(self):
         # startup+followup probes, then block forever; resume schedules another
