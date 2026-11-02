@@ -10,6 +10,7 @@ import re
 import select
 import signal
 import socket
+import struct
 import subprocess
 import time
 
@@ -202,6 +203,50 @@ class Pending:
         self.followup = False
 
 
+class PlaybackEvents:
+    """Watch device opens without opening a PCM or waking an idle codec."""
+    HEADER = struct.Struct('iIII')
+    OPEN = 0x20
+    OVERFLOW = 0x4000
+
+    def __init__(self):
+        lib = C.CDLL(None, use_errno=True)
+        lib.inotify_init1.argtypes = [C.c_int]
+        lib.inotify_init1.restype = C.c_int
+        lib.inotify_add_watch.argtypes = [C.c_int, C.c_char_p, C.c_uint32]
+        lib.inotify_add_watch.restype = C.c_int
+        self.fd = lib.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
+        if self.fd < 0:
+            raise OSError(C.get_errno(), 'Cannot create playback event listener')
+        if lib.inotify_add_watch(self.fd, os.fsencode(DEV), self.OPEN) < 0:
+            error = C.get_errno()
+            self.close()
+            raise OSError(error, 'Cannot watch sound device opens')
+
+    def drain(self, card):
+        relevant = False
+        while True:
+            try:
+                data = os.read(self.fd, 65536)
+            except BlockingIOError:
+                return relevant
+            offset = 0
+            while offset + self.HEADER.size <= len(data):
+                _, mask, _, length = self.HEADER.unpack_from(data, offset)
+                offset += self.HEADER.size
+                name = data[offset:offset + length].split(b'\0', 1)[0].decode(errors='replace')
+                offset += length
+                # Capture, control and hwdep accesses (including our own verbs)
+                # cannot retrigger routing. Other cards are ignored once known.
+                playback = re.fullmatch(r'pcmC(\d+)D\d+p', name)
+                relevant |= bool(mask & self.OVERFLOW or
+                                 (mask & self.OPEN and playback and
+                                  (card is None or int(playback[1]) == card)))
+
+    def close(self):
+        os.close(self.fd)
+
+
 def run():
     # Do not even open a control device on another model.
     if PRODUCT.read_text().strip() != 'HKF-WXX':
@@ -210,6 +255,7 @@ def run():
     # Kernel uevents are for enumeration/reset only. Jack changes come from ALSA.
     uevents = socket.socket(socket.AF_NETLINK, socket.SOCK_DGRAM | socket.SOCK_NONBLOCK, 15)
     uevents.bind((os.getpid(), 1))
+    playback = PlaybackEvents()
     wake_read, wake_write = os.pipe2(os.O_NONBLOCK | os.O_CLOEXEC)
     signal.set_wakeup_fd(wake_write)
     for sig in (signal.SIGUSR1, signal.SIGTERM, signal.SIGINT):
@@ -217,6 +263,7 @@ def run():
     poller = select.poll()
     poller.register(uevents, select.POLLIN)
     poller.register(wake_read, select.POLLIN)
+    poller.register(playback.fd, select.POLLIN)
     control, match, previous = None, None, None
     pending = Pending()
     pending.trigger(time.monotonic())
@@ -243,6 +290,11 @@ def run():
                         return
                     if signal.SIGUSR1 in signals:
                         disconnect()
+                        pending.trigger(time.monotonic())
+                elif fd == playback.fd:
+                    if flags & (select.POLLERR | select.POLLHUP | select.POLLNVAL):
+                        raise RuntimeError('Playback event listener disconnected')
+                    if playback.drain(match[0] if match else None):
                         pending.trigger(time.monotonic())
                 elif fd == uevents.fileno():
                     while True:
@@ -294,6 +346,7 @@ def run():
         os.close(wake_read)
         os.close(wake_write)
         uevents.close()
+        playback.close()
 
 
 def main():
