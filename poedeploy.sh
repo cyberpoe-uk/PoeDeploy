@@ -126,7 +126,7 @@ SCRIPT_VERSION="unknown"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
 
 for poedeploy_component in \
-    ui/logger.sh ui/progress.sh ui/keyboard.sh ui/dashboard.sh \
+    ui/logger.sh ui/progress.sh ui/keyboard.sh ui/dashboard.sh ui/navigation.sh \
     installer/applications.sh installer/tailscale.sh installer/fingerprint.sh installer/matebook-audio.sh; do
     if [[ ! -r "$SCRIPT_DIR/$poedeploy_component" ]]; then
         printf '[ERROR] PoeDeploy component is missing: %s\n' "$poedeploy_component" >&2
@@ -4591,12 +4591,24 @@ main() {
     check_not_root
     check_arch
 
-    if ! choose_setup_modules; then
-        info "Setup cancelled before making system changes."
-        return 0
+    local planning_complete=false planning_status
+    if can_use_navigation_menu; then
+        if interactive_plan; then
+            planning_complete=true
+        else
+            planning_status=$?
+            info "Setup cancelled before making system changes."
+            [[ "$planning_status" != 130 ]] || return 130
+            return 0
+        fi
+    else
+        if ! choose_setup_modules; then
+            info "Setup cancelled before making system changes."
+            return 0
+        fi
+        show_selected_setup_modules
+        confirm_start
     fi
-    show_selected_setup_modules
-    confirm_start
 
     # Read-only assessment: no packages, services, splash files or presets change.
     ui_heading "Checking your system" "These checks help PoeDeploy understand your current setup."
@@ -4610,7 +4622,7 @@ main() {
 
     # Collect optional application choices before the static installation view
     # starts, so interactive planning never competes with background tasks.
-    if [[ "${SELECTED_SETUP_MODULES[applications]:-false}" == true ]]; then
+    if [[ "$planning_complete" != true && "${SELECTED_SETUP_MODULES[applications]:-false}" == true ]]; then
         select_applications
     fi
 

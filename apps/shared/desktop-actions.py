@@ -294,11 +294,20 @@ def open_calendar(apps, root):
         notify('No calendar application was found. Install a calendar app or choose one in layout.json.')
 
 
+
+def ui_paused(root):
+    try:
+        return (root / 'state/refresh-paused').read_text().strip() == 'true'
+    except OSError:
+        return False
+
 def listen():
     previous, indexed = None, 0
     apps = {}
     def emit():
         nonlocal previous, indexed, apps
+        if ui_paused(ROOT):
+            return
         if time.monotonic() - indexed > 30 or not apps:
             apps, indexed = applications(), time.monotonic()
         data = json.dumps(app_lists(apps))

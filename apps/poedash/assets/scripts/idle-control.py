@@ -383,6 +383,13 @@ def publish(data, root):
     run(['eww', '--config', root, 'update', 'idle=' + json.dumps(display_values(data))])
 
 
+
+def ui_paused(root):
+    try:
+        return (root / 'state/refresh-paused').read_text().strip() == 'true'
+    except OSError:
+        return False
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=['status', 'listen', 'adjust', 'apply'])
@@ -398,9 +405,8 @@ def main():
         previous = None
         while True:
             try:
-                visible = ROOT / 'state/home-visible'
-                if previous is not None and visible.is_file() and visible.read_text().strip() == 'false':
-                    time.sleep(5)
+                if ui_paused(ROOT):
+                    time.sleep(1)
                     continue
                 # Drafts survive failures and refreshes. External changes are read
                 # when no edit is pending, so polling never discards entered values.

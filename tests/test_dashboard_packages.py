@@ -2,6 +2,7 @@
 import gzip
 import importlib.util
 import io
+import tarfile
 import json
 from pathlib import Path
 import subprocess
@@ -13,9 +14,16 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('packages', ROOT / 'apps/poedash/assets/scripts/packages.py')
 packages = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(packages)
+ORIGINAL_REPOSITORY_DESCRIPTIONS = packages.repository_descriptions
 
 
 class PackageDataTests(unittest.TestCase):
+    def setUp(self):
+        for name in ('aur_descriptions', 'repository_descriptions'):
+            mocked = patch.object(packages, name, return_value={})
+            mocked.start()
+            self.addCleanup(mocked.stop)
+
     def test_index_is_sorted_sanitized_and_cached_for_per_letter_search(self):
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
@@ -162,6 +170,30 @@ class PackageDataTests(unittest.TestCase):
             self.assertIsNone(packages.package_picker(lambda: ['alpha']))
 
 
+    def test_bulk_metadata_stream_handles_records_across_chunks(self):
+        data = [{'Name': 'alpha', 'Description': 'x' * 70000}, {'Name': 'beta', 'Description': 'Music player'}]
+        compressed = gzip.compress(json.dumps(data).encode())
+        self.assertEqual([item['Name'] for item in packages.metadata_records(compressed)], ['alpha', 'beta'])
+        with self.assertRaises(ValueError):
+            list(packages.metadata_records(gzip.compress(b'[{"Name":"alpha"}')))
+
+    def test_repository_description_reader_does_not_extract_archives(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'sync').mkdir()
+            text = b'%NAME%\nalpha\n\n%DESC%\nA sample package description\n\n'
+            with tarfile.open(root / 'sync/extra.db', 'w:gz') as tar:
+                info = tarfile.TarInfo('alpha-1/desc');info.size = len(text)
+                tar.addfile(info, io.BytesIO(text))
+            self.assertEqual(ORIGINAL_REPOSITORY_DESCRIPTIONS(root),
+                             {('extra', 'alpha'): 'A sample package description'})
+            self.assertFalse((root / 'alpha-1').exists())
+
+    def test_inline_description_is_escaped_for_pango(self):
+        item = dict(name='alpha', source='extra', description='A < B & music', version='1')
+        self.assertIn('A &lt; B &amp; music', packages.row(item, {}, {}))
+
+
 
 class PopupTests(unittest.TestCase):
     def test_rofi_inherits_user_config_and_preserves_alphabetical_order(self):
@@ -244,7 +276,7 @@ class PopupTests(unittest.TestCase):
              patch.object(packages, 'icons', return_value={}), patch.object(packages, 'notify'), \
              patch.object(packages.subprocess, 'Popen') as launch:
             packages.open_browser()
-            self.assertEqual(menu.call_args_list[-1].args[0], ['Install', 'Install and upgrade', 'Cancel'])
+            self.assertEqual(menu.call_args_list[-1].args[0], ['Install', 'Install and upgrade', 'Full description', 'Cancel'])
             argv = launch.call_args.args[0]
             self.assertEqual(argv[0], 'kitty')
             tail = ['transaction', 'repo', 'extra/alpha'] + (['--upgrade'] if selection == 1 else [])

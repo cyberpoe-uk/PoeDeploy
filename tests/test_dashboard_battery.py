@@ -73,7 +73,7 @@ class BatteryDetection(unittest.TestCase):
 
     def test_battery_details_hide_but_settings_card_remains(self):
         text = (ROOT / 'apps/poedash/assets/templates/eww.yuck').read_text()
-        self.assertIn('(label :visible {power.present}', text)
+        self.assertIn('(label :visible {power.present && power.on_battery}', text)
         self.assertIn('(defwidget power-card', text)
         self.assertNotIn('(scroll :hscroll false :vscroll true :hexpand true :vexpand true', text)
 

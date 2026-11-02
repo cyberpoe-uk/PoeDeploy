@@ -94,6 +94,8 @@ source "$controller" "$action"
             playerctl = Path(tmp) / 'playerctl'
             playerctl.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
             playerctl.chmod(0o755)
+            (Path(tmp) / 'python3').write_text('#!/bin/sh\nexit 0\n')
+            (Path(tmp) / 'python3').chmod(0o755)
             for no_players in (False, True):
                 for action in ('previous', 'play-pause', 'next'):
                     with self.subTest(no_players=no_players, action=action):

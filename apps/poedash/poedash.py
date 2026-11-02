@@ -20,9 +20,9 @@ THEME_BEGIN, THEME_END = '# BEGIN POEDASH', '# END POEDASH'
 PACKAGES = ['hyprland', 'jq', 'python', 'iproute2', 'util-linux', 'procps-ng',
             'coreutils', 'glib2', 'gawk', 'sed', 'grep', 'bash', 'pacman-contrib', 'kitty',
             'btop', 'nvtop', 'rofi', 'libnotify', 'ttf-jetbrains-mono-nerd',
-            'matugen', 'playerctl', 'socat']
+            'matugen', 'playerctl', 'socat', 'libpulse']
 REQUIRED = ['hyprctl', 'eww', 'jq', 'python3', 'ip', 'cal', 'flock', 'free',
-            'timeout', 'gio', 'checkupdates', 'kitty', 'btop', 'nvtop', 'rofi', 'notify-send', 'matugen', 'playerctl', 'socat']
+            'timeout', 'gio', 'checkupdates', 'kitty', 'btop', 'nvtop', 'rofi', 'notify-send', 'matugen', 'playerctl', 'socat', 'parec']
 
 
 def run(argv, **kw):

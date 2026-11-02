@@ -57,3 +57,8 @@ tooltip { background-color: $card; border: 1px solid $border; border-radius: 6px
 .power-idle-card button:hover { background-color: rgba($accent, 0.22); }
 .power-idle-card button:disabled { opacity: 0.4; }
 .idle-number { font-weight: 600; color: $accent; }
+
+.wave-seek { margin: 3px 0; }
+.media-seek trough { background-color: transparent; min-height: 8px; }
+.media-seek highlight { background-color: transparent; min-height: 8px; }
+.media-seek slider { opacity: 0; background-color: transparent; border: 0; box-shadow: none; min-width: 0; min-height: 0; }

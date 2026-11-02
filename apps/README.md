@@ -25,13 +25,24 @@ The dashboard button changes density live and saves the selection. App captions
 use smaller text, with icons as their primary visual identifiers.
 
 Battery details hide on desktops, while profile and idle controls remain visible.
-Remaining time appears only when the OS supplies a valid estimate. General
+Remaining time appears only when the OS supplies a valid estimate. The Power
+subsection appears only on battery, refreshes every five seconds there, and is
+hidden on AC or batteryless desktops. Power telemetry uses one second on AC. General
 metrics update every two seconds on battery, with existing intervals preserved
 on AC. Playing media updates independently every second. Hidden dashboards
-pause metric collectors. Laptop GPU monitoring defaults to passive telemetry.
+pause collectors, polls and UI feeds on battery. AC-powered dashboards continue
+refreshing when hidden. Lightweight visibility/power checks and the separate
+power-policy service remain active. Laptop GPU monitoring defaults to passive telemetry.
 Set `gpu_monitoring` to `detailed` or `passive` in `layout.json` to override it.
 
-The player supports MPRIS artwork, track details, progress and transport controls.
+The player supports MPRIS artwork, track details, a seekable progress/wave slider
+and transport controls. The multicolour wave grows with the played portion and
+replaces the progress dot. The real output-monitor wave uses Cava when installed,
+otherwise parec from libpulse. It never selects a microphone or saves audio.
+Animation is capped at 12 fps on battery and 24 fps on AC, stops on pause, and
+releases the monitor while a battery-powered dashboard is hidden.
+With no player, Play offers background Spotify startup and saved-context resume.
+Missing Spotify opens an approval dialog, then a prefilled package search.
 Clicking artwork or the track title opens the playing application. The calendar
 reads Thunderbird's enabled local calendars and cached events without modifying
 them. Titles wrap and the agenda scrolls. With no connected calendar, it shows
@@ -59,13 +70,16 @@ same popup size and theme as the application launcher. It searches repositories
 and the AUR immediately, refreshing catalogs automatically on opening. Alt+R
 or Choose repository filters a specific source while retaining the query.
 Icon-backed entries precede plain entries, alphabetically within each group.
-Repository and installed/update labels appear below each package name. Only confirmed actions open an interactive Kitty transaction.
+Repository and installed/update labels appear below each package name. Short descriptions appear inline. Alt+D or Full description opens the full text.
+Repository descriptions use cached pacman metadata. AUR descriptions use a bulk
+feed cached for an hour, avoiding per-hover or per-keystroke requests.
+Only confirmed actions open an interactive Kitty transaction.
 See [package search](../docs/package-search.md) for update checks, caching,
 network limitations and the separate package-only and full-system-upgrade choices.
 
 ## Power and idle settings
 
-The always-visible Session & Idle card is the ninth card in the main grid.
+The Session & Idle card is the ninth card in the main grid.
 Source, Profile and Selected by identify the current power status. Profile choices
 use QuickShell’s existing menu. There are no duplicate Power tabs or selectors.
 Screen Off, Lock Screen and Auto Suspend use independent minute controls, with

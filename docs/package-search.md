@@ -25,7 +25,9 @@ Packages with application icons from available desktop/AppStream metadata appear
 first. Entries without a specific icon follow with a generic package icon. Each
 group is alphabetical, including while filtering letter by letter. A smaller
 second line beneath each name identifies its repository and installed/update
-status. Duplicate names from different repositories remain separate, so an
+status. Short descriptions appear below it. Alt+D on a highlighted package, or
+Full description after selection, opens its full description. Rofi has no native
+per-row hover tooltip, so this information stays directly readable. Duplicate names from different repositories remain separate, so an
 explicit repository filter can show the corresponding version and source.
 
 The AUR index and repository snapshots are kept for offline fallback. If refresh
@@ -57,6 +59,12 @@ AppStream stock/local/cached icon metadata. Remote images are not fetched.
 Uninstalled applications and libraries often have no local icon metadata and
 receive a generic package icon. Icons are not downloaded per keystroke.
 
+Repository descriptions are read from cached pacman database archives without
+extracting files. AUR descriptions use the official bulk metadata feed, parsed
+incrementally and cached for one hour. Its first fetch is roughly 10 MiB at the
+time of implementation. It does not create a request for each mouse movement or
+keystroke. Selected AUR metadata is still rechecked before package actions.
+
 ## Installing and updating
 
 Selecting a missing package offers **Install** first and **Install and upgrade**
@@ -84,6 +92,7 @@ Neither action performs an isolated `pacman -Sy`. If old repository metadata
 references unavailable packages, choose the second option to refresh and upgrade.
 Review the complete transaction before accepting pacman's or
 yay's own prompts. Dependency changes and AUR PKGBUILD review remain interactive.
+The optional Full description action does not install anything.
 There is no `--noconfirm`. Yay runs as the desktop user, using its normal privilege
 escalation when needed. The feature refuses to run as root and reports a missing
 yay installation with instructions to install it through PoeDeploy.

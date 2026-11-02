@@ -1,117 +1,202 @@
 # PoeDeploy
 
 <p align="center">
-  <img src="assets/poedeploy-logo.png" alt="PoeDeploy logo" width="500">
+  <img src="assets/poedeploy-logo.png" alt="PoeDeploy" width="480">
 </p>
 
-## Set up Arch Linux, or just the part you need
+An interactive Arch Linux setup script, with a Hyprland desktop dashboard and
+optional applications, networking, boot and hardware integrations.
 
-I made PoeDeploy to help me set up my Arch Linux machines without having to
-remember every command each time. It can guide you through a full setup, but you
-do not have to use it that way.
+I started PoeDeploy for my own machines and am opening it up so other people can
+use the same workflows. Choose one component or run the full setup. You can
+review and change the plan before installation starts.
 
-You can also open PoeDeploy when you only want help with one job, such as:
-
-- connecting an SMB or NFS network share
-- setting up a Plymouth boot theme
-- creating a Unified Kernel Image, also known as a UKI
-- setting up Secure Boot
-- installing a few optional applications
-- setting your default browser
-- configuring Tailscale
-
-PoeDeploy shows what it plans to run before it starts. You can use it on a new
-installation or come back later and choose another section.
+[Start](#start-poedeploy) · [Components](#available-components) ·
+[PoeDash](#poedash) · [Applications](#optional-applications) ·
+[Development and AI](#development-and-ai)
 
 ## Start PoeDeploy
 
-PoeDeploy is made for Arch Linux. Run it as your normal user. It will ask for
-your sudo password only when a task needs administrator access.
+Use an installed Arch Linux system and run as your normal desktop user. PoeDeploy
+asks for sudo only for operations that need it. Desktop features target Hyprland,
+Eww and ML4W. Hardware-specific components are conditional, not universal fixes.
+This script does not partition disks or replace an Arch installation guide.
 
 ```bash
 bash <(curl -fsSL https://cyberpoe.uk/poedeploy-latest)
 ```
 
-This command downloads the latest stable release and shows its version number. If
-Git is missing, PoeDeploy explains why it is needed and asks before installing it.
+The launcher downloads the latest stable release and displays its version. If
+Git is missing, it asks before installing it. You can also inspect a checkout:
 
-You will then see three choices:
+```bash
+git clone https://github.com/cyberpoe-uk/PoeDeploy.git
+cd PoeDeploy
+bash poedeploy.sh
+```
 
-- **Choose sections:** pick only the jobs you want to run. This is the default.
-- **Full setup:** go through the complete Arch setup with optional choices.
-- **Exit:** close PoeDeploy without starting the setup.
+Choose **Choose sections** for individual jobs or **Full setup** to visit the
+available setup stages. Optional applications start unselected. Full setup skips
+the Huawei audio workaround unless the exact supported hardware is detected.
 
-If you are unsure, choose **Choose sections**. Nothing is selected at first and
-nothing starts until you review your choices and confirm them.
+### Change your mind before installing
 
-You can also clone the
-[PoeDeploy repository](https://github.com/cyberpoe-uk/PoeDeploy) and read the
-script before running it.
+Interactive planning includes Welcome, setup sections, optional applications,
+the dashboard subtitle and a final review. Arrow keys or `j/k` move, Space or `x`
+toggles a checkbox, and Enter continues. Esc and Backspace return to the previous
+screen. At the first screen, Esc cancels and Backspace stays there. Ctrl+C stops
+the run. In a text field, Backspace edits text and returns when the field is empty.
 
-To see the layout without running any setup tasks, open a terminal in your local
-PoeDeploy folder and run:
+Choices remain available when you go back. The review screen also has explicit
+**Edit setup sections**, **Edit applications** and **Back to beginning** options.
+No installer actions run until you select **Install selected sections**.
+Noninteractive terminals retain the numbered fallback interface.
+
+Going back changes the plan, not completed system changes. Once installation has
+started, Ctrl+C stops the current operation using its normal cancellation flow.
+Packages, keys and boot changes that already completed are not automatically
+uninstalled or rolled back. Optional failures offer retry or skip where supported.
+
+<p align="center">
+  <img src="assets/screenshots/setup-sections.png" alt="PoeDeploy section selection with back navigation" width="850">
+</p>
+
+The installer shows real stage progress, warnings and the log path. `L` opens the
+live log, and `Q` or Esc returns from the log view. Interactive installers and
+password prompts receive the terminal, then control returns to the dashboard.
+Logs go to `/var/log/poedeploy.log` when writable, otherwise
+`~/.local/state/poedeploy/poedeploy.log`.
+
+To inspect an example progress view without changing the system:
 
 ```bash
 bash poedeploy.sh --preview
 ```
 
-During installation, PoeDeploy uses a static terminal dashboard showing the real
-stage count, current operation, completed and pending stages, warnings, errors,
-and the log path. Press `L` to switch to the live log and `Q` or Esc to return.
-On the main dashboard, `Q` aborts the active task. Normal command output is kept
-out of the dashboard and written to the log instead.
+## Available components
 
-Password prompts temporarily restore the normal terminal. AUR builds and external
-installers also use the normal terminal for their entire run so their own sudo
-prompts can read every keystroke. Their output appears directly in the terminal,
-then the progress dashboard returns when they finish.
+Each setup stage can be selected independently. Dependencies needed by that
+stage may also be installed. Full setup follows the project's defined order.
 
-Sections with menus or confirmations (Plymouth, UKI, ML4W, SDDM, browser,
-network shares, fingerprint authentication, MateBook audio, and Secure Boot) keep the normal terminal for the whole section.
-This keeps descriptions, menu choices, and questions together. The progress
-dashboard returns between sections and uses a compact view in small terminals.
+### System update
 
-The preferred log is `/var/log/poedeploy.log`. When that location is not
-writable, PoeDeploy uses `~/.local/state/poedeploy/poedeploy.log`. The normal
-terminal screen and cursor are restored after completion, failure, or Ctrl+C.
+Updates the installed system with pacman. It is separate from installing an
+individual optional application.
 
-## A few examples
+### AUR helper: yay
 
-If you only want to connect your NAS, choose **Choose sections**, select
-**SMB / NFS shares**, and continue. PoeDeploy will not install the desktop or
-change your boot setup.
+Keeps an existing yay installation or builds it from the AUR with the necessary
+build tools. Optional applications prefer repository packages when available.
 
-If you want to change the boot animation, select **Plymouth boot theme**. The
-included choices are PoeDeploy plus static and animated BlackArch Green, Orange,
-Purple, Red, Blue, and White themes, alongside any Plymouth themes already
-installed on the system.
+### Base system and network tools
 
-If you are setting up a fresh machine, **Full setup** takes you through every
-section. Optional applications still start unselected, so you choose what you
-actually want.
+Installs common utilities for downloads, archives, diagnostics, SSH, SMB/NFS,
+networking and basic system administration.
 
-Plymouth themes use an interactive picker: arrows or `j/k` move, `h/l` change
-pages, `g/G` jump to the first/last entry, and Enter applies the theme.
-Esc cancels. **Keep current theme** leaves the selection unchanged.
-The progress dashboard pauses while you choose a theme. If the interactive
-picker is unavailable, the numbered theme list and prompt appear together in
-the normal terminal.
+### GPU drivers
 
-## Optional applications
+Detects the GPU and follows the existing vendor-specific installation path.
+Review the detected hardware before changing a working driver setup.
 
-The application list includes:
+### NetworkManager
 
-7-Zip, Discord, Firefox, GIMP, HyprMod, LibreOffice, LocalSend, OBS Studio,
-PoeDash, PowerTOP, Proton VPN, Spotify, Tailscale, Thunderbird,
-Visual Studio Code, and VLC.
+Installs/enables NetworkManager for network connections and supported VPN clients.
 
-PoeDash is the only dashboard, bundled under `apps/poedash/`.
-BlackArch, security tools and official Burp are independent optional applications.
+### Plymouth boot themes
 
-The dashboard shows the current machine's hostname prominently in the top-left
-corner. Its Compact/Comfortable button changes text size and internal spacing
-immediately, and remembers the choice across restarts and updates. On wide
-screens the cards use three columns with individually sized cards:
+Offers the PoeDeploy theme and static/animated BlackArch colour variants, plus
+existing themes. Keeping the current theme is an option. Boot-theme branding does
+not install the BlackArch repository. [Theme files](themes/README.md).
+
+### Unified kernel images: UKI
+
+Assesses the bootloader and existing kernel setup before configuring supported
+UKI workflows. [UKI and boot guide](docs/boot-and-secure-boot.md).
+
+### Timeshift
+
+Installs Timeshift and explains Btrfs or rsync snapshot options for the detected
+filesystem. Configure and test your snapshot policy before relying on it.
+
+### ML4W desktop
+
+Runs the ML4W Hyprland desktop installation with visible interactive output.
+Desktop and dotfile changes should be reviewed on an existing customised system.
+
+### SDDM login screen
+
+Offers the supported SDDM setup and ML4W theme, preserving existing configuration
+backups where the installer manages files.
+
+### Fingerprint authentication
+
+Detects the reader, offers enrollment, and requires a successful verification
+before enabling supported SDDM/Hyprlock login changes. Password login remains
+available. The experimental Goodix GDIX51C0 path is pinned and requires consent.
+It does not enable fingerprints for SSH or sudo.
+[Hardware details and removal](docs/fingerprint.md).
+
+### Optional applications
+
+Choose the applications you want. PoeDash, VPN clients and security tools are
+independent choices. See the [application list](#optional-applications).
+
+### Default browser
+
+Shows current defaults and offers installed browsers. Updates and verifies HTTP,
+HTTPS and HTML associations while leaving the email application unchanged.
+
+### SMB and NFS shares
+
+Tests connectivity and user access before saving a mount in `/etc/fstab`.
+Failed checks are not persisted. Use an empty mount point under `/mnt` or `/media`.
+[Share setup guide](docs/network-shares.md).
+
+### Tailscale
+
+Installs Tailscale and enables `tailscaled`. Grants the validated desktop user
+operator permissions so they can manage the local connection without sudo.
+On graphical systems with a supported Tailscale version, it enables the official
+systemd user-session tray, compatible with QuickShell's existing tray host.
+Headless/chroot environments defer or skip graphical integration. Existing login
+and authentication are retained. Connect initially with `tailscale up` when ready.
+
+### Secure Boot
+
+Provides explicit choices for keys, enrollment, signing and verification.
+PoeDeploy does not treat firmware changes as a routine application installation.
+Keep recovery media and read the [boot guide](docs/boot-and-secure-boot.md) before
+using UKI or Secure Boot. [Kernel update validation](docs/kernel-update-check.md).
+
+### Huawei MateBook 14s audio
+
+Optional, restricted to DMI product **HKF-WXX** and codec subsystem
+**0x19e53285**. Full setup skips it on other hardware. Runtime routing rechecks
+both identities and discovers the codec without assuming card 0.
+An event-driven ALSA listener handles speaker/headphone routing and resume,
+working below PulseAudio or PipeWire. It preserves SOF, microphones and normal
+output switching, without continuous polling. Speaker routing was physically
+confirmed on the affected laptop. Persistent headphone, resume and power-saving
+behavior still require on-device testing.
+[Workaround, logs and removal](docs/matebook-audio.md).
+
+## PoeDash
+
+PoeDash is the single dashboard bundled with PoeDeploy. It places your hostname
+above a themed desktop overview on workspace 1, with application windows above
+it. It uses Eww and integrates with supported ML4W QuickShell/Waybar controls.
+
+<p align="center">
+  <img src="assets/screenshots/poedash-live.png" alt="PoeDash running on the development PC" width="1100">
+</p>
+
+The dashboard image is captured from the development PC. Personal agenda entries
+and network addresses are hidden for publication. Appearance and readings depend
+on your display, theme, installed applications and hardware.
+
+### Layout and applications
+
+The wide layout has three columns:
 
 | | | |
 | --- | --- | --- |
@@ -119,377 +204,206 @@ screens the cards use three columns with individually sized cards:
 | Performance | Top Processes | Connectivity |
 | Player | Mounted Shares | Session & Idle |
 
-The layout accounts for display scaling and desktop bars, and switches to fewer
-columns on narrow displays. It is validated through native 3840×2160 and scaled
-4K desktops. On very small displays, cards retain bounded frames and scroll their
-contents individually. Text, padding and card heights adapt to the available
-screen area. Comfortable now uses the former Compact text sizes. Compact text
-is another six pixels smaller, subject to minimum readable sizes. Recent-app
-icons and app-name captions retain their previous sizes. Existing card
-bounds and spacing are retained in each mode, including on shorter laptop
-displays. Artwork grows with the player card and song names wrap. The dashboard itself does not scroll. Long lists scroll
-inside their cards.
+Cards adapt to logical display size, including scaling and resolutions through
+4K. Compact and Comfortable switch live and persist across restarts. Compact uses
+smaller text while retaining card bounds and recent-app icon/name sizes. Smaller
+screens use fewer columns and bounded internal scrolling for long content.
 
-A narrow app card sits below the hostname and dashboard name on the left, aligned
-with the other cards and using the same theme. Right-click an app to pin or unpin
-it. Pinned apps stay above Recent Apps, separated by a subtle line. Clicking an
-app focuses its open window or launches it if closed. History and pins survive
-restarts and updates. Clicking album artwork or a song name opens the application
-playing that media. The calendar includes an upcoming-events area from
-Thunderbird's local calendar cache, and opens Thunderbird when clicked. Without
-a configured calendar it shows the month grid with an empty events area.
-The agenda shows up to eight events in the next 14 days. Remote calendars need
-Thunderbird's **Offline Support** enabled and a completed synchronization.
-On dashboard startup, reload or update, PoeDash checks whether Thunderbird is
-installed and offers to enable caching for uncached remote calendars. Approval is
-remembered per profile and calendar. New calendars need separate approval.
-Declining or closing the dialog leaves settings unchanged. Regular one-minute
-agenda polls never prompt or change settings. Headless sessions require prior
-approval or an explicit command. To opt in manually:
+A narrow app rail stays below the hostname. Right-click to pin/unpin an app.
+Pinned entries stay above recent apps, separated by a subtle line. Clicking an
+entry focuses its window or launches it. After the last normal application window
+closes, PoeDash returns to workspace 1. Visiting an empty workspace manually does
+not trigger this behavior.
+
+### Battery-aware refresh
+
+On battery, a hidden dashboard keeps its last values and pauses metric collectors,
+clock/calendar polls, UI updates and the audio monitor. Returning to its workspace
+resumes refreshes. On AC, refreshes continue even when the dashboard is hidden.
+Lightweight workspace/power checks remain available so these transitions work.
+Actual power-profile management and idle enforcement continue independently.
+
+Visible general metrics normally update every two seconds on battery. The Power
+readings use **five seconds on battery and one second on AC**. Playing media is
+sampled every second. Laptop GPU telemetry is passive by default.
+
+### Player and seekable audio wave
+
+Album artwork grows with its card. Click artwork or a song title to open the
+playing application. Click or drag the wave/progress slider to seek in a track.
+Streams without a known duration cannot seek.
+
+<p align="center">
+  <img src="assets/screenshots/player-wave.png" alt="Live player with a multicolour seekable wave that grows with playback" width="800">
+</p>
+
+Overlapping mountain ridges rise from a fixed bottom edge and grow with playback
+progress, with no position dot. Red, purple, yellow, blue, white, black and orange
+replace the green palette.
+It uses the real audio output monitor, not a decorative animation.
+Cava is used when available, with a built-in `parec`/libpulse fallback compatible
+with PulseAudio and PipeWire's PulseAudio service. Audio is not recorded to disk,
+and the microphone is not selected. Animation runs only during playback, at a
+lower frame rate on battery, and stops when the hidden dashboard is paused.
+
+With no connected player, Play can launch Spotify on workspace 2 without taking
+focus, then ask it to resume its saved context. PoeDash also remembers the last
+observed Spotify track URL as a fallback. Spotify must be signed in and have a
+playable context, so a first-time account may need you to choose a track once.
+If Spotify is missing, approval opens package search prefilled with **spotify**
+so you can choose a version. Nothing is installed without the normal confirmations.
+
+### Calendar
+
+The month grid opens Thunderbird Calendar. The agenda reads up to eight upcoming
+events over the next 14 days from enabled local/offline calendar data.
+Locked databases are handled through checked private copies with their journals.
+PoeDash does not synchronize or modify event data itself.
+
+On startup/refresh it checks for installed Thunderbird and offers to enable
+remote-calendar offline caching. Consent is remembered per profile and calendar.
+New calendars require their own approval. Restart Thunderbird and synchronize
+after enabling caching. The regular agenda poll stays read-only.
+
+### Package search
+
+Packages opens in your current Rofi size and theme, searching all configured
+repositories and the AUR immediately. Catalogs refresh on opening, in a separate
+search database. Type while they load. Alt+R or **Choose repository** narrows the
+source while keeping the query.
+
+Results with available application icons appear first, then plain entries,
+alphabetically within each group. Repository, installed/update status and short
+descriptions appear underneath. Select **Full description**, or highlight a
+package and press **Alt+D**, for full details. These replace hover tooltips that
+Rofi's list does not provide natively.
+
+<p align="center">
+  <img src="assets/screenshots/package-search.png" alt="Rofi package search with source labels and descriptions" width="850">
+</p>
+
+**Install** is the first action and changes the selection plus required
+dependencies using existing package databases. **Install and upgrade** is second
+and includes a full system upgrade. Outdated packages offer equivalent Update
+choices. Both open an interactive terminal for confirmation, passwords and AUR
+review. Searching never installs packages.
+[Cache, offline behavior and commands](docs/package-search.md).
+
+### Session, idle and Power
+
+Source, Profile and Selected by explain the system power state. QuickShell keeps
+its existing profile-selection menu. Automatic means PoeDash chooses Power Saver
+on battery and Performance on AC, with supported fallbacks. A manual profile
+choice persists until a real power-source transition.
+
+Screen Off, Lock Screen and Auto Suspend reflect the detected Hypridle timers.
+Numeric controls preserve unrelated listeners and security hooks, make backups,
+and verify changes. Zero disables the corresponding timer. Unknown values are
+shown as unavailable rather than guessed.
+
+A **Power** subsection appears below the idle controls only while a detected
+system battery is supplying power. It shows charge, current watts and the OS's
+remaining-time estimate in hours/minutes when available. It is absent on batteryless
+desktops and hidden while plugged in. Unknown time estimates stay unavailable.
 
 ```bash
-~/.config/poedash/scripts/thunderbird-calendar.py --enable-offline-cache
-```
-
-Restart Thunderbird and synchronize the calendar afterward. This command adds
-only calendar caching preferences to the profile's `user.js`, backing up an
-existing file. Normal dashboard refreshes never change Thunderbird settings.
-Locked local databases are read through a temporary private copy, including
-pending committed WAL data. The original database is never changed.
-
-The **Packages** button opens a package search using the current Rofi launcher
-size and theme. Start typing to search all repositories and the AUR. Catalogs
-refresh automatically on opening. Use Alt+R or Choose repository to narrow the
-search. Icon-backed packages come first, with each group sorted alphabetically.
-Repository and installed/update status appear beneath each package name.
-Install/Update offers the selected package only as the first option, or the
-package and a full system upgrade as the second. Both open an interactive
-terminal for confirmation. Browsing never installs packages.
-See [package search, caching and transaction details](docs/package-search.md).
-
-Battery details appear only when a system battery is detected. Remaining time appears only
-when the OS supplies a valid estimate. Power-profile and idle controls remain available on desktops. General metrics refresh every two seconds on battery. Playing
-media refreshes independently every second, with paused/stopped media checked
-every five seconds. AC metric intervals remain unchanged. Hidden dashboards
-pause metric collectors. Laptop GPU monitoring uses passive telemetry by default.
-Set `"gpu_monitoring": "detailed"` in `~/.config/poedash/layout.json` to request
-active GPU measurements, or `"passive"` to avoid NVIDIA queries on any machine.
-
-PoeDash provides a **Session & Idle** card in the main grid. It labels the current
-power source, active profile and how that profile was selected. Profile selection
-uses QuickShell’s existing menu, without a duplicate dashboard menu. Its numerical steppers edit Screen Off, Lock Screen and Auto Suspend in
-minutes. Zero disables only that timer. Apply is enabled only for pending changes. Timers are read from the detected
-configuration. Unknown/loading values show an em dash, while zero means the
-corresponding timer is genuinely disabled. Legacy and Lua-style Hyprland DPMS
-actions are recognised. Existing second-level timings are preserved, including
-fractional minutes such as 5.5. Hover over a value to see its exact seconds.
-It discovers the running Hypridle instance and its config, including custom paths,
-source files and dotfile symlinks. It backs up the resolved files, preserves other
-listeners and security hooks, restarts only Hypridle, and checks runtime timer
-registration and configuration readback. Failures retain the draft and restore the
-previous config. Custom/ambiguous timers or missing idle managers are reported
-rather than silently replaced. Both AC and battery currently use the same timers.
-Hyprlock and logind retain their authentication and suspend-inhibitor behaviour.
-The card requires an existing running Hypridle configuration and desktop autostart.
-It does not install a competing idle manager or edit logind defaults.
-
-Automatic power profiles belong to PoeDash's installation and the independent
-`poedash-power.service` user service. System power supplies determine the source,
-not chassis type. On battery the default is Power Saver. On AC and on desktops it
-is Performance. An unavailable default falls back to Balanced, or the first
-supported profile, with an explanation. The existing power-profiles API (including
-compatible tuned-ppd providers) is preferred. Native tuned supports the installed
-`throughput-performance`, `balanced` and `powersave` profiles. Conflicting managers
-are reported, and no competing backend is installed or enabled automatically.
-
-Manual selections in QuickShell change the real system profile. A manual choice
-survives dashboard restarts and reinstalls until an actual source transition.
-Each new boot initialises the automatic default at user-session startup. The user
-service listens for power-supply and profile events even when the dashboard is
-closed, with a 60-second recovery reconciliation for missed events. “Selected by: Automatic” means PoeDash chose the profile using its AC/battery
-policy. QuickShell selections are marked Manual until the next source transition.
-Battery charge and remaining-time details are omitted on desktops.
-
-```bash
+poedash doctor
 poedash power status
 poedash power disable
 poedash power enable
-systemctl --user status poedash-power.service
-journalctl --user -u poedash-power.service -b
 ```
 
-Disabling automatic profiles stops and removes its owned service while retaining
-the current real profile and the disabled preference for future updates. Disabling
-the dashboard window alone leaves power management running. Uninstall removes the
-owned service. Hypridle keeps its existing startup and configuration independently.
-Missing profile services or permissions produce actionable feedback instead of
-claiming success. These settings do not require running PoeDash as root.
+### Install, refresh and remove
 
-The dashboard shows on workspace 1 using widget visibility rather than global
-opacity. Its workspace observer supports nonzero monitor IDs and reconnects if
-Hyprland's event socket is temporarily unavailable. Dashboard surfaces sit above
-wallpapers on the Wayland bottom layer, with application windows above them.
-
-PoeDash is the general dashboard. Its installer offers `PoeDash` as the default
-subtitle and lets the user enter another subtitle. It shows performance, laptop power
-and battery data when available, the top ten processes, host specifications,
-MPRIS media controls, active VPN interfaces, mounted
-SMB/NFS shares, package updates, and a compact calendar.
-
-PoeDeploy asks for the PoeDash subtitle during the visible application-planning
-step. The background installation and dashboard updates are non-interactive, so
-they cannot stall behind the static progress screen.
-
-**BlackArch repository (optional)** uses its
-[official, checksum-verified bootstrapper](https://blackarch.org/downloads.html).
-**Security tools (requires BlackArch repository)** installs ffuf, Gobuster, Nmap,
-sqlmap, Wfuzz, Wireshark and jwt-tool only when explicitly selected. Select the
-repository first if it is not already configured.
-**Burp Suite (official PortSwigger installer)** independently installs the native
-Linux build from [PortSwigger](https://portswigger.net/burp/downloads), verified
-against its published SHA-256 checksum. It does not use the AUR package.
-Dashboard installation and refresh never install these tools or repositories.
-
-From a PoeDeploy checkout, install the official Burp build separately:
+Select PoeDash under Optional applications, or run its installer from a checkout:
 
 ```bash
-python3 installer/security-tools.py burp
+bash apps/poedash/install.sh
 ```
 
-This action only installs Burp, without dashboard, repository, or package changes.
-Existing native PortSwigger installations are retained and use Burp's own updater.
-Existing repository packages are retained. Use the native installer's desktop
-entry or `~/.local/bin/burpsuite` to launch the PortSwigger build.
-
-Installing PoeDash also retires recognised old dashboard installations. It backs
-up their configuration and integration files, stops their daemon and workers,
-removes old launchers and startup hooks, updates Waybar/QuickShell controls, and
-removes retired Matugen hooks. Existing PoeDash preferences take precedence over
-migrated preferences. Other Eww configurations, security applications and browser
-data are preserved. A symlinked old config is unlinked while its inactive dotfiles
-source is retained. Backups are stored under `~/.local/state/poedash/backups/`.
-
-PoeDash adds enable/disable and update controls to a supported ML4W
-QuickShell status bar. The update control downloads the latest PoeDeploy `main`
-branch and refreshes the selected dashboard from its maintained bundled copy.
-Dashboard changes are available as soon as they are pushed, without a release
-tag. The bootstrapper also uses `main` with `--install-dashboard poedash`. Normal full setup continues to use stable releases. Selecting
-the same dashboard in PoeDeploy performs the same clean refresh: managed
-interface files are replaced while Eww itself, dashboard preferences, the
-enabled state, colour palette, and browser state are retained. Dashboard refreshes
-only replace dashboard files and bar integration. They do not add repositories,
-install security tools, or install or upgrade packages. BlackArch, curated security tools and Burp are separate optional installer choices.
-
-Installers record the selected dashboard in `~/.config/poedeploy/dashboard`.
-Updates from stale controls for another dashboard are rejected before setup runs.
-
-PoeDeploy prefers packages from the official Arch repositories. It uses `yay`
-when an application is only available from the Arch User Repository, usually
-called the AUR.
-
-PoeDeploy's full setup installs Tailscale and enables `tailscaled` at boot.
-Selecting Tailscale in Optional applications or the Tailscale service section
-uses the same installation and configuration flow. PoeDash only displays VPN
-status and does not install VPN clients.
-Once the daemon is running, desktop setup grants the validated desktop account
-operator permissions with `sudo tailscale set --operator=USERNAME`. This lets that
-user manage the local connection without sudo. Account detection uses the actual
-caller, or the validated `SUDO_USER` in a privileged context, never root. PoeDeploy's
-normal entry point still runs as a regular user and requests sudo when needed.
-
-On graphical systems with Tailscale 1.88 or newer, setup runs the official
-`tailscale configure systray --enable-startup=systemd` as the desktop user and
-enables `tailscale-systray.service`. A small user-service drop-in retries failures
-when D-Bus or the tray host starts late. If no user bus is available yet, startup
-is enabled for the next login. Existing alternative tray autostarts are retained
-and reported instead of adding a competing launcher. Quickshell's existing
-StatusNotifier tray displays the icon without configuration changes.
-
-Headless systems skip desktop integration. Chroots defer it until after boot.
-Unsupported versions and optional tray errors produce guidance without undoing
-installation. Setup does not run `tailscale up`, log out, reset authentication,
-or change unrelated preferences. Complete initial authentication when ready with
-`tailscale up` as the configured operator.
-
-Verify as the desktop user:
+The dashboard refresh button and `poedash update` use the maintained copy on the
+repository's `main` branch. Normal PoeDeploy setup uses stable release tags.
+Dashboard-only refresh preserves preferences, pins, theme and enabled state.
+It does not add repositories, install security tools or upgrade packages.
+Recognised retired dashboard integrations are backed up and removed during
+migration. Other Eww configurations are retained.
 
 ```bash
-tailscale version
-systemctl is-active tailscaled
-systemctl --user is-enabled tailscale-systray.service
-systemctl --user status tailscale-systray.service
-journalctl --user -u tailscale-systray.service -b
+poedash reload
+poedash update
+poedash stop
+poedash uninstall
 ```
 
-The tray uses Tailscale's [official Linux systray support](https://tailscale.com/docs/features/client/linux-systray).
+User configuration is under `~/.config/poedash`, with backups under
+`~/.local/state/poedash/backups`. [Dashboard guide](apps/README.md).
 
+## Optional applications
 
-[Proton VPN's Arch installation](https://protonvpn.com/support/linux-vpn-arch)
-uses `proton-vpn-gtk-app`. Selecting it also installs NetworkManager and
-GNOME Keyring. Start NetworkManager (the **NetworkManager** setup section can
-handle this), then open Proton VPN and sign in. Split tunneling additionally
-requires `systemd-resolved`. PoeDeploy does not change your DNS configuration.
+These are choices, not a mandatory bundle. The installer shows selected packages
+and runs their supported installation path.
 
-If an optional application is taking too long, press **Ctrl+C** once. You can
-then skip that application, retry it, or stop PoeDeploy. Skipping an application
-does not remove anything that was already installed.
+| Application/component | Purpose |
+| --- | --- |
+| PoeDash | Workspace dashboard, media, calendar, power and package search |
+| Firefox | Web browser |
+| LocalSend | Local-network file sharing |
+| VLC | Media player with the selected plugin bundle |
+| Visual Studio Code | Code editor |
+| 7-Zip | Archive tools |
+| Discord | Messaging and communities |
+| GIMP | Image editing |
+| HyprMod | Hyprland settings |
+| LibreOffice | Office applications |
+| PowerTOP | Power diagnostics |
+| Proton VPN | Official Arch GUI with NetworkManager/keyring dependencies |
+| Tailscale | Mesh VPN and supported official tray integration |
+| Thunderbird | Email and calendar |
+| Spotify | Music playback through spotify-launcher |
+| OBS Studio | Recording and streaming |
+| BlackArch repository | Explicit optional repository setup |
+| Security tools | ffuf, Gobuster, Nmap, sqlmap, Wfuzz, Wireshark and jwt-tool |
+| Burp Suite | Official PortSwigger native installer with checksum verification |
 
-## Huawei MateBook 14s audio (optional)
+<p align="center">
+  <img src="assets/screenshots/optional-applications.png" alt="Optional application selection in PoeDeploy" width="850">
+</p>
 
-The **Huawei MateBook 14s audio workaround** section offers the confirmed
-speaker/headphone routing fix only for product `HKF-WXX` with codec subsystem
-`0x19e53285`. It requires explicit consent and leaves other hardware untouched.
-A blocking ALSA event listener handles jack/route changes. Sound-device events
-and a resume hook handle device arrival and suspend. There is no periodic codec
-polling, replacement driver, or change to PulseAudio or PipeWire/WirePlumber policy.
+Security tools require the explicitly selected BlackArch repository. Burp uses
+the official native installer, not an AUR build. Existing native installations
+are retained and use Burp's own updater. These choices are independent of PoeDash.
+Proton VPN requires sign-in, and split tunneling additionally needs
+`systemd-resolved`. PoeDeploy does not change DNS configuration automatically.
 
-See [hardware checks, installation, testing and removal](docs/matebook-audio.md).
-Speaker routing has been confirmed on the affected laptop. Persistent operation
-and headphone switching still require on-device testing.
+## Development and AI
 
-## Fingerprint authentication
+This project is AI-assisted, or “vibe coded” if you prefer. I use AI to help write,
+refactor, explain and test code while building the setup I want for my own
+machines. I make the project decisions and am responsible for what gets shipped.
 
-**Fingerprint authentication** appears immediately after **SDDM login screen**.
-You can select it independently or use it during full setup. Installation starts
-only after you opt in. Run it on the booted system, not inside an Arch chroot.
+AI-generated code and passing tests do not mean every laptop, GPU, firmware or
+bootloader has been physically validated. Hardware-only limitations are called
+out in the relevant guides. Bug reports with the version, selected stage and
+sanitized logs help improve the project.
 
-PoeDeploy tries Arch's `fprintd` and `libfprint` for standard readers. For the
-Goodix **GDIX51C0** SPI sensor, it offers the experimental
-[Goodix SPI driver](https://github.com/berkekbgz/libfprint-goodix-spi), pinned to
-revision `505dc7e4602cae828e5a1e80221f3fec8e15411e`, which was enrolled and
-verified on a Huawei laptop. Other Goodix models are not assumed compatible.
-The upstream driver has only been hardware-tested on a MateBook 16s. Other
-machines may need GPIO configuration. PoeDeploy does not guess GPIO lines.
-
-The Goodix path installs the build dependencies, including `glib2-devel`,
-builds the driver's pinned libfprint/fprintd sources, and installs shadow copies
-under `/opt/goodix-spi-driver`. Arch's packaged libfprint is retained. Sources
-are retained under `${XDG_CACHE_HOME:-$HOME/.cache}/poedeploy/goodix-*`. Run that
-checkout's `uninstall.sh` to remove the custom driver. The upstream installer
-keeps protected sensor state under `/var/lib/fprint`. Its normal uninstall
-preserves that state. Linux may provision a sensor key. On dual-boot systems,
-Windows and Linux can replace each other's key.
-
-The section offers right-index-finger enrollment and then requires a successful
-recognition test before offering login changes. You can decline enrollment to
-test an existing right-index print. Failed detection or verification leaves
-login configuration unchanged. Enrollment requires repeated touches, so prompts
-and the external installer run in the normal terminal.
-
-After successful verification, you can enable SDDM sign-in and Hyprlock unlock
-where installed. Configuration files receive timestamped backups. Repeating
-PoeDeploy's configuration is safe. Unfamiliar existing authentication settings
-are left for manual review. This section does not change `sudo`, `su`, SSH, or
-the shared system authentication stack.
-
-- **SDDM:** select your user, leave the password blank, press Enter, then touch
-  the sensor. After a failed scan or up to ten seconds, use your password.
-- **Hyprlock:** touch the sensor at the lock screen or type your password.
-  Fingerprint and password authentication run in parallel.
-
-No reboot is needed to test screen unlock. Fingerprints do not unlock encrypted
-disks at boot, and a login keyring may still request its password. Fingerprint
-setup does not install camera or facial-recognition software.
-
-## Default browser
-
-Choose **Default browser** to see the browsers registered on your desktop,
-including exported Flatpak and Snap launchers. PoeDeploy shows your current
-settings first. Press Enter or choose **Keep the current default** to leave them
-alone.
-
-Choosing a browser also sets and checks the defaults for HTTP and HTTPS links and
-HTML files. Email applications that use the system default will open web links in
-that browser. Apps with their own browser setting may need that changed separately.
-This does not change your default email application.
-
-## Safer network share setup
-
-PoeDeploy checks an SMB or NFS share before saving it for future use. It first
-tries to connect and confirms that your user can see the files.
-
-If the check fails, the share is not added to `/etc/fstab`. PoeDeploy removes
-the temporary setup and lets you retry with corrected details or skip it. This
-helps protect you from a typing mistake causing trouble on the next boot.
-
-Use a new, empty folder under `/mnt` or `/media` for the local mount point. For
-example, you could use `/mnt/NAS`. PoeDeploy will not overwrite an existing share
-or mount over a folder that already contains files.
-
-For more information, read the
-[SMB and NFS share guide](docs/network-shares.md).
-
-## Please read before using the boot sections
-
-The UKI and Secure Boot sections make important changes to how your computer
-starts. Keep a backup and recovery USB available before using them.
-
-PoeDeploy checks its work and asks separately before creating keys, enrolling
-keys, or signing boot files. However, your firmware settings and hardware can be
-different from another machine.
-
-Read the [UKI, Plymouth and Secure Boot guide](docs/boot-and-secure-boot.md) before
-using those sections. There is also a separate
-[kernel update test guide](docs/kernel-update-check.md).
-
-## More information
-
-- [SMB and NFS share setup](docs/network-shares.md)
-- [UKI, Plymouth and Secure Boot](docs/boot-and-secure-boot.md)
-- [Testing a kernel update](docs/kernel-update-check.md)
-- [PoeDeploy theme files](themes/README.md)
-
-The tests folder is for checking changes before a new release. It is not needed
-when you run PoeDeploy through the command above, but keeping it in the GitHub
-repository helps make sure the same safety checks are available on every machine.
-
-To run those checks while developing PoeDeploy:
+The screenshots show real installer menus, package results and this development
+PC’s dashboard, with private fields hidden. They are interface references, not promises that another
+machine has the same packages, battery, playback state or appearance.
 
 ```bash
-bash -n poedeploy.sh poedeploy-latest ui/*.sh installer/*.sh
 python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s apps/poedash/tests -v
+bash -n poedeploy.sh
+bash -n poedeploy-latest
 ```
 
-## Installer architecture
+Installer stages are defined in `poedeploy.sh`, with modular helpers under
+`installer/` and terminal rendering/navigation under `ui/`. PoeDash lives under
+`apps/poedash/`, with shared desktop, layout and calendar helpers in `apps/shared/`.
+Contributions should keep sections independent, preserve user configuration and
+include meaningful checks for changed behavior.
 
-The existing setup functions remain in `poedeploy.sh`, while the new runtime is
-split into three layers:
-
-- `installer/applications.sh` dispatches the bundled PoeDash installer.
-- `installer/security-tools.py` handles explicit optional security installations.
-- `installer/tailscale.sh` adds operator permissions and official user-session tray startup.
-- `apps/poedash/` contains dashboard program files, assets and focused tests.
-- `ui/progress.sh` owns stage state and real progress calculations.
-- `ui/dashboard.sh` and `ui/keyboard.sh` render the static TTY and handle keys.
-- `ui/logger.sh` owns the log and provides `run_cmd` and `run_cmd_capture` for
-  new or gradually refactored installer operations.
-
-The ordered `SETUP_MODULE_IDS` and `SETUP_MODULE_LABELS` declarations define the
-stages. To add one, add its ID and label, implement its setup function, and add a
-dispatcher case in `run_setup_module`. Installer code reports detail with
-`info`, `success`, `warning`, or `ui_set_operation`. It never needs to draw the
-dashboard itself.
-
-Each selected stage runs as a worker. `setup_module_needs_terminal` marks stages
-that need the normal terminal throughout their menus and confirmations. The
-renderer acknowledges each handoff before the worker can read input and
-acknowledges the completed redraw before the next handoff. External installers
-use `ui_run_interactive`, which preserves shell state and warning counts.
-The parent restores terminal settings and resumes the dashboard even if a
-worker fails. Frames use actual TTY dimensions, explicit carriage returns,
-display-column padding, and sanitised log text so command output cannot move
-the dashboard cursor.
-A failed critical stage offers retry, log, or abort. Explicitly safe
-optional stages also offer skip.
-
-Inside an Arch chroot, PoeDeploy allows the chroot's root user, runs privileged
-commands directly, and enables services without trying to start them. Tasks that
-need a running graphical session or real boot state may still need to be rerun
-after the first boot.
-
-## Development note
-
-I developed PoeDeploy with the help of AI tools under my direct supervision.
-AI helps me build and test the installer faster and more efficiently while I
-work a full-time job and continue learning coding and scripting. I review the
-changes, test the workflows, and make the final decisions for the project.
+Useful guides: [boot/UKI/Secure Boot](docs/boot-and-secure-boot.md),
+[kernel updates](docs/kernel-update-check.md), [network shares](docs/network-shares.md),
+[fingerprints](docs/fingerprint.md), [MateBook audio](docs/matebook-audio.md),
+[package search](docs/package-search.md), [themes](themes/README.md).

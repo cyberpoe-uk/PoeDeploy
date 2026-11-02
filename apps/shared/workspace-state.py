@@ -48,6 +48,27 @@ def query(root):
         return None
 
 
+def return_home_if_empty(root):
+    """Called only after closewindow, never just because a workspace is empty."""
+    try:
+        clients = json.loads(subprocess.run(['hyprctl', 'clients', '-j'], capture_output=True,
+                                           text=True, timeout=2, check=True).stdout)
+        if not isinstance(clients, list) or any(item.get('mapped', True) for item in clients):
+            return False
+        active = json.loads(subprocess.run(['hyprctl', 'activeworkspace', '-j'], capture_output=True,
+                                          text=True, timeout=2, check=True).stdout)
+        if active.get('id') == 1:
+            return False
+        result = subprocess.run(['hyprctl', 'eval', 'hl.dispatch(hl.dsp.focus({workspace="1"}))'],
+                                capture_output=True, text=True, timeout=2, check=True)
+        if 'error' in result.stdout.lower():
+            subprocess.run(['hyprctl', 'dispatch', 'workspace', '1'], capture_output=True,
+                           text=True, timeout=2, check=True)
+        return True
+    except (OSError, ValueError, TypeError, AttributeError, subprocess.SubprocessError):
+        return False
+
+
 class Observer:
     def __init__(self, root):
         self.root = root
@@ -95,7 +116,12 @@ def listen(root):
                         buffer += chunk.decode(errors='replace')
                         lines = buffer.split('\n')
                         buffer = lines.pop()
-                        refresh = any(line.partition('>>')[0] in EVENTS for line in lines)
+                        if any(line.startswith('closewindow>>') for line in lines):
+                            time.sleep(.15)  # Coalesce close/open replacements before deciding.
+                            return_home_if_empty(root)
+                            refresh = True
+                        else:
+                            refresh = any(line.partition('>>')[0] in EVENTS for line in lines)
                     if refresh or time.monotonic() - observer.last_query >= 10:
                         observer.refresh()
         except (OSError, KeyError):

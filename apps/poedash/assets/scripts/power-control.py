@@ -162,9 +162,16 @@ class Policy:
             atomic(self.file, data)
 
 
+
+def ui_paused(root):
+    try:
+        return (root / 'state/refresh-paused').read_text().strip() == 'true'
+    except OSError:
+        return False
+
 def publish(data):
     # Eww may be closed. Policy always persists; the UI listener reads it later.
-    if not shutil.which('eww'): return
+    if ui_paused(ROOT) or not shutil.which('eww'): return
     try: run(['eww', '--config', ROOT, 'update', 'power_profile=' + json.dumps(data)])
     except (OSError, RuntimeError, subprocess.SubprocessError): pass
 
@@ -302,6 +309,9 @@ def main():
     elif args.action == 'listen':
         previous = None
         while True:
+            if ui_paused(ROOT):
+                time.sleep(1)
+                continue
             data = dict(supported=False, source='unknown', active='Unavailable', available=[], mode='Unavailable', enabled=False, message='Power profile service is not configured.')
             data.update(policy.saved())
             encoded = json.dumps(data)

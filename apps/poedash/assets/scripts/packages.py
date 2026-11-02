@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import urllib.parse
 import urllib.request
@@ -98,7 +99,7 @@ def aur_names(cache=CACHE, refresh=False):
         return [], f'AUR unavailable: {exc}'
 
 
-def aur_info(names):
+def aur_details(names):
     results = {}
     for offset in range(0, len(names), 100):
         query = urllib.parse.urlencode([('arg[]', n) for n in names[offset:offset + 100]])
@@ -110,8 +111,88 @@ def aur_info(names):
                 continue
             name, version = item.get('Name'), item.get('Version')
             if isinstance(name, str) and NAME.fullmatch(name) and isinstance(version, str):
-                results[name] = version
+                results[name] = dict(version=version, description=item.get('Description') or '')
     return results
+
+
+def aur_info(names):
+    return {name: data['version'] for name, data in aur_details(names).items()}
+
+
+def metadata_records(compressed):
+    """Read the official JSON array incrementally instead of retaining every field."""
+    with io.TextIOWrapper(gzip.GzipFile(fileobj=io.BytesIO(compressed)), encoding='utf-8') as stream:
+        decoder, buffer, total = json.JSONDecoder(), '', 0
+        started = False
+        while True:
+            chunk = stream.read(65536)
+            total += len(chunk)
+            if total > 128 * 1024 * 1024:
+                raise ValueError('AUR metadata exceeds size limit')
+            buffer += chunk
+            if not started:
+                buffer = buffer.lstrip()
+                if not buffer:
+                    if not chunk: raise ValueError('Empty AUR metadata')
+                    continue
+                if not buffer.startswith('['): raise ValueError('AUR metadata is not an array')
+                buffer, started = buffer[1:], True
+            while True:
+                buffer = buffer.lstrip(' \t\r\n,')
+                if buffer.startswith(']'):
+                    return
+                try:
+                    item, end = decoder.raw_decode(buffer)
+                except json.JSONDecodeError:
+                    break
+                buffer = buffer[end:]
+                if isinstance(item, dict):
+                    yield item
+            if not chunk:
+                raise ValueError('Incomplete AUR metadata')
+
+
+def aur_descriptions(cache=CACHE):
+    path = cache / 'aur-descriptions.json'
+    saved = json_cache(path, 3600)
+    if isinstance(saved, dict):
+        return saved
+    try:
+        values = {item['Name']: item.get('Description') or ''
+                  for item in metadata_records(fetch(AUR + '/packages-meta-v1.json.gz'))
+                  if isinstance(item.get('Name'), str) and NAME.fullmatch(item['Name'])
+                  and isinstance(item.get('Description', ''), (str, type(None)))}
+        atomic_json(path, values)
+        return values
+    except (OSError, ValueError, RuntimeError, EOFError):
+        try:
+            saved = json.loads(path.read_text())
+            return saved if isinstance(saved, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+
+def repository_descriptions(database):
+    """Read only cached pacman archive members, never extract files."""
+    import tarfile
+    root = database or Path('/var/lib/pacman')
+    result = {}
+    for archive in (root / 'sync').glob('*.db'):
+        try:
+            with tarfile.open(archive, 'r:*') as tar:
+                for member in tar:
+                    if not member.isfile() or not member.name.endswith('/desc') or member.size > 1024 * 1024:
+                        continue
+                    stream = tar.extractfile(member)
+                    if stream is None: continue
+                    with stream:
+                        text = stream.read().decode(errors='replace')
+                    fields = dict(re.findall(r'^%([^%]+)%\n([^\n]*)', text, re.M))
+                    if fields.get('NAME'):
+                        result[(archive.stem, fields['NAME'])] = fields.get('DESC', '')
+        except (OSError, tarfile.TarError):
+            continue
+    return result
 
 
 _LIB = None
@@ -226,6 +307,8 @@ def clean(value):
 def row(package, installed, icon_map):
     return (html.escape(clean(package['name'])) + '&#10;<span size="small">'
             + html.escape(clean(package['source'] + ' · ' + status(package, installed))) + '</span>'
+            + ('&#10;<span size="small">' + html.escape(textwrap.shorten(clean(package['description']), width=100, placeholder='…')) + '</span>'
+               if package.get('description') else '')
             + '\0icon\x1f' + clean(icon_map.get(package['name'].casefold(), 'package-x-generic')))
 
 
@@ -272,11 +355,13 @@ def catalog(source='both', cache=CACHE, refresh=False):
     installed = installed_packages()
     notes = []
     # Independent refreshes run together, once per browser opening, never per key.
-    with ThreadPoolExecutor(max_workers=2) as workers:
+    with ThreadPoolExecutor(max_workers=3) as workers:
         repo_job = workers.submit(repository_updates, cache, refresh=refresh) if source != 'aur' else None
         aur_job = workers.submit(aur_names, cache, refresh=refresh) if source != 'repo' else None
+        description_job = workers.submit(aur_descriptions, cache) if source != 'repo' else None
         updates, update_note = repo_job.result() if repo_job else ({}, '')
         names, aur_note = aur_job.result() if aur_job else ([], '')
+        descriptions = description_job.result() if description_job else {}
     if update_note:
         notes.append(update_note)
     if aur_note:
@@ -294,6 +379,9 @@ def catalog(source='both', cache=CACHE, refresh=False):
             snapshot = None
             repo = repository_packages(None, all_repositories=True)
     packages = list(repo.values())
+    repo_details = repository_descriptions(snapshot)
+    for package in packages:
+        package['description'] = repo_details.get((package['source'], package['name']), '')
     # Fresh snapshot versions are authoritative per repository. Do not apply the
     # priority repository's update version to the same name in another repository.
     if snapshot is None:
@@ -308,7 +396,7 @@ def catalog(source='both', cache=CACHE, refresh=False):
                 versions = aur_info(wanted)
             except (OSError, ValueError, RuntimeError):
                 notes.append('AUR update status unavailable. Checked again on selection.')
-        packages.extend(dict(name=name, source='AUR', version=versions.get(name), aur=True) for name in names)
+        packages.extend(dict(name=name, source='AUR', version=versions.get(name), description=descriptions.get(name, ''), aur=True) for name in names)
     return sorted(packages, key=lambda item: (item['name'].casefold(), item['source'])), installed, ' '.join(notes)
 
 
@@ -322,9 +410,9 @@ def package_picker(loader, query='', repository=None):
     """Show the input immediately, then feed freshly loaded, fully sorted rows."""
     scope = repository or 'All repositories + AUR'
     argv = ['rofi', '-dmenu', '-i', '-no-sort', '-matching', 'normal',
-            '-show-icons', '-markup-rows', '-eh', '2',
-            '-format', 'i\x1ff', '-filter', query, '-kb-custom-1', 'Alt+r',
-            '-p', 'Packages', '-mesg', html.escape(scope + ' · Alt+R: choose repository · Catalogs refresh on opening')]
+            '-show-icons', '-markup-rows', '-eh', '3',
+            '-format', 'i\x1ff', '-filter', query, '-kb-custom-1', 'Alt+r', '-kb-custom-2', 'Alt+d',
+            '-p', 'Packages', '-mesg', html.escape(scope + ' · Alt+R: repository · Alt+D: full description')]
     config = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'rofi/config.rasi'
     if config.is_file():
         argv += ['-config', str(config)]
@@ -346,7 +434,7 @@ def package_picker(loader, query='', repository=None):
         index_text, _, current_query = output.rstrip('\n').partition('\x1f')
         if process.returncode == 10:
             return dict(filter=True, query=current_query)
-        if process.returncode != 0:
+        if process.returncode not in (0, 11):
             return None
         try:
             index = int(index_text)
@@ -355,7 +443,7 @@ def package_picker(loader, query='', repository=None):
         if index == 0:
             return dict(filter=True, query=current_query)
         if 1 <= index <= len(rows):
-            return dict(index=index - 1, query=current_query)
+            return dict(index=index - 1, query=current_query, details=process.returncode == 11)
         return None
     except BrokenPipeError:
         process.stdin = None
@@ -366,6 +454,14 @@ def package_picker(loader, query='', repository=None):
             process.terminate()
             process.communicate()
 
+
+
+def show_details(package, installed):
+    description = clean(package.get('description') or 'Description unavailable. Try again when connected.')
+    information = [package['name'], package['source'] + ' · ' + status(package, installed), '']
+    information += textwrap.wrap(description, width=52)
+    rows = ['Back to package search'] + [clean(line) + '\0nonselectable\x1ftrue' for line in information]
+    choose(rows, 'Package details')
 
 def transaction_command(source, target, upgrade=False):
     if source not in ('repo', 'aur'):
@@ -397,7 +493,7 @@ def transaction(source, target, upgrade=False):
     input('Press Enter to close. ')
 
 
-def open_browser():
+def open_browser(initial_query=''):
     for binary in ('rofi', 'pacman', 'kitty'):
         if not shutil.which(binary):
             raise RuntimeError(f'{binary} is required. Run poedash doctor.')
@@ -410,7 +506,7 @@ def open_browser():
         # The first UI is always the all-repository search, never a source menu.
         data, installed, icon_map = None, {}, {}
         visible = []
-        repository, query = None, ''
+        repository, query = None, initial_query
 
         def load_rows():
             nonlocal data, installed, icon_map, visible
@@ -437,23 +533,30 @@ def open_browser():
             package = visible[selection['index']]
             if package['aur']:
                 try:
-                    package['version'] = aur_info([package['name']]).get(package['name'])
+                    detail = aur_details([package['name']]).get(package['name'], {})
+                    package.update(detail)
                 except (OSError, ValueError, RuntimeError) as exc:
                     notify(f'AUR metadata unavailable: {exc}')
                     continue
                 if not package['version']:
                     notify('This package is no longer available in the AUR.')
                     continue
+            if selection.get('details'):
+                show_details(package, installed)
+                continue
             information = status(package, installed)
             old = installed.get(package['name'])
             if old is not None and compare(package['version'], old) <= 0:
-                choose(['Back to package search'], package['name'], information)
+                show_details(package, installed)
                 continue
             target = package['name'] if package['aur'] else package['source'] + '/' + package['name']
             kind = 'aur' if package['aur'] else 'repo'
             action = 'Update' if old else 'Install'
-            confirmation = choose([action, action + ' and upgrade', 'Cancel'], package['name'],
+            confirmation = choose([action, action + ' and upgrade', 'Full description', 'Cancel'], package['name'],
                                   information + ' · First option: selected package only. Second option: full system upgrade.')
+            if confirmation == 2:
+                show_details(package, installed)
+                continue
             if confirmation not in (0, 1):
                 continue
             upgrade = confirmation == 1
@@ -469,15 +572,16 @@ def main():
     parser.add_argument('action', choices=('launch', 'open', 'transaction'))
     parser.add_argument('source', nargs='?', choices=('repo', 'aur'))
     parser.add_argument('target', nargs='?')
+    parser.add_argument('--query', default='', help='prefill the package search')
     parser.add_argument('--upgrade', action='store_true', help='include a full system upgrade in a transaction')
     args = parser.parse_args()
     if os.geteuid() == 0:
         raise RuntimeError('Run PoeDash packages as your desktop user, never as root')
     if args.action == 'launch':
-        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), 'open'], start_new_session=True,
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), 'open', '--query', args.query], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     elif args.action == 'open':
-        open_browser()
+        open_browser(args.query)
     elif not args.source or not args.target:
         parser.error('transaction requires source and target')
     else:

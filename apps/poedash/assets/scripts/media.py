@@ -7,13 +7,14 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
 
 EMPTY = {'available': False, 'player': 'No media', 'title': 'Nothing playing',
          'artist': '', 'status': 'Stopped', 'position': '0:00', 'length': '0:00',
-         'progress': 0, 'icon': '♪', 'art': ''}
+         'progress': 0, 'icon': '♪', 'art': '', 'uri': '', 'position_seconds': 0, 'length_seconds': 0, 'sampled_at': 0}
 
 
 def call(*args):
@@ -77,20 +78,22 @@ def reading():
         players = list(statuses)
         player = next((name for name in players if statuses[name] == 'Playing'), players[0])
         fields = call('-p', player, 'metadata', '--format',
-                      '{{title}}\u001f{{artist}}\u001f{{mpris:length}}\u001f{{mpris:artUrl}}').split('\x1f')
-        title, artist, length, art_url = (fields + ['', '', '0', ''])[:4]
+                      '{{title}}\u001f{{artist}}\u001f{{mpris:length}}\u001f{{mpris:artUrl}}\u001f{{xesam:url}}').split('\x1f')
+        title, artist, length, art_url, uri = (fields + ['', '', '0', '', ''])[:5]
         try:
             position = max(0, float(call('-p', player, 'position') or 0))
         except subprocess.SubprocessError:
             position = 0
+        sampled_at = time.monotonic()
         length_us = max(0, float(length or 0))
         data = {'available': True, 'player': player.split('.')[0].title(),
                 'title': title or 'Unknown title', 'artist': artist,
                 'status': statuses[player], 'position': clock(position * 1_000_000),
                 'length': clock(length_us),
-                'progress': min(100, round(position * 100_000_000 / length_us)) if length_us else 0,
+                'progress': min(100, round(position * 100_000_000 / length_us, 3)) if length_us else 0,
                 'icon': '' if 'spotify' in player.lower() else '♪',
-                'art': artwork(art_url)}
+                'art': artwork(art_url), 'uri': uri, 'position_seconds': position,
+                'length_seconds': length_us / 1_000_000, 'sampled_at': sampled_at}
     except (IndexError, OSError, ValueError, OverflowError, subprocess.SubprocessError):
         pass
     return data

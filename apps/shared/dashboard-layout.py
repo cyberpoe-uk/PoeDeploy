@@ -171,6 +171,9 @@ def geometry(width, height, mode='comfortable'):
     data['rail_name_chars'] = max(3, int(data['rail_content_width'] / (data['app_name_size'] * .62)) - 3)
     data['process_name_chars'] = max(6, int((data['card_width'] - data['small_size'] * .62 * 12) / char_width))
     data['key_width'] = math.ceil(data['small_size'] * .62 * 9)
+    data['wave_height'] = min(42, max(24, data['font_size'] * 2))
+    data['album_size'] = max(28, data['album_size'] - data['wave_height'] + 6)
+    data['media_text_width'] = max(80, data['card_width'] - data['album_size'] - 16)
     data['session_width'] = max(24, int((data['card_width'] - 16 - 2 * data['row_gap']) // 3))
     data['stat_key_chars'] = max(6, min(15, int(data['card_width'] / (2 * char_width))))
     data['text_width'] = max(4, min(72, int((data['card_width'] - 15 * char_width - 10) / char_width)))
@@ -207,11 +210,20 @@ def toggle(root):
         return data
 
 
+
+def ui_paused(root):
+    try:
+        return (root / 'state/refresh-paused').read_text().strip() == 'true'
+    except OSError:
+        return False
+
 def listen(root):
     previous, previous_grid = None, None
 
     def emit():
         nonlocal previous, previous_grid
+        if previous is not None and ui_paused(root):
+            return
         data = snapshot(root)
         encoded = json.dumps(data)
         grid = data['grid']
@@ -222,6 +234,12 @@ def listen(root):
                              stderr=subprocess.DEVNULL, start_new_session=True)
             return
         if encoded != previous:
+            try:
+                state = root / 'state'
+                state.mkdir(parents=True, exist_ok=True)
+                (state / 'wave-size.json').write_text(json.dumps({'width': data['card_width'], 'height': data['wave_height']}))
+            except OSError:
+                pass
             try:
                 subprocess.run(['eww','--config',str(root),'update','layout='+encoded], check=True, timeout=3)
             except (OSError, subprocess.SubprocessError):

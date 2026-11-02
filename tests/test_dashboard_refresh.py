@@ -20,9 +20,13 @@ spec.loader.exec_module(refresh)
 class Cadence(unittest.TestCase):
     def test_battery_metrics_are_two_seconds_and_ac_cadences_are_retained(self):
         for key, cadence in refresh.CADENCE.items():
-            if key != 'media':
+            if key not in ('media', 'power'):
                 self.assertEqual(refresh.interval(key, True), 2)
                 self.assertEqual(refresh.interval(key, False), cadence)
+
+    def test_power_card_uses_five_seconds_on_battery_and_one_on_ac(self):
+        self.assertEqual(refresh.interval('power', True), 5)
+        self.assertEqual(refresh.interval('power', False), 1)
 
     def test_media_only_uses_one_second_while_playing(self):
         for power in (False, True):
@@ -69,7 +73,7 @@ class Scheduling(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.calls, ['media'])
         self.calls.clear()
         await self.settle(2.2)
-        self.assertEqual(set(self.calls), set(refresh.CADENCE))
+        self.assertEqual(set(self.calls), set(refresh.CADENCE) - {'power'})
 
     async def test_unchanged_values_do_not_trigger_redundant_updates(self):
         await self.settle(0)
@@ -94,6 +98,35 @@ class Scheduling(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.calls, [])
         await self.settle(101, visible=True)
         self.assertEqual(set(self.calls), set(refresh.CADENCE))
+
+    async def test_hidden_ac_dashboard_keeps_collecting(self):
+        await self.settle(0, battery=False, visible=False)
+        self.assertEqual(set(self.calls), set(refresh.CADENCE))
+        self.calls.clear()
+        await self.settle(1.1, battery=False, visible=False)
+        self.assertIn('power', self.calls)
+        self.assertIn('media', self.calls)
+
+    async def test_hidden_cable_changes_pause_then_resume_without_showing_workspace(self):
+        await self.settle(0, battery=False, visible=False)
+        self.calls.clear()
+        await self.settle(10, battery=True, visible=False)
+        self.assertEqual(self.calls, [])
+        await self.settle(11, battery=False, visible=False)
+        self.assertEqual(set(self.calls), set(refresh.CADENCE))
+
+    async def test_hiding_on_battery_cancels_inflight_publisher(self):
+        gate = asyncio.Event()
+        async def publish(data):
+            await gate.wait()
+            self.batches.append(data)
+        self.scheduler.publish = publish
+        await self.settle(0)
+        await self.settle(1, battery=True, visible=False)
+        gate.set()
+        await asyncio.sleep(.01)
+        self.assertEqual(self.batches, [])
+        self.assertIsNone(self.scheduler.publisher)
 
     async def test_slow_general_collectors_do_not_delay_media_or_duplicate_jobs(self):
         gate = asyncio.Event()

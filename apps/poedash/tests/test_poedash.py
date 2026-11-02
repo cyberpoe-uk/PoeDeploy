@@ -197,7 +197,7 @@ class Installation(unittest.TestCase):
                         'SPECIFICATIONS', 'media-control.sh open',
                         'Tailscale IP', ':wrap true', 'media.art'):
             self.assertIn(feature, yuck)
-        self.assertIn(':visible {power.present}', yuck)
+        self.assertIn(':visible {power.present && power.on_battery}', yuck)
         self.assertIn(':visible home_visible', yuck)
         self.assertNotIn('dashboard-away', yuck)
         self.assertIn('deflisten home_visible', yuck)

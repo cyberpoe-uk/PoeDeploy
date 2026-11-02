@@ -50,6 +50,30 @@ class MonitorVisibility(unittest.TestCase):
                 self.assertIsNone(workspace.visible(monitors))
 
 
+class ReturnHome(unittest.TestCase):
+    def test_last_window_returns_to_home_without_requiring_focus_of_a_new_app(self):
+        with patch.object(workspace.subprocess, 'run', side_effect=[
+                subprocess.CompletedProcess([], 0, '[]'),
+                subprocess.CompletedProcess([], 0, '{"id":2}'),
+                subprocess.CompletedProcess([], 0, 'ok')]) as run:
+            self.assertTrue(workspace.return_home_if_empty(Path('/unused')))
+            self.assertIn('workspace="1"', run.call_args.args[0][-1])
+
+    def test_other_workspace_windows_and_ipc_failure_do_not_move_the_user(self):
+        with patch.object(workspace.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '[{"mapped":true}]')) as run:
+            self.assertFalse(workspace.return_home_if_empty(Path('/unused')))
+            self.assertEqual(run.call_count, 1)
+        with patch.object(workspace.subprocess, 'run', side_effect=OSError):
+            self.assertFalse(workspace.return_home_if_empty(Path('/unused')))
+
+    def test_already_on_workspace_one_does_not_dispatch_again(self):
+        with patch.object(workspace.subprocess, 'run', side_effect=[
+                subprocess.CompletedProcess([], 0, '[]'),
+                subprocess.CompletedProcess([], 0, '{"id":1}')]) as run:
+            self.assertFalse(workspace.return_home_if_empty(Path('/unused')))
+            self.assertEqual(run.call_count, 2)
+
+
 class ObserverRecovery(unittest.TestCase):
     def test_unknown_readings_keep_last_confirmed_state(self):
         output = io.StringIO()
@@ -125,7 +149,7 @@ class SurfaceVisibility(unittest.TestCase):
                 self.assertIn('workspace.py --listen', yuck)
                 self.assertIn(':stacking "bottom"', yuck)
                 self.assertNotIn('dashboard-away', yuck + css)
-                self.assertNotIn('opacity: 0;', css)
+                self.assertNotRegex(css, r'\.dashboard-(?:surface|panel)[^{]*\{[^}]*opacity:\s*0;')
 
 
 if __name__ == '__main__':
