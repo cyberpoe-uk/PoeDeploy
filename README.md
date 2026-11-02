@@ -158,8 +158,10 @@ Locked local databases are read through a temporary private copy, including
 pending committed WAL data. The original database is never changed.
 
 The **Packages** button opens a package search using the current Rofi launcher
-size and theme. Choose repositories, AUR or both, then type for alphabetical
-suggestions. Results show installed/update status and available application icons.
+size and theme. Start typing to search all repositories and the AUR. Catalogs
+refresh automatically on opening. Use Alt+R or Choose repository to narrow the
+search. Icon-backed packages come first, with each group sorted alphabetically.
+Repository and installed/update status appear beneath each package name.
 Install/Update offers the selected package only as the first option, or the
 package and a full system upgrade as the second. Both open an interactive
 terminal for confirmation. Browsing never installs packages.

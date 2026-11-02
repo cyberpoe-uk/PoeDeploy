@@ -1,8 +1,11 @@
 # PoeDash package search
 
-Click **Packages** beside the Compact/Comfortable button. Choose repositories,
-AUR, or both, then type a package name. Escape closes the popup. No packages are
-changed while searching.
+Click **Packages** beside the Compact/Comfortable button and start typing.
+The first popup searches all configured repositories and the AUR. There is no
+initial source-selection menu. Use **Alt+R** or the **Choose repository** entry
+to narrow the search to a particular repository or AUR. Your typed query is
+retained when switching. Escape closes the popup. No packages change while
+searching.
 
 The popup uses Rofi's current `config.rasi`, including its size, font, colors,
 wallpaper, border and icon theme. It does not modify the launcher configuration.
@@ -11,13 +14,24 @@ dependency and the installed Rofi theme.
 
 ## Results and updates
 
-Names and suggestions stay alphabetical while typing. Repository packages take
-priority over duplicate AUR names, following pacman's repository order. The AUR
-package-name index is downloaded from its official endpoint and cached for 24
-hours. All filtering happens locally, so even single-letter searches do not send
-network requests. Initial loading may take a moment. Offline operation uses the
-last cached AUR index and labels it as cached. Without any cached index, AUR
-results are unavailable and repository search remains usable.
+The search opens immediately and accepts typing while its catalogs refresh.
+Every opening automatically refreshes configured repository catalogs in a
+separate search database and downloads the latest official AUR package-name
+index. Both refreshes run concurrently. A fresh load can take a moment, depending
+on the mirrors and network. Results arrive in the current popup and match any
+text already typed. Nothing is downloaded per keystroke.
+
+Packages with application icons from available desktop/AppStream metadata appear
+first. Entries without a specific icon follow with a generic package icon. Each
+group is alphabetical, including while filtering letter by letter. A smaller
+second line beneath each name identifies its repository and installed/update
+status. Duplicate names from different repositories remain separate, so an
+explicit repository filter can show the corresponding version and source.
+
+The AUR index and repository snapshots are kept for offline fallback. If refresh
+fails, available cached/local catalogs remain searchable and a notification
+reports the fallback. AUR results need a previously cached index when offline.
+Changing the repository filter uses the loaded catalog without another refresh.
 
 Each result shows its repository/source and one of:
 
@@ -27,17 +41,19 @@ Each result shows its repository/source and one of:
 - Installed with a newer local version.
 - Update status unknown when remote metadata is unavailable.
 
-`checkupdates` checks repository updates using its separate temporary database.
-Results are cached for five minutes. Search never runs `pacman -Sy` or modifies
-the system's sync databases. If the check fails, the popup explicitly reports
-that it is using existing local pacman metadata. AUR versions for installed
-packages are fetched from the official RPC API when opening AUR search. A
-selected AUR package is checked again before offering an action. Versions use
-libalpm's Arch version comparison, including epochs and package release numbers.
+`checkupdates` refreshes repository data using `CHECKUPDATES_DB` set to the
+browser's own `repo-db` cache. Search never refreshes the system's pacman sync
+databases or installs packages. Per-repository package versions are read from
+the refreshed search snapshot. If a refresh fails, existing search snapshots or
+local system metadata are used. Installed AUR versions are checked against the
+official RPC API on opening, and selected AUR packages are checked again before
+actions are offered. Versions use libalpm's Arch comparison, including epochs
+and package release numbers.
 VCS packages whose upstream commits changed without an AUR version change may
 need a separate development-package upgrade through yay.
 
-Icons are taken from available desktop-entry metadata and application aliases.
+Icons are taken from available desktop entries, application aliases and local
+AppStream stock/local/cached icon metadata. Remote images are not fetched.
 Uninstalled applications and libraries often have no local icon metadata and
 receive a generic package icon. Icons are not downloaded per keystroke.
 
@@ -83,8 +99,8 @@ The transaction uses the package manager's normal lock and progress output.
 ```
 
 Catalog and update caches are under `~/.cache/poedash/packages`, or the matching
-`XDG_CACHE_HOME` directory. Removing `aur-names.json` or `repo-updates.json`
-forces a fresh lookup next time. This does not remove any installed package.
+`XDG_CACHE_HOME` directory. Catalogs refresh every time the browser opens. These caches can be removed
+if needed to discard offline data. This does not remove any installed package.
 
 References: [Rofi dmenu](https://davatorium.github.io/rofi/current/rofi-dmenu.5/),
 [pacman](https://man.archlinux.org/man/pacman.8.en),

@@ -1,6 +1,7 @@
 """Package popup behavior without installing packages or opening the live launcher."""
 import gzip
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -52,8 +53,8 @@ class PackageDataTests(unittest.TestCase):
              patch.object(packages, 'aur_names', return_value=(['zebra', 'alpha'], '')), \
              patch.object(packages, 'aur_info', return_value={'alpha': '2'}):
             rows, installed, _ = packages.catalog('both')
-        self.assertEqual([p['name'] for p in rows], ['alpha', 'zebra'])
-        self.assertEqual(rows[1]['source'], 'extra')
+        self.assertEqual([p['name'] for p in rows], ['alpha', 'zebra', 'zebra'])
+        self.assertEqual([p['source'] for p in rows[1:]], ['AUR', 'extra'])
         self.assertEqual(rows[0]['version'], '2')
 
     def test_fresh_update_check_is_cached_and_does_not_sync_system_database(self):
@@ -63,7 +64,8 @@ class PackageDataTests(unittest.TestCase):
             cache = Path(tmp)
             self.assertEqual(packages.repository_updates(cache)[0], {'alpha': '2'})
             self.assertEqual(packages.repository_updates(cache)[0], {'alpha': '2'})
-            command.assert_called_once_with(['checkupdates'], timeout=30, codes=(0, 2))
+            command.assert_called_once_with(['checkupdates'], timeout=30, codes=(0, 2),
+                                            extra_env={'CHECKUPDATES_DB': str(cache / 'repo-db')})
 
     def test_installed_update_and_unknown_states_are_distinct(self):
         item = dict(name='alpha', source='core', version='2', aur=False)
@@ -89,6 +91,77 @@ class PackageDataTests(unittest.TestCase):
         with patch.object(packages, 'fetch', return_value=b'[]'), self.assertRaises(RuntimeError):
             packages.aur_info(['alpha'])
 
+    def test_force_refresh_bypasses_recent_aur_cache(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(packages, 'fetch') as fetch:
+            cache = Path(tmp)
+            (cache / 'aur-names.json').write_text('["old"]')
+            fetch.return_value = gzip.compress(b'new\n')
+            self.assertEqual(packages.aur_names(cache, refresh=True)[0], ['new'])
+            fetch.assert_called_once()
+
+    def test_icon_group_precedes_plain_group_with_alphabetical_order_inside_each(self):
+        data = [dict(name=name, source='AUR') for name in
+                ('spotify-zeta', 'spotify-adblock', 'spotify-launcher', 'spotify')]
+        result = packages.ranked(data, {'spotify': 'spotify', 'spotify-launcher': 'spotify'})
+        self.assertEqual([p['name'] for p in result],
+                         ['spotify', 'spotify-launcher', 'spotify-adblock', 'spotify-zeta'])
+        self.assertEqual(packages.ranked(data, {}, 'extra'), [])
+
+    def test_subtitle_is_markup_on_second_line_without_splitting_rofi_rows(self):
+        value = packages.row(dict(name='alpha', source='extra', version='1'), {}, {})
+        self.assertIn('alpha&#10;<span size="small">extra', value)
+        self.assertNotIn('\n', value)
+
+    def test_specific_repositories_keep_duplicate_names_and_actual_versions(self):
+        with patch.object(packages, 'run', return_value='core alpha 2\nextra alpha 3\n'):
+            data = packages.repository_packages(all_repositories=True)
+        self.assertEqual(len(data), 2)
+        self.assertEqual(packages.ranked(list(data.values()), {}, 'extra')[0]['version'], '3')
+
+
+    def test_incomplete_search_snapshot_falls_back_to_local_catalog(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp)
+            (cache / 'repo-db/sync').mkdir(parents=True)
+            item = dict(name='alpha', source='core', version='1', aur=False)
+            with patch.object(packages, 'installed_packages', return_value={}), \
+                 patch.object(packages, 'repository_updates', return_value=({}, 'offline')), \
+                 patch.object(packages, 'repository_packages', side_effect=[RuntimeError('missing database'), {'alpha': item}]) as read:
+                data, _, note = packages.catalog('repo', cache, refresh=True)
+            self.assertEqual(data, [item])
+            self.assertIn('Using local pacman databases', note)
+            self.assertEqual(read.call_args_list[-1].args, (None,))
+
+    def test_every_open_refreshes_even_recent_repository_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(packages.shutil, 'which', return_value='/usr/bin/checkupdates'), \
+             patch.object(packages, 'run', return_value='alpha 1 -> 2\n') as command:
+            cache = Path(tmp)
+            packages.repository_updates(cache, refresh=True)
+            packages.repository_updates(cache, refresh=True)
+            self.assertEqual(command.call_count, 2)
+            self.assertEqual(command.call_args.kwargs['extra_env']['CHECKUPDATES_DB'], str(cache / 'repo-db'))
+
+    def test_appstream_cached_images_supply_package_icon_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'metainfo').mkdir()
+            (root / 'metainfo/app.xml').write_text('<component><pkgname>alpha</pkgname><icon type="cached">alpha.png</icon></component>')
+            icon = root / 'swcatalog/icons/test/64x64/alpha.png'
+            icon.parent.mkdir(parents=True)
+            icon.write_bytes(b'image fixture')
+            with patch.dict(packages.os.environ, {'XDG_DATA_HOME': tmp, 'XDG_DATA_DIRS': tmp}):
+                self.assertEqual(packages.icons()['alpha'], str(icon))
+
+    def test_custom_typed_input_never_selects_an_arbitrary_package(self):
+        process = Mock(returncode=0)
+        process.stdin = io.StringIO()
+        process.communicate.return_value = ('-1\x1fnot-a-selected-package\n', '')
+        process.poll.return_value = 0
+        with patch.object(packages.subprocess, 'Popen', return_value=process):
+            self.assertIsNone(packages.package_picker(lambda: ['alpha']))
+
+
 
 class PopupTests(unittest.TestCase):
     def test_rofi_inherits_user_config_and_preserves_alphabetical_order(self):
@@ -106,6 +179,41 @@ class PopupTests(unittest.TestCase):
             self.assertNotIn('-theme-str', argv)
             self.assertNotIn('-width', argv)
 
+    def test_picker_opens_before_loading_and_returns_repository_shortcut_query(self):
+        process = Mock(returncode=10)
+        process.stdin = io.StringIO()
+        process.communicate.return_value = ('-1\x1fspotify\n', '')
+        process.poll.return_value = 10
+        def loader():
+            self.assertIn('Choose repository', process.stdin.getvalue())
+            return ['spotify']
+        with patch.object(packages.subprocess, 'Popen', return_value=process) as launch:
+            result = packages.package_picker(loader)
+        self.assertEqual(result, {'filter': True, 'query': 'spotify'})
+        argv = launch.call_args.args[0]
+        self.assertIn('-markup-rows', argv)
+        self.assertIn('Alt+r', argv)
+        self.assertNotIn('-no-custom', argv)  # Rofi forces sync input when this is set.
+
+    def test_repository_filter_preserves_search_and_does_not_reload_catalog(self):
+        data = [dict(name='alpha', source=repo, version='1', aur=False) for repo in ('core', 'extra')]
+        replies = iter([{'filter': True, 'query': 'alp'}, None])
+        def picker(loader, query, repository):
+            rows = loader()
+            if repository == 'extra':
+                self.assertEqual(query, 'alp')
+                self.assertEqual(len(rows), 1)
+                self.assertIn('extra', rows[0])
+            return next(replies)
+        with tempfile.TemporaryDirectory() as tmp, patch.object(packages, 'CACHE', Path(tmp)), \
+             patch.object(packages.shutil, 'which', return_value='/bin/test'), \
+             patch.object(packages, 'catalog', return_value=(data, {}, '')) as load, \
+             patch.object(packages, 'icons', return_value={}), \
+             patch.object(packages, 'package_picker', side_effect=picker), \
+             patch.object(packages, 'choose', return_value=2):
+            packages.open_browser()
+            load.assert_called_once_with('both', Path(tmp), refresh=True)
+
     def test_cancel_or_invalid_selection_never_selects_a_package(self):
         for code, output in [(1, '0'), (0, '-1'), (0, '999'), (0, 'shell text')]:
             with patch.object(packages.subprocess, 'run', return_value=Mock(returncode=code, stdout=output)):
@@ -115,7 +223,7 @@ class PopupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, \
              patch.object(packages, 'CACHE', Path(tmp)), \
              patch.object(packages.shutil, 'which', return_value='/bin/test'), \
-             patch.object(packages, 'choose', return_value=None), \
+             patch.object(packages, 'package_picker', return_value=None), \
              patch.object(packages, 'catalog') as catalog, \
              patch.object(packages.subprocess, 'Popen') as launch:
             packages.open_browser()
@@ -123,11 +231,15 @@ class PopupTests(unittest.TestCase):
             launch.assert_not_called()
 
     def check_install_selection(self, selection):
+        def picker(loader, *args):
+            loader()
+            return {'index': 0, 'query': 'alpha'}
         item = dict(name='alpha', source='extra', version='2', aur=False)
         with tempfile.TemporaryDirectory() as tmp, \
              patch.object(packages, 'CACHE', Path(tmp)), \
              patch.object(packages.shutil, 'which', return_value='/bin/test'), \
-             patch.object(packages, 'choose', side_effect=[1, 0, selection]) as menu, \
+             patch.object(packages, 'package_picker', side_effect=picker), \
+             patch.object(packages, 'choose', return_value=selection) as menu, \
              patch.object(packages, 'catalog', return_value=([item], {}, '')), \
              patch.object(packages, 'icons', return_value={}), patch.object(packages, 'notify'), \
              patch.object(packages.subprocess, 'Popen') as launch:
@@ -146,11 +258,16 @@ class PopupTests(unittest.TestCase):
         self.check_install_selection(1)
 
     def test_current_installed_package_has_no_reinstall_action(self):
+        replies = iter([{'index': 0, 'query': 'alpha'}, None])
+        def picker(loader, *args):
+            loader()
+            return next(replies)
         item = dict(name='alpha', source='extra', version='2', aur=False)
         with tempfile.TemporaryDirectory() as tmp, \
              patch.object(packages, 'CACHE', Path(tmp)), \
              patch.object(packages.shutil, 'which', return_value='/bin/test'), \
-             patch.object(packages, 'choose', side_effect=[1, 0, 0, None]), \
+             patch.object(packages, 'package_picker', side_effect=picker), \
+             patch.object(packages, 'choose', return_value=0), \
              patch.object(packages, 'catalog', return_value=([item], {'alpha': '2'}, '')), \
              patch.object(packages, 'compare', return_value=0), \
              patch.object(packages, 'icons', return_value={}), patch.object(packages, 'notify'), \

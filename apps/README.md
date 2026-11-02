@@ -56,8 +56,10 @@ than 64 MiB including journals are reported as unavailable rather than copied.
 
 The header's **Packages** button uses the current Rofi configuration, with the
 same popup size and theme as the application launcher. It searches repositories
-and the AUR with alphabetical local filtering, installed/update labels, and
-available icons. Only confirmed actions open an interactive Kitty transaction.
+and the AUR immediately, refreshing catalogs automatically on opening. Alt+R
+or Choose repository filters a specific source while retaining the query.
+Icon-backed entries precede plain entries, alphabetically within each group.
+Repository and installed/update labels appear below each package name. Only confirmed actions open an interactive Kitty transaction.
 See [package search](../docs/package-search.md) for update checks, caching,
 network limitations and the separate package-only and full-system-upgrade choices.
 
