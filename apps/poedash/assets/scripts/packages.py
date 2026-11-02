@@ -253,7 +253,7 @@ def catalog(source, cache=CACHE):
     return sorted(packages.values(), key=lambda item: (item['name'].casefold(), item['source'])), installed, ' '.join(notes)
 
 
-def transaction_command(source, target):
+def transaction_command(source, target, upgrade=False):
     if source not in ('repo', 'aur'):
         raise ValueError('Invalid package source')
     parts = target.split('/')
@@ -263,16 +263,17 @@ def transaction_command(source, target):
     if source == 'aur':
         if not shutil.which('yay'):
             raise RuntimeError('yay is not installed. Install it through PoeDeploy first.')
-        return ['yay', '-Syu', '--needed', '--', target]
-    return ['sudo', 'pacman', '-Syu', '--needed', '--', target]
+        return ['yay', '-Syu' if upgrade else '-S', '--needed', '--', target]
+    return ['sudo', 'pacman', '-Syu' if upgrade else '-S', '--needed', '--', target]
 
 
-def transaction(source, target):
+def transaction(source, target, upgrade=False):
     if os.geteuid() == 0:
         raise RuntimeError('Run PoeDash packages as your desktop user, never as root')
-    argv = transaction_command(source, target)
+    argv = transaction_command(source, target, upgrade)
     # Revalidate availability, letting the real package manager resolve changes.
-    print('This installs/updates the selected package together with a full system upgrade.')
+    print('This installs/updates the selected package together with a full system upgrade.' if upgrade
+          else 'This installs/updates only the selected package and its required dependencies, using existing repository databases.')
     print('AUR builds, dependencies and package-manager confirmations remain interactive.')
     print('\nCommand: ' + shlex.join(argv))
     if input('\nContinue? [y/N]: ').strip().lower() != 'y':
@@ -322,13 +323,15 @@ def open_browser():
                 continue
             target = package['name'] if package['aur'] else package['source'] + '/' + package['name']
             kind = 'aur' if package['aur'] else 'repo'
-            action = ('Update' if old else 'Install') + ' + full system upgrade'
-            confirmation = choose(['Cancel', action], package['name'], information)
-            if confirmation != 1:
+            action = 'Update' if old else 'Install'
+            confirmation = choose([action, action + ' and upgrade', 'Cancel'], package['name'],
+                                  information + ' · First option: selected package only. Second option: full system upgrade.')
+            if confirmation not in (0, 1):
                 continue
-            transaction_command(kind, target)  # Check helper availability before opening a terminal.
+            upgrade = confirmation == 1
+            transaction_command(kind, target, upgrade)  # Check helper availability before opening a terminal.
             subprocess.Popen(['kitty', '--title', 'PoeDash package transaction', sys.executable,
-                              str(Path(__file__).resolve()), 'transaction', kind, target],
+                              str(Path(__file__).resolve()), 'transaction', kind, target] + (['--upgrade'] if upgrade else []),
                              start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return
 
@@ -338,6 +341,7 @@ def main():
     parser.add_argument('action', choices=('launch', 'open', 'transaction'))
     parser.add_argument('source', nargs='?', choices=('repo', 'aur'))
     parser.add_argument('target', nargs='?')
+    parser.add_argument('--upgrade', action='store_true', help='include a full system upgrade in a transaction')
     args = parser.parse_args()
     if os.geteuid() == 0:
         raise RuntimeError('Run PoeDash packages as your desktop user, never as root')
@@ -349,7 +353,7 @@ def main():
     elif not args.source or not args.target:
         parser.error('transaction requires source and target')
     else:
-        transaction(args.source, args.target)
+        transaction(args.source, args.target, args.upgrade)
 
 
 if __name__ == '__main__':

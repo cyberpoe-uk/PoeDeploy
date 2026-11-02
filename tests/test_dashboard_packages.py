@@ -122,20 +122,28 @@ class PopupTests(unittest.TestCase):
             catalog.assert_not_called()
             launch.assert_not_called()
 
-    def test_install_requires_confirmation_and_launches_interactive_terminal(self):
+    def check_install_selection(self, selection):
         item = dict(name='alpha', source='extra', version='2', aur=False)
         with tempfile.TemporaryDirectory() as tmp, \
              patch.object(packages, 'CACHE', Path(tmp)), \
              patch.object(packages.shutil, 'which', return_value='/bin/test'), \
-             patch.object(packages, 'choose', side_effect=[1, 0, 1]), \
+             patch.object(packages, 'choose', side_effect=[1, 0, selection]) as menu, \
              patch.object(packages, 'catalog', return_value=([item], {}, '')), \
              patch.object(packages, 'icons', return_value={}), patch.object(packages, 'notify'), \
              patch.object(packages.subprocess, 'Popen') as launch:
             packages.open_browser()
+            self.assertEqual(menu.call_args_list[-1].args[0], ['Install', 'Install and upgrade', 'Cancel'])
             argv = launch.call_args.args[0]
             self.assertEqual(argv[0], 'kitty')
-            self.assertEqual(argv[-3:], ['transaction', 'repo', 'extra/alpha'])
+            tail = ['transaction', 'repo', 'extra/alpha'] + (['--upgrade'] if selection == 1 else [])
+            self.assertEqual(argv[-len(tail):], tail)
             self.assertNotIn('sudo', argv)
+
+    def test_install_only_is_first_choice(self):
+        self.check_install_selection(0)
+
+    def test_install_and_upgrade_preserves_choice_in_terminal(self):
+        self.check_install_selection(1)
 
     def test_current_installed_package_has_no_reinstall_action(self):
         item = dict(name='alpha', source='extra', version='2', aur=False)
@@ -153,11 +161,18 @@ class PopupTests(unittest.TestCase):
 
 class TransactionTests(unittest.TestCase):
     def test_full_upgrade_commands_keep_prompts_and_aur_runs_as_user(self):
-        self.assertEqual(packages.transaction_command('repo', 'extra/alpha'),
+        self.assertEqual(packages.transaction_command('repo', 'extra/alpha', upgrade=True),
                          ['sudo', 'pacman', '-Syu', '--needed', '--', 'extra/alpha'])
         with patch.object(packages.shutil, 'which', return_value='/usr/bin/yay'):
-            self.assertEqual(packages.transaction_command('aur', 'alpha'),
+            self.assertEqual(packages.transaction_command('aur', 'alpha', upgrade=True),
                              ['yay', '-Syu', '--needed', '--', 'alpha'])
+
+    def test_install_only_does_not_refresh_databases_or_upgrade_system(self):
+        self.assertEqual(packages.transaction_command('repo', 'extra/alpha'),
+                         ['sudo', 'pacman', '-S', '--needed', '--', 'extra/alpha'])
+        with patch.object(packages.shutil, 'which', return_value='/usr/bin/yay'):
+            self.assertEqual(packages.transaction_command('aur', 'alpha'),
+                             ['yay', '-S', '--needed', '--', 'alpha'])
 
     def test_missing_yay_and_invalid_targets_are_actionable(self):
         with patch.object(packages.shutil, 'which', return_value=None), self.assertRaisesRegex(RuntimeError, 'yay'):

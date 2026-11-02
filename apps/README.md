@@ -59,7 +59,7 @@ same popup size and theme as the application launcher. It searches repositories
 and the AUR with alphabetical local filtering, installed/update labels, and
 available icons. Only confirmed actions open an interactive Kitty transaction.
 See [package search](../docs/package-search.md) for update checks, caching,
-network limitations and full-system-upgrade behavior.
+network limitations and the separate package-only and full-system-upgrade choices.
 
 ## Power and idle settings
 

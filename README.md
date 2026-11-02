@@ -160,8 +160,9 @@ pending committed WAL data. The original database is never changed.
 The **Packages** button opens a package search using the current Rofi launcher
 size and theme. Choose repositories, AUR or both, then type for alphabetical
 suggestions. Results show installed/update status and available application icons.
-Install/Update opens a confirmation and an interactive terminal for the selected
-package together with a full system upgrade. Browsing never installs packages.
+Install/Update offers the selected package only as the first option, or the
+package and a full system upgrade as the second. Both open an interactive
+terminal for confirmation. Browsing never installs packages.
 See [package search, caching and transaction details](docs/package-search.md).
 
 Battery details appear only when a system battery is detected. Remaining time appears only

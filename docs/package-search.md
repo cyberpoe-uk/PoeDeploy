@@ -43,19 +43,30 @@ receive a generic package icon. Icons are not downloaded per keystroke.
 
 ## Installing and updating
 
-Selecting a missing or outdated package offers an explicit Install or Update
-confirmation. A current installed package shows its status and returns to the
-search without reinstalling it. After confirmation, Kitty opens an interactive
-terminal and asks again before running:
+Selecting a missing package offers **Install** first and **Install and upgrade**
+second, followed by Cancel. Outdated packages offer **Update** and **Update and
+upgrade** in the same order. A current installed package shows its status and
+returns to the search without reinstalling it. Kitty opens an interactive
+terminal and asks for confirmation before running the selected command.
+
+Install/Update uses the existing system repository databases without refreshing
+them and changes only the selected package and its required dependencies:
+
+```text
+sudo pacman -S --needed -- repository/package
+yay -S --needed -- aur-package
+```
+
+Install/Update and upgrade refreshes databases and includes a full system upgrade:
 
 ```text
 sudo pacman -Syu --needed -- repository/package
 yay -Syu --needed -- aur-package
 ```
 
-These commands install/update the selection together with a **full system
-upgrade**, rather than creating a partial Arch upgrade. The popup and terminal
-both explain this. Review the complete transaction before accepting pacman's or
+Neither action performs an isolated `pacman -Sy`. If old repository metadata
+references unavailable packages, choose the second option to refresh and upgrade.
+Review the complete transaction before accepting pacman's or
 yay's own prompts. Dependency changes and AUR PKGBUILD review remain interactive.
 There is no `--noconfirm`. Yay runs as the desktop user, using its normal privilege
 escalation when needed. The feature refuses to run as root and reports a missing
