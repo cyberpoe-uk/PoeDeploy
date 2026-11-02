@@ -39,6 +39,10 @@ Choose **Choose sections** for individual jobs or **Full setup** to visit the
 available setup stages. Optional applications start unselected. Full setup skips
 the Huawei audio workaround unless the exact supported hardware is detected.
 
+<p align="center">
+  <img src="assets/screenshots/installer-welcome.png" alt="PoeDeploy first menu with blue ASCII artwork and Choose sections, Full setup and Exit options" width="850">
+</p>
+
 ### Change your mind before installing
 
 Interactive planning includes Welcome, setup sections, optional applications,
