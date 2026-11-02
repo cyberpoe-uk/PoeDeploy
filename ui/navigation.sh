@@ -31,6 +31,18 @@ ui_nav_key() {
     fi
 }
 
+ui_nav_header() {
+    local rows="$1" cols="$2" title="$3"
+    # Render on the terminal rather than captured selection stdout, so the
+    # shared header detects colour support and honours NO_COLOR correctly.
+    initialise_ui
+    printf '\033[H\033[2J'
+    if ((rows >= 24 && cols >= 54)); then
+        show_header
+    fi
+    printf '%bPoeDeploy · %s%b\n\n' "${BLUE}${UI_BOLD}" "$title" "$NC"
+}
+
 ui_nav_choose() {
     local header="$1" multiple="${2:-false}" defaults="${3:-}" description="${4:-}" key selected=0 top=0 index label marker rows=24 limit=14 cols=80 extra=0
     local -a options=()
@@ -43,12 +55,14 @@ ui_nav_choose() {
         [[ "$rows" =~ ^[0-9]+$ ]] || rows=24
         extra=0
         [[ -z "$description" ]] || extra=4
+        # Reserve the artwork as well as the footer before sizing the list.
+        if ((rows >= 24 && cols >= 54)); then extra=$((extra + 11)); fi
         limit=$((rows > 12 ? rows - 8 - extra : 4))
         ((limit >= 2)) || limit=2
         ((limit <= 17)) || limit=17
         ((selected >= top)) || top=$selected
         ((selected < top + limit)) || top=$((selected - limit + 1))
-        printf '\033[H\033[2J\033[1;34mPoeDeploy · %s\033[0m\n\n' "$header" >/dev/tty
+        ui_nav_header "$rows" "$cols" "$header" >/dev/tty
         if [[ -n "$description" ]]; then
             while IFS= read -r label; do printf '%.*s\n' "$((cols > 8 ? cols - 4 : 20))" "$label" >/dev/tty; done <<< "$description"
             printf '\n' >/dev/tty
@@ -56,9 +70,13 @@ ui_nav_choose() {
         for ((index=top; index<${#options[@]} && index<top+limit; index++)); do
             marker=' '
             [[ "${checked[${options[$index]}]:-false}" != true ]] || marker=x
-            if ((index == selected)); then printf '\033[34m> '; else printf '  '; fi >/dev/tty
+            if ((index == selected)); then
+                printf '%b> ' "${BLUE}${UI_BOLD}"
+            elif [[ "$marker" == x ]]; then
+                printf '%b  ' "$CYAN"
+            else printf '  '; fi >/dev/tty
             if [[ "$multiple" == true ]]; then printf '[%s] ' "$marker" >/dev/tty; fi
-            printf '%s\033[0m\n' "${options[$index]}" >/dev/tty
+            printf '%s%b\n' "${options[$index]}" "$NC" >/dev/tty
         done
         printf '\n↑/↓ or j/k move · ' >/dev/tty
         [[ "$multiple" != true ]] || printf 'Space/x toggle · ' >/dev/tty
