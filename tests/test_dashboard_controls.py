@@ -97,13 +97,47 @@ class DashboardControl(unittest.TestCase):
             self.assertEqual(data['custom/poedash']['on-click'], 'keep')
             self.assertIn(' update', data['custom/poedash-update']['on-click'])
 
-    def test_update_opens_terminal_without_running_installer_in_bar(self):
+    def test_update_detaches_background_worker_without_terminal(self):
         root = Path('/tmp/path with spaces/poedash')
         with patch.object(c.subprocess, 'Popen') as launch:
             c.update(root)
-        launch.assert_called_once_with(['kitty', '--hold', '--title', 'Update PoeDash',
-                                       'bash', str(root / 'scripts/update.sh'), str(root)],
-                                      start_new_session=True)
+        launch.assert_called_once_with([c.sys.executable, str(root / 'scripts/dashboard-control.py'),
+                                       '--root', str(root), 'update-run'], start_new_session=True,
+                                      stdin=c.subprocess.DEVNULL, stdout=c.subprocess.DEVNULL,
+                                      stderr=c.subprocess.DEVNULL)
+
+    def test_background_update_notifies_after_surface_reopens(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = c.subprocess.CompletedProcess([], 0, stdout='dashboard: dashboard\n')
+            with patch.object(c, 'update_cache', return_value=root / 'cache'), \
+                 patch.object(c.subprocess, 'run', return_value=result) as run, \
+                 patch.object(c, 'update_notice') as notice:
+                c.run_update(root)
+            self.assertEqual(run.call_args_list[0].args[0], ['bash', str(root / 'scripts/update.sh'), str(root)])
+            self.assertEqual(run.call_args_list[0].kwargs['stdin'], c.subprocess.DEVNULL)
+            notice.assert_called_once_with('Updated successfully.')
+
+    def test_failed_background_update_retains_error_log_and_notifies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(c, 'update_cache', return_value=root / 'cache'), \
+                 patch.object(c.subprocess, 'run', return_value=c.subprocess.CompletedProcess([], 42)), \
+                 patch.object(c, 'update_notice') as notice:
+                c.run_update(root)
+            self.assertTrue(notice.call_args.kwargs['failed'])
+            self.assertIn('status 42', (root / 'cache/update.log').read_text())
+
+    def test_duplicate_background_updates_do_not_run_installer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp)
+            with (cache / 'update.lock').open('w') as lock:
+                c.fcntl.flock(lock, c.fcntl.LOCK_EX)
+                with patch.object(c, 'update_cache', return_value=cache), \
+                     patch.object(c.subprocess, 'run') as run, patch.object(c, 'update_notice') as notice:
+                    c.run_update(cache)
+                run.assert_not_called()
+                notice.assert_called_once_with('An update is already running.')
 
     def test_quickshell_integration_adds_two_button_module_once(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -125,9 +159,14 @@ class DashboardControl(unittest.TestCase):
     property var settings: ({"modules": {"left": ["terminal"], "center": ["launcher", "clock"], "right": ["updates"]}})
 }
 ''')
-            self.assertTrue(c.install_quickshell(root, statusbar))
-            first = window.read_text()
-            self.assertTrue(c.install_quickshell(root, statusbar))
+            reloader = home / '.config/ml4w/scripts/ml4w-reload-statusbar'
+            reloader.parent.mkdir(parents=True)
+            reloader.write_text('#!/bin/sh\n')
+            with patch.object(c.Path, 'home', return_value=home), patch.object(c.subprocess, 'run') as reload_bar:
+                self.assertTrue(c.install_quickshell(root, statusbar))
+                first = window.read_text()
+                self.assertTrue(c.install_quickshell(root, statusbar))
+                reload_bar.assert_called_once()
             self.assertEqual(window.read_text(), first)
             self.assertEqual(first.count('id: cDashboard'), 1)
             self.assertEqual(first.count('"dashboard":'), 1)

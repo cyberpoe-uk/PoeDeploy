@@ -567,6 +567,18 @@ def open_browser(initial_query=''):
             return
 
 
+def update_in_progress():
+    path = CACHE.parent / 'update.lock'
+    if not path.exists():
+        return False
+    with path.open('r') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('launch', 'open', 'transaction'))
@@ -577,6 +589,8 @@ def main():
     args = parser.parse_args()
     if os.geteuid() == 0:
         raise RuntimeError('Run PoeDash packages as your desktop user, never as root')
+    if args.action in ('launch', 'open') and update_in_progress():
+        return  # Replacing/reopening widgets must never summon the finder.
     if args.action == 'launch':
         subprocess.Popen([sys.executable, str(Path(__file__).resolve()), 'open', '--query', args.query], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

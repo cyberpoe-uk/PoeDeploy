@@ -9,6 +9,8 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
+import time
 
 
 DASHBOARD_ID = 'poedash'
@@ -85,11 +87,61 @@ def module(root):
             'on-click': command + ' toggle', 'format': ' {text} ', 'escape': True}
 
 
+def update_cache():
+    return Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache')) / 'poedash'
+
+
+def update_notice(message, failed=False):
+    if shutil.which('notify-send'):
+        try:
+            subprocess.run(['notify-send', '-a', DASHBOARD_NAME, '-u', 'normal',
+                            DASHBOARD_NAME + (' update failed' if failed else ' update'), message],
+                           check=False, timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+
 def update(root):
     validate_update_target(root)
-    subprocess.Popen(['kitty', '--hold', '--title', 'Update ' + DASHBOARD_NAME,
-                      'bash', str(root / 'scripts/update.sh'), str(root)],
-                     start_new_session=True)
+    subprocess.Popen([sys.executable, str(root / 'scripts/dashboard-control.py'),
+                      '--root', str(root), 'update-run'], start_new_session=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def run_update(root):
+    validate_update_target(root)
+    cache = update_cache()
+    cache.mkdir(parents=True, exist_ok=True)
+    # Outside the installation tree: replacing that tree must not release the lock.
+    with (cache / 'update.lock').open('w') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            update_notice('An update is already running.')
+            return
+        log_path = cache / 'update.log'
+        with log_path.open('w') as log:
+            log_path.chmod(0o600)
+            try:
+                result = subprocess.run(['bash', str(root / 'scripts/update.sh'), str(root)],
+                                        stdin=subprocess.DEVNULL, stdout=log, stderr=log, check=False)
+                if result.returncode:
+                    raise RuntimeError(f'Installer exited with status {result.returncode}')
+                # Keep launch suppression active until the replacement surface is ready.
+                if not (root / 'disabled').exists():
+                    for _ in range(30):
+                        ready = subprocess.run(['eww', '--config', str(root), 'active-windows'],
+                                               capture_output=True, text=True, timeout=3, check=False)
+                        if ready.returncode == 0 and 'dashboard: dashboard' in ready.stdout:
+                            break
+                        time.sleep(.5)
+                    else:
+                        raise RuntimeError('Installed, but the dashboard did not reopen. Try poedash start.')
+            except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                print(str(exc), file=log, flush=True)
+                update_notice(f'{exc}. Details: {log_path}', failed=True)
+                return
+        update_notice('Updated successfully.')
 
 
 def install_waybar(root, config):
@@ -165,13 +217,17 @@ def install_quickshell(root, statusbar=None):
         raise RuntimeError('Bundled QuickShell dashboard module is missing.')
     original = window.read_text()
     updated = _add_quickshell_module(original)
+    integration_changed = updated != original
     backup = window.with_name(window.name + '.before-dashboard-controls')
     if updated != original:
         if not backup.exists():
             shutil.copy2(window, backup)
         window.write_text(updated)
     rendered = source.read_text().replace('"@@DASHBOARD_ROOT@@"', json.dumps(str(root))).replace('"@@DASHBOARD_NAME@@"', json.dumps(DASHBOARD_NAME))
-    (statusbar / 'DashboardModule.qml').write_text(rendered)
+    module_path = statusbar / 'DashboardModule.qml'
+    if not module_path.is_file() or module_path.read_text() != rendered:
+        module_path.write_text(rendered)
+        integration_changed = True
     for config in (Path.home() / '.config/ml4w-statusbar/config.json',
                    Path.home() / '.config/ml4w-statusbar/statusbar.json',
                    Path.home() / '.config/ml4w/settings/statusbar.json'):
@@ -187,12 +243,13 @@ def install_quickshell(root, statusbar=None):
             except RuntimeError:
                 continue
         if changed != text:
+            integration_changed = True
             config_backup = config.with_name(config.name + '.before-dashboard-controls')
             if not config_backup.exists():
                 shutil.copy2(config, config_backup)
             config.write_text(changed)
     reload_script = Path.home() / '.config/ml4w/scripts/ml4w-reload-statusbar'
-    if reload_script.is_file():
+    if integration_changed and reload_script.is_file():
         subprocess.run([str(reload_script)], check=False, stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL)
     return True
@@ -201,7 +258,7 @@ def install_quickshell(root, statusbar=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
-    parser.add_argument('action', choices=['status', 'toggle', 'enable', 'disable', 'prepare', 'waybar', 'quickshell', 'update'])
+    parser.add_argument('action', choices=['status', 'toggle', 'enable', 'disable', 'prepare', 'waybar', 'quickshell', 'update', 'update-run'])
     parser.add_argument('--config', type=Path)
     args = parser.parse_args()
     root = args.root.expanduser().resolve()
@@ -220,6 +277,8 @@ def main():
         install_waybar(root, args.config.expanduser())
     elif args.action == 'update':
         update(root)
+    elif args.action == 'update-run':
+        run_update(root)
     elif args.action == 'quickshell':
         install_quickshell(root, args.config.expanduser() if args.config else None)
     elif args.action == 'prepare':

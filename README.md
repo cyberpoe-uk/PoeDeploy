@@ -328,6 +328,9 @@ bash apps/poedash/install.sh
 The dashboard refresh button and `poedash update` use the maintained copy on the
 repository's `main` branch. Normal PoeDeploy setup uses stable release tags.
 Dashboard-only refresh preserves preferences, pins, theme and enabled state.
+It runs in the background and shows a desktop notification when finished. Errors
+are reported by notification and saved in `~/.cache/poedash/update.log`
+(or under `$XDG_CACHE_HOME`).
 It does not add repositories, install security tools or upgrade packages.
 Recognised retired dashboard integrations are backed up and removed during
 migration. Other Eww configurations are retained.

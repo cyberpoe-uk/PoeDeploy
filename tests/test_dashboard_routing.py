@@ -29,8 +29,8 @@ class DashboardRouting(unittest.TestCase):
                     control.update(root)
                 self.assertEqual(control.DASHBOARD_ID, slug)
                 argv = launch.call_args.args[0]
-                self.assertEqual(argv[3], 'Update ' + control.DASHBOARD_NAME)
-                self.assertEqual(argv[4:], ['bash', str(root / 'scripts/update.sh'), str(root)])
+                self.assertEqual(argv[1], str(root / 'scripts/dashboard-control.py'))
+                self.assertEqual(argv[2:], ['--root', str(root), 'update-run'])
 
     def test_stale_controls_and_mismatched_installed_files_never_launch_updates(self):
         for slug, script in CONTROLS.items():

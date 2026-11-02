@@ -339,5 +339,15 @@ class TransactionTests(unittest.TestCase):
             run.assert_not_called()
 
 
+class RefreshLaunchGuard(unittest.TestCase):
+    def test_finder_is_blocked_only_while_update_lock_is_held(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(packages, 'CACHE', Path(tmp) / 'packages'):
+            self.assertFalse(packages.update_in_progress())
+            with (Path(tmp) / 'update.lock').open('w') as lock:
+                packages.fcntl.flock(lock, packages.fcntl.LOCK_EX)
+                self.assertTrue(packages.update_in_progress())
+            self.assertFalse(packages.update_in_progress())
+
+
 if __name__ == '__main__':
     unittest.main()
