@@ -27,8 +27,8 @@ progressbar progress { min-height: 5px; background-color: $accent; border-radius
 .media-title { font-weight: 700; }
 .media-artist, .media-time { color: $secondary; }
 .media-control { min-width: 28px; min-height: 28px; border-radius: 8px; }
-.media-control label { font-size: 18px; }
-.comfortable .media-control label { font-size: 22px; }
+.media-control label { font-size: 16px; }
+.comfortable .media-control label { font-size: 18px; }
 .media-control:hover { background-color: rgba($accent, 0.18); }
 .media-unavailable { opacity: 0.4; }
 .density-toggle { border: 1px solid rgba($accent, 0.60); border-radius: 8px; padding: 6px 10px; }

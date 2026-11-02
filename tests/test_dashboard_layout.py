@@ -46,6 +46,24 @@ class GeometryTests(unittest.TestCase):
             self.assertGreater(data['album_size'], 54)
             self.assertLessEqual(data['album_size'] + data['media_text_width'] + 16, data['card_width'])
 
+    def test_new_typography_preserves_card_geometry_and_old_compact_sizes(self):
+        sizes = ('font_size', 'small_size', 'heading_size', 'title_size',
+                 'media_title_size', 'app_name_size', 'calendar_size')
+        bounds = ('card_width', 'card_padding', 'gap', 'row_gap', 'rail_width', 'header_height',
+                  'arch_height', 'system_height', 'calendar_height', 'performance_height',
+                  'processes_height', 'connectivity_height', 'player_height', 'shares_height', 'management_height')
+        for width, height in ((1280, 720), (1920, 1080), (3840, 2160)):
+            baseline = layout._geometry(width, height, 'compact')
+            for mode in ('compact', 'comfortable'):
+                old = layout._geometry(width, height, mode)
+                new = layout.geometry(width, height, mode)
+                for key in bounds:
+                    self.assertEqual(new[key], old[key], (width, mode, key))
+                for key in sizes:
+                    floor = 8 if key in ('small_size', 'app_name_size') else 9
+                    expected = baseline[key] if mode == 'comfortable' else max(floor, baseline[key] - 2)
+                    self.assertEqual(new[key], expected, (width, mode, key))
+
     def test_each_column_fits_without_dashboard_scrolling(self):
         for width, height in ((1920,1080),(1366,768),(1280,720),(2560,1440),(1000,800)):
             for mode in ('compact','comfortable'):
@@ -74,7 +92,7 @@ class GeometryTests(unittest.TestCase):
                     self.assertLessEqual(d['columns']*(d['card_width']+2*d['card_padding']+4)+(d['columns']-1)*d['gap']+d['rail_width']+d['gap']+2*d['padding'],width)
 
     def test_app_captions_are_secondary_and_fit_the_rail(self):
-        for mode, size in [('compact', 10), ('comfortable', 11)]:
+        for mode, size in [('compact', 8), ('comfortable', 10)]:
             data = layout.geometry(1920, 1080, mode)
             self.assertEqual(data['app_name_size'], size)
             self.assertLess(size, data['small_size'])

@@ -376,6 +376,12 @@ def main():
         return doctor(root)
     elif args.action in ('render', 'reload'):
         render(root)
+        calendar = root / 'scripts/thunderbird-calendar.py'
+        if calendar.is_file():
+            # Refresh checks consent asynchronously; normal one-minute agenda
+            # polls remain read-only and never open a permission dialog.
+            subprocess.Popen([sys.executable, str(calendar), '--check-offline-cache'],
+                             start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if args.action == 'reload':
             run(['eww', '--config', root, 'reload'])
     elif args.action == 'start':

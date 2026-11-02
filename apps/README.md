@@ -16,7 +16,9 @@ The wide layout uses three columns:
 | Player | Mounted Shares | Session & Idle |
 
 The layout adapts to display scaling, desktop bars and narrower monitors.
-Comfortable is the default. Compact uses smaller text and spacing. Card heights
+Comfortable is the default and uses the former Compact text sizes. Compact text
+is two pixels smaller where readable. Each mode retains its existing card sizes
+and spacing. Card heights
 and typography adapt to the viewport so the dashboard itself does not scroll.
 The dashboard button changes density live and saves the selection. App captions
 use smaller text, with icons as their primary visual identifiers.
@@ -35,7 +37,12 @@ them. Titles wrap and the agenda scrolls. With no connected calendar, it shows
 an empty agenda. Clicking the calendar opens Thunderbird Calendar. The agenda
 covers the next 14 days, with up to eight events. CalDAV and other remote calendars
 need Thunderbird's Offline Support and a completed sync. The card reports
-uncached calendars explicitly. Opt in with
+uncached calendars explicitly. Every dashboard startup/reload/update checks for
+installed Thunderbird and prompts through Rofi before enabling missing offline
+caches. Consent is remembered per profile and calendar in
+`state/calendar-consent.json`. Newly added calendars need approval, concurrent
+refreshes share one dialog, and headless sessions never imply consent. The
+one-minute agenda poll stays read-only. Opt in manually with
 `~/.config/poedash/scripts/thunderbird-calendar.py --enable-offline-cache`, then
 restart Thunderbird and synchronize. This writes only the affected calendar
 cache preferences to `user.js` and backs up an existing file. Normal polls are

@@ -51,7 +51,7 @@ def monitor_size(root):
         return 1920, 1080
 
 
-def geometry(width, height, mode='comfortable'):
+def _geometry(width, height, mode='comfortable'):
     comfortable = mode == 'comfortable'
     padding, gap = (16, 10) if comfortable else (12, 8)
     if height < 900:
@@ -152,6 +152,28 @@ def geometry(width, height, mode='comfortable'):
         'stat_key_chars': max(6, min(15, int(card_width / (2 * char_width)))),
         'text_width': max(4, min(72, int((card_width - 15 * char_width - 10) / char_width))),
     }
+
+
+
+def geometry(width, height, mode='comfortable'):
+    # Preserve established card bounds and spacing. Only typography changes:
+    # Comfortable inherits the former Compact sizes; Compact is two px smaller.
+    data = _geometry(width, height, mode)
+    previous = _geometry(width, height, 'compact')
+    reduction = 2 if mode == 'compact' else 0
+    for key in ('font_size', 'small_size', 'heading_size', 'title_size',
+                'media_title_size', 'app_name_size', 'calendar_size'):
+        floor = 8 if key in ('small_size', 'app_name_size') else 9
+        data[key] = max(floor, previous[key] - reduction)
+    char_width = data['font_size'] * .62
+    data['rail_name_chars'] = max(3, int(data['rail_content_width'] / (data['app_name_size'] * .62)) - 3)
+    data['process_name_chars'] = max(6, int((data['card_width'] - data['small_size'] * .62 * 12) / char_width))
+    data['key_width'] = math.ceil(data['small_size'] * .62 * 9)
+    data['stat_key_chars'] = max(6, min(15, int(data['card_width'] / (2 * char_width))))
+    data['text_width'] = max(4, min(72, int((data['card_width'] - 15 * char_width - 10) / char_width)))
+    data['hostname_width'] = max(6, min(63, int((width - data['rail_width'] - data['gap'] - 2 * data['padding']
+                                              - (360 if data['columns'] > 1 else 0)) / (data['title_size'] * .62))))
+    return data
 
 
 def snapshot(root):

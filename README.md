@@ -122,9 +122,11 @@ screens the cards use three columns with individually sized cards:
 The layout accounts for display scaling and desktop bars, and switches to fewer
 columns on narrow displays. It is validated through native 3840×2160 and scaled
 4K desktops. On very small displays, cards retain bounded frames and scroll their
-contents individually. Text, padding and card heights adapt to the available screen area. Comfortable
-remains larger than Compact, with smaller text used on shorter laptop displays. Artwork grows with the player
-card and song names wrap. The dashboard itself does not scroll. Long lists scroll
+contents individually. Text, padding and card heights adapt to the available
+screen area. Comfortable now uses the former Compact text sizes. Compact text
+is another two pixels smaller, subject to minimum readable sizes. Existing card
+bounds and spacing are retained in each mode, including on shorter laptop
+displays. Artwork grows with the player card and song names wrap. The dashboard itself does not scroll. Long lists scroll
 inside their cards.
 
 A narrow app card sits below the hostname and dashboard name on the left, aligned
@@ -137,7 +139,12 @@ Thunderbird's local calendar cache, and opens Thunderbird when clicked. Without
 a configured calendar it shows the month grid with an empty events area.
 The agenda shows up to eight events in the next 14 days. Remote calendars need
 Thunderbird's **Offline Support** enabled and a completed synchronization.
-If it is disabled, the card explains that remote events are missing. To opt in:
+On dashboard startup, reload or update, PoeDash checks whether Thunderbird is
+installed and offers to enable caching for uncached remote calendars. Approval is
+remembered per profile and calendar. New calendars need separate approval.
+Declining or closing the dialog leaves settings unchanged. Regular one-minute
+agenda polls never prompt or change settings. Headless sessions require prior
+approval or an explicit command. To opt in manually:
 
 ```bash
 ~/.config/poedash/scripts/thunderbird-calendar.py --enable-offline-cache

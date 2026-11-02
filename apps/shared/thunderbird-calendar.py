@@ -2,6 +2,7 @@
 """Read upcoming events from Thunderbird's enabled local calendars without syncing."""
 import argparse
 import configparser
+import fcntl
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import itertools
@@ -12,6 +13,7 @@ import re
 import shutil
 import signal
 import sqlite3
+import subprocess
 import sys
 import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -255,11 +257,13 @@ def uncached_calendars(enabled):
             if value.get('type') != 'storage' and value.get('cache.enabled') is not True}
 
 
-def enable_offline_cache(home=None):
+def enable_offline_cache(home=None, identifiers=None):
     """Explicit opt-in only. Thunderbird imports user.js on its next startup."""
     selected = profile(Path.home() if home is None else home)
     enabled = calendars(selected) if selected else {}
     missing = uncached_calendars(enabled)
+    if identifiers is not None:
+        missing = {key: value for key, value in missing.items() if key in identifiers}
     if not missing:
         return False
     path = selected / 'user.js'
@@ -286,6 +290,84 @@ def enable_offline_cache(home=None):
     finally:
         Path(temporary).unlink(missing_ok=True)
     return True
+
+
+def thunderbird_installed(home):
+    if shutil.which('thunderbird'):
+        return True
+    # Native desktop entries and Flatpak installations need not expose a binary.
+    data = Path(os.environ.get('XDG_DATA_HOME', home / '.local/share'))
+    locations = [data / 'applications', data / 'flatpak/exports/share/applications',
+                 Path('/var/lib/flatpak/exports/share/applications')]
+    locations += [Path(item) / 'applications' for item in
+                  os.environ.get('XDG_DATA_DIRS', '/usr/local/share:/usr/share').split(':') if item]
+    return any((root / name).is_file() for root in locations
+               for name in ('thunderbird.desktop', 'org.mozilla.Thunderbird.desktop'))
+
+
+def approve_cache(count):
+    if not (os.environ.get('WAYLAND_DISPLAY') or os.environ.get('DISPLAY')) or not shutil.which('rofi'):
+        return False  # Never infer consent in headless/noninteractive sessions.
+    result = subprocess.run(
+        ['rofi', '-dmenu', '-no-custom', '-format', 'i', '-p', 'Thunderbird calendar',
+         '-mesg', f'Enable offline caching for {count} remote calendar(s)?\n'
+                  'PoeDash will add calendar-only preferences to user.js.\n'
+                  'Restart Thunderbird and synchronize afterward.'],
+        input='Keep settings unchanged\nEnable offline caching\n', text=True,
+        capture_output=True, timeout=180)
+    return result.returncode == 0 and result.stdout.strip() == '1'
+
+
+def check_offline_cache(home=None, state=None):
+    home = Path.home() if home is None else home
+    if not thunderbird_installed(home):
+        return False
+    selected = profile(home)
+    missing = uncached_calendars(calendars(selected)) if selected else {}
+    if not missing:
+        return False
+    state = Path(__file__).resolve().parent.parent / 'state' if state is None else state
+    state.mkdir(parents=True, exist_ok=True)
+    with (state / 'calendar-consent.lock').open('w') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+        consent_file = state / 'calendar-consent.json'
+        try:
+            consent = json.loads(consent_file.read_text())
+            if not isinstance(consent, dict):
+                consent = {}
+        except (OSError, ValueError):
+            consent = {}
+        key = str(selected.resolve())
+        saved = consent.get(key, [])
+        approved = set(saved) if isinstance(saved, list) and all(isinstance(x, str) for x in saved) else set()
+        # Existing explicit user.js opt-ins need no second approval dialog.
+        prefs = (selected / 'user.js').read_text() if (selected / 'user.js').exists() else ''
+        for identifier in missing:
+            preference = json.dumps(f'calendar.registry.{identifier}.cache.enabled')
+            if f'user_pref({preference}, true);' in prefs.splitlines():
+                approved.add(identifier)
+        new = set(missing) - approved
+        if new and approve_cache(len(new)):
+            approved.update(new)
+        if approved:
+            consent[key] = sorted(approved)
+            fd, temporary = tempfile.mkstemp(prefix='.calendar-consent-', dir=state)
+            try:
+                with os.fdopen(fd, 'w') as stream:
+                    json.dump(consent, stream)
+                os.replace(temporary, consent_file)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
+        changed = enable_offline_cache(home, approved)
+        if changed and shutil.which('notify-send'):
+            subprocess.run(['notify-send', 'PoeDash calendar',
+                            'Offline caching enabled. Restart Thunderbird and synchronize calendars.'],
+                           check=False, timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return changed
+
 
 def reading(home=None, now=None):
     home = Path.home() if home is None else home
@@ -321,8 +403,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--enable-offline-cache', action='store_true',
                         help='opt in to remote calendar caching on the next Thunderbird restart')
+    parser.add_argument('--check-offline-cache', action='store_true',
+                        help='check installed Thunderbird and request approval for uncached calendars')
     args = parser.parse_args()
     try:
+        if args.check_offline_cache:
+            check_offline_cache()
+            raise SystemExit(0)
         if args.enable_offline_cache:
             changed = enable_offline_cache()
             print('Offline caching configured. Restart Thunderbird and synchronize calendars.' if changed
@@ -333,5 +420,5 @@ if __name__ == '__main__':
         signal.signal(signal.SIGALRM, timeout)
         signal.alarm(4)
         print(json.dumps(reading()))
-    except (OSError, ValueError, sqlite3.Error, TimeoutError):
+    except (OSError, ValueError, sqlite3.Error, TimeoutError, subprocess.SubprocessError):
         print(json.dumps({'connected': False, 'status': 'Thunderbird calendar unavailable', 'events': []}))

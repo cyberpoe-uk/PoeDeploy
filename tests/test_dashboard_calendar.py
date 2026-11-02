@@ -176,6 +176,58 @@ class ThunderbirdCalendar(unittest.TestCase):
         self.assertEqual(len(list(self.profile.glob('user.js.poedash-backup-*'))), 1)
         self.assertEqual(prefs.read_bytes(), before)
 
+    def uncached(self):
+        with (self.profile / 'prefs.js').open('a') as stream:
+            stream.write('user_pref("calendar.registry.work.cache.enabled", false);\n')
+
+    def test_refresh_asks_once_and_remembers_calendar_specific_consent(self):
+        self.uncached()
+        state = self.home / 'state'
+        with patch.object(calendar, 'thunderbird_installed', return_value=True), \
+             patch.object(calendar, 'approve_cache', return_value=True) as ask, \
+             patch.object(calendar.shutil, 'which', return_value=None):
+            self.assertTrue(calendar.check_offline_cache(self.home, state))
+            self.assertFalse(calendar.check_offline_cache(self.home, state))
+            ask.assert_called_once_with(1)
+            with (self.profile / 'prefs.js').open('a') as stream:
+                stream.write('user_pref("calendar.registry.new.type", "caldav");\n')
+            ask.return_value = False
+            self.assertFalse(calendar.check_offline_cache(self.home, state))
+            self.assertEqual(ask.call_count, 2)
+            self.assertNotIn('calendar.registry.new', (self.profile / 'user.js').read_text())
+
+    def test_absent_thunderbird_or_declined_consent_does_not_change_settings(self):
+        self.uncached()
+        for installed in (False, True):
+            with patch.object(calendar, 'thunderbird_installed', return_value=installed), \
+                 patch.object(calendar, 'approve_cache', return_value=False) as ask:
+                self.assertFalse(calendar.check_offline_cache(self.home, self.home / 'state'))
+                self.assertEqual(ask.call_count, int(installed))
+                self.assertFalse((self.profile / 'user.js').exists())
+
+    def test_headless_refresh_never_implies_consent(self):
+        with patch.dict(calendar.os.environ, {'WAYLAND_DISPLAY': '', 'DISPLAY': ''}), \
+             patch.object(calendar.subprocess, 'run') as command:
+            self.assertFalse(calendar.approve_cache(1))
+            command.assert_not_called()
+
+    def test_parallel_refresh_does_not_open_second_dialog(self):
+        self.uncached()
+        with patch.object(calendar, 'thunderbird_installed', return_value=True), \
+             patch.object(calendar.fcntl, 'flock', side_effect=BlockingIOError), \
+             patch.object(calendar, 'approve_cache') as ask:
+            self.assertFalse(calendar.check_offline_cache(self.home, self.home / 'state'))
+            ask.assert_not_called()
+
+    def test_only_explicit_enable_selection_grants_consent(self):
+        with patch.dict(calendar.os.environ, {'DISPLAY': ':1'}), \
+             patch.object(calendar.shutil, 'which', return_value='/usr/bin/rofi'), \
+             patch.object(calendar.subprocess, 'run') as command:
+            for code, output, expected in [(0, '0', False), (1, '1', False), (0, '1', True), (0, 'yes', False)]:
+                command.return_value.returncode = code
+                command.return_value.stdout = output
+                self.assertEqual(calendar.approve_cache(1), expected)
+
     def test_monthly_ordinal_rules_use_the_bundled_recurrence_engine(self):
         start = datetime(2026, 10, 5, 9, tzinfo=UTC)
         self.event(start, flags=16)
