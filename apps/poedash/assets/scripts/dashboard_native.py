@@ -28,8 +28,12 @@ from dashboard_model import (CARDS, BASE_CARDS, REFRESH, SOURCES, SOURCE_TITLES,
     DEFAULT_APPEARANCE, Settings, Transaction, History, atomic_json, read_json,
     default_layout, valid_move, swap_target, transform, validate)
 from dashboard_collect import Engine, health_issues
+from service_health import failed_units, service_details
 
 ROOT = Path(__file__).resolve().parent.parent
+GRAPH_COLORS = ((.80,.69,.98),(.45,.82,.74),(.95,.69,.45))
+METRIC_COLORS = dict(zip(('cpu','ram','temperature'),GRAPH_COLORS))
+METRIC_COLORS.update(rx_bps=GRAPH_COLORS[0],tx_bps=GRAPH_COLORS[1],watts=GRAPH_COLORS[0])
 
 
 def box(vertical=True, spacing=6):
@@ -65,9 +69,9 @@ def clear(widget):
     for child in widget.get_children(): widget.remove(child)
 
 
-def row(parent, name, value):
+def row(parent, name, value, style=''):
     line = box(False, 12)
-    key, val = label(name, 'muted'), label(value)
+    key, val = label(name, style or 'muted'), label(value, style)
     val.set_xalign(1)
     val.set_selectable(True)
     val.set_tooltip_text(str(value))
@@ -95,6 +99,27 @@ def rate(value):
     return f'{number:.1f} TiB/s'
 
 
+class Artwork(Gtk.DrawingArea):
+    def __init__(self, path, scale=1):
+        super().__init__()
+        self.pixbuf=GdkPixbuf.Pixbuf.new_from_file(path)
+        self.set_hexpand(True); self.set_vexpand(True)
+        self.set_size_request(-1,round(80*scale))
+        self.get_accessible().set_name('Album artwork')
+        self.connect('draw',self.draw_artwork)
+
+    def draw_artwork(self, widget, cr):
+        width,height=self.get_allocated_width(),self.get_allocated_height()
+        art_width,art_height=self.pixbuf.get_width(),self.pixbuf.get_height()
+        scale=min(width/art_width,height/art_height)
+        cr.save()
+        cr.translate((width-art_width*scale)/2,(height-art_height*scale)/2)
+        cr.scale(scale,scale)
+        Gdk.cairo_set_source_pixbuf(cr,self.pixbuf,0,0)
+        cr.paint(); cr.restore()
+        return False
+
+
 class Graph(Gtk.DrawingArea):
     def __init__(self, app, metrics, maximum=None):
         super().__init__()
@@ -112,12 +137,11 @@ class Graph(Gtk.DrawingArea):
         cr.stroke()
         now = time.time()
         minutes = self.app.profile['appearance']['history_minutes']
-        colors = [(.80,.69,.98),(.45,.82,.74),(.95,.69,.45)]
         for index, (metric, _) in enumerate(self.metrics):
             points = self.app.history.series(metric, minutes, now)
             if not points: continue
             maximum = self.maximum or max(1, max(v for _,v in points)*1.15)
-            cr.set_source_rgba(*colors[index % len(colors)], .95)
+            cr.set_source_rgba(*METRIC_COLORS.get(metric,GRAPH_COLORS[index % len(GRAPH_COLORS)]), .95)
             cr.set_line_width(1.8)
             previous = None
             dots=[]
@@ -155,8 +179,9 @@ class Card(Gtk.EventBox):
         self.body = box(True, round((4 if key in ('system','connectivity','power') else 7)*app.profile['appearance'].get('scale',1)))
         self.body_scroll = scroll(self.body)
         self.content.pack_start(self.body_scroll, True, True, 0)
-        self.freshness = label('Collecting…', 'freshness')
-        self.content.pack_end(self.freshness, False, False, 0)
+        if key=='player':
+            self.player_controls=box(True,round(7*app.profile['appearance'].get('scale',1)))
+            self.content.pack_end(self.player_controls,False,False,0)
         self.cover = Gtk.EventBox()
         self.cover.set_visible_window(True)
         self.cover.set_above_child(True)
@@ -275,7 +300,12 @@ class Card(Gtk.EventBox):
         if self.app.profile['appearance']['graphs']:
             graph = Graph(self.app,metrics,maximum)
             self.body.pack_start(graph,False,False,0)
-            self.text(' · '.join(name for _,name in metrics) + f" · {self.app.profile['appearance']['history_minutes']} min", 'freshness', False)
+            legend=box(False,round(8*self.app.profile['appearance'].get('scale',1)))
+            for metric,name in metrics:
+                item=label(name,'freshness'); item.get_style_context().add_class('metric-'+metric)
+                legend.pack_start(item,True,True,0)
+            legend.pack_end(label(f"{self.app.profile['appearance']['history_minutes']} min",'freshness'),False,False,0)
+            self.body.pack_start(legend,False,False,0)
 
     def render(self):
         # Keep text editing and process filtering stable while readings change.
@@ -289,7 +319,16 @@ class Card(Gtk.EventBox):
         if key == 'arch':
             data = self.value('arch',{})
             for name, value in [('Kernel',data.get('kernel','—')),('Uptime',data.get('uptime','—')),
-                                ('Packages',self.value('packages','—')),('Updates',self.value('updates','—'))]: row(self.body,name,value)
+                                ('Packages',self.value('packages','—'))]: row(self.body,name,value)
+            updates=self.value('updates','—')
+            update_value=row(self.body,'Updates',updates)
+            try: count=int(str(updates).strip())
+            except ValueError: count=-1
+            error=self.app.samples.get('updates',{}).get('error')
+            if error: count=-1
+            state='unknown' if count<0 else 'current' if count==0 else 'critical' if count>50 else 'pending'
+            update_value.get_style_context().add_class('updates-'+state)
+            update_value.set_tooltip_text(error or ('Update count unavailable' if count<0 else 'Up to date' if count==0 else f"{count} update{'s' if count!=1 else ''} available"))
         elif key == 'system':
             data = self.value('system_info',{})
             for name, field in [('OS','os'),('CPU','cpu'),('GPU','gpu'),('Memory','memory'),('Home disk','disk')]:
@@ -301,20 +340,25 @@ class Card(Gtk.EventBox):
             detail = Gtk.Expander(label='Storage and service health')
             contents = box()
             for disk in self.value('health',{}).get('disks',[]): row(contents,disk['path'],f"{disk['free_gib']} GiB free · {disk['percent']}% used")
-            for unit in self.value('health',{}).get('failed',[]): contents.pack_start(label('Failed: '+unit,wrap=True),False,False,0)
+            for unit in failed_units(self.value('health',{}).get('failed',[])):
+                contents.pack_start(button(f"Failed {unit['scope']} unit: {unit['unit']}",
+                    lambda unit=unit:self.app.show_service_details(unit['unit'],unit['scope']),
+                    'Show this unit’s status and recent logs'),False,False,0)
             contents.pack_start(button('Open system monitor',lambda: self.app.run('launch.sh','system')),False,False,0)
             detail.add(contents); self.body.pack_start(detail,False,False,0)
         elif key == 'performance':
             gpu = self.value('gpu',{})
-            for name,value,display in [('CPU',self.value('cpu',0),str(self.value('cpu','—'))+'%'),
-                                       ('GPU',gpu.get('usage',0),gpu.get('label','—')),
-                                       ('RAM',self.value('ram',0),str(self.value('ram','—'))+'%')]:
-                line = box(False,8); line.pack_start(label(name),False,False,0)
+            for name,value,display,metric in [('CPU',self.value('cpu',0),str(self.value('cpu','—'))+'%','cpu'),
+                                       ('GPU',gpu.get('usage',0),gpu.get('label','—'),None),
+                                       ('RAM',self.value('ram',0),str(self.value('ram','—'))+'%','ram')]:
+                style='metric-'+metric if metric else ''
+                line = box(False,8); line.pack_start(label(name,style),False,False,0)
                 meter = Gtk.ProgressBar(); meter.set_fraction(max(0,min(1,float(value or 0)/100)))
-                line.pack_start(meter,True,True,0); line.pack_end(label(display),False,False,0)
+                if style: meter.get_style_context().add_class(style)
+                line.pack_start(meter,True,True,0); line.pack_end(label(display,style),False,False,0)
                 self.body.pack_start(line,False,False,0)
             temperature = self.value('cpu_temperature','--')
-            row(self.body,'CPU temperature', temperature if temperature != '--' else 'Sensor unavailable')
+            row(self.body,'CPU temperature', temperature if temperature != '--' else 'Sensor unavailable','metric-temperature')
             if gpu.get('temperature') not in (None,'','--'): row(self.body,'GPU temperature',gpu['temperature'])
             system=self.value('system_info',{})
             if system.get('load'): row(self.body,'Load 1 / 5 / 15m',system['load'])
@@ -335,10 +379,13 @@ class Card(Gtk.EventBox):
             network,vpn = self.value('network',{}),self.value('vpn',{})
             for name,value in [('Network',network.get('state','—')),
                                ('Address',network.get('ip','—')),
-                               ('Tailscale',vpn.get('tailscale_state','—')),('Proton VPN',vpn.get('proton_state','—')),
-                               ('Download',rate(network.get('rx_bps'))),('Upload',rate(network.get('tx_bps')))]: row(self.body,name,value)
+                               ('Tailscale',vpn.get('tailscale_state','—')),('Proton VPN',vpn.get('proton_state','—'))]: row(self.body,name,value)
+            row(self.body,'Download',rate(network.get('rx_bps')),'metric-rx_bps')
+            row(self.body,'Upload',rate(network.get('tx_bps')),'metric-tx_bps')
             self.chart([('rx_bps','Download'),('tx_bps','Upload')])
-            details=Gtk.Expander(label='Interface, Tailscale IP and routes')
+            details=Gtk.Expander()
+            details.set_label_widget(label('Interface, Tailscale IP and routes'))
+            details.set_tooltip_text('Interface, Tailscale IP and routes')
             contents=box(True,4)
             row(contents,'Interface',network.get('interface','—')); row(contents,'Tailscale IP',network.get('tailscale','—'))
             contents.pack_start(button('Addresses and routes',lambda:self.app.run('launch.sh','network')),False,False,0)
@@ -367,9 +414,13 @@ class Card(Gtk.EventBox):
                 self.chart([('watts','Consumption W')])
             else: self.text('No system battery detected','muted')
             if profile.get('supported'):
-                choices = box(False,4)
+                choices = Gtk.FlowBox()
+                choices.set_selection_mode(Gtk.SelectionMode.NONE)
+                choices.set_homogeneous(True)
+                choices.set_min_children_per_line(1); choices.set_max_children_per_line(3)
+                choices.set_column_spacing(4); choices.set_row_spacing(4)
                 for name in profile.get('available',[]):
-                    if isinstance(name,str): choices.pack_start(button(name,lambda n=name: self.app.run('power-control.py','set',n)),True,True,0)
+                    if isinstance(name,str): choices.add(button(name,lambda n=name: self.app.run('power-control.py','set',n)))
                 self.body.pack_start(choices,False,False,0)
         elif key == 'session':
             data = self.value('session',{})
@@ -387,10 +438,32 @@ class Card(Gtk.EventBox):
             apply.set_sensitive(bool(data.get('dirty') and data.get('supported')))
             self.body.pack_start(apply,False,False,0)
         elif key == 'calendar':
-            now=datetime.datetime.now()
-            self.text(now.strftime('%B %Y'),'heading',False)
-            month=Gtk.Label(label=calendar.TextCalendar().formatmonth(now.year,now.month)); month.set_xalign(0)
-            month.get_style_context().add_class('month')
+            today=datetime.date.today()
+            self.calendar_date=today
+            month_title=label(today.strftime('%B %Y'),'heading')
+            month_title.set_xalign(.5)
+            self.body.pack_start(month_title,False,False,0)
+            month=Gtk.Grid()
+            month.set_column_homogeneous(True); month.set_row_homogeneous(True)
+            month.set_hexpand(True)
+            month.set_column_spacing(round(4*self.app.profile['appearance'].get('scale',1)))
+            month.set_row_spacing(round(4*self.app.profile['appearance'].get('scale',1)))
+            for column,name in enumerate(calendar.day_abbr):
+                weekday=label(name,'muted'); weekday.set_xalign(.5)
+                weekday.set_hexpand(True)
+                month.attach(weekday,column,0,1,1)
+            for week,days in enumerate(calendar.Calendar(firstweekday=calendar.MONDAY).monthdayscalendar(today.year,today.month),1):
+                for column,day in enumerate(days):
+                    cell=label(str(day) if day else '','calendar-day')
+                    cell.set_xalign(.5); cell.set_hexpand(True)
+                    if day:
+                        description=today.replace(day=day).strftime('%A %d %B %Y')
+                        if day==today.day:
+                            cell.get_style_context().add_class('calendar-today')
+                            description='Today · '+description
+                        cell.set_tooltip_text(description)
+                        cell.get_accessible().set_name(description)
+                    month.attach(cell,column,week,1,1)
             self.body.pack_start(month,False,False,0)
             data=self.value('calendar',{})
             self.text('UPCOMING','freshness',False)
@@ -400,27 +473,29 @@ class Card(Gtk.EventBox):
                 self.text(event.get('title','Untitled event'))
             self.body.pack_start(button('Open Thunderbird Calendar',lambda: self.app.run('desktop.py','calendar')),False,False,0)
         elif key == 'player':
+            clear(self.player_controls)
             data=self.value('media',{})
             art=data.get('art','')
             if art and Path(art).is_file():
                 try:
-                    image=Gtk.Image.new_from_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_scale(art,round(150*self.app.profile['appearance'].get('scale',1)),round(150*self.app.profile['appearance'].get('scale',1)),True))
-                    self.body.pack_start(image,False,False,0)
+                    image=Artwork(art,self.app.profile['appearance'].get('scale',1))
+                    self.body.pack_start(image,True,True,0)
                 except GLib.Error: pass
             self.text(data.get('title','Nothing playing'),'media-title')
             self.text(data.get('artist') or data.get('player',''),'muted')
-            self.wave_image=Gtk.Image(); self.body.pack_start(self.wave_image,False,False,0)
+            self.wave_image=Gtk.Image(); self.player_controls.pack_start(self.wave_image,False,False,0)
             self.update_wave()
             seek=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,0,100,1)
             seek.set_draw_value(False); seek.set_value(float(data.get('progress',0)))
             seek.set_sensitive(bool(data.get('available') and data.get('length','0:00') != '0:00'))
             seek.connect('button-release-event',lambda widget,event: self.app.seek(widget.get_value()))
-            self.body.pack_start(seek,False,False,0)
-            self.text(f"{data.get('position','0:00')} / {data.get('length','0:00')}",'freshness',False)
+            self.player_controls.pack_start(seek,False,False,0)
+            self.player_controls.pack_start(label(f"{data.get('position','0:00')} / {data.get('length','0:00')}",'freshness'),False,False,0)
             controls=box(False,7)
             for text,action in [('⏮','previous'),('⏸' if data.get('status')=='Playing' else '▶','play-pause'),('⏭','next'),('Open','open')]:
                 controls.pack_start(button(text,lambda a=action: self.app.run('media-control.sh',a)),True,True,0)
-            self.body.pack_start(controls,False,False,0)
+            self.player_controls.pack_start(controls,False,False,0)
+            self.player_controls.show_all()
         elif key == 'notes':
             self.note=Gtk.TextView(); self.note.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
             self.note.get_buffer().set_text(self.app.data.get('notes',''))
@@ -508,21 +583,27 @@ class Card(Gtk.EventBox):
     def update_freshness(self):
         sources=SOURCES.get(self.key,())
         samples=[(source,self.app.samples.get(source,{})) for source in sources]
+        icon='↻'; warning=False
+        self.refresh_button.set_sensitive(bool(sources))
         if not sources:
-            message='Saved locally'; self.refresh_button.set_sensitive(False)
-        elif self.app.paused: message='Paused on battery · dashboard hidden'
+            message='Saved locally'
+        elif self.app.paused:
+            message='Paused on battery · dashboard hidden'; icon='⏸'
         else:
             errors=[sample.get('error') for _,sample in samples if sample.get('error')]
             updated=[sample.get('updated',0) for _,sample in samples]
-            if errors: message=errors[0]
+            if errors: message=errors[0]; warning=True
             elif not updated or not min(updated): message='Collecting…'
             else:
-                age=max(0,int(time.time()-max(updated)))
-                message=f'Updated {age}s ago' if age<60 else f'Updated {age//60}m ago'
+                stamp=datetime.datetime.fromtimestamp(max(updated))
+                message=stamp.strftime('Last updated: %a %d %b %H:%M:%S')
                 stale=any(time.time()-sample.get('updated',0)>max(15,3*self.app.profile['refresh'].get(source,REFRESH[source])) for source,sample in samples)
-                if stale: message+=' · some readings are stale'
-        self.freshness.set_text(message)
-        self.freshness.set_tooltip_text(message)
+                if stale: message+=' · some readings are stale'; warning=True
+        self.refresh_button.set_label('⚠' if warning else icon)
+        style=self.refresh_button.get_style_context()
+        if warning: style.add_class('warning')
+        else: style.remove_class('warning')
+        self.refresh_button.set_tooltip_text(message+('\nRefresh this card now' if sources else ''))
 
 
 class Dashboard:
@@ -576,26 +657,36 @@ class Dashboard:
         self.surface.get_style_context().add_class('dashboard')
         self.overlay.add(self.surface)
         self.header=box(False,10)
+        self.header.get_style_context().add_class('dashboard-header')
         titlebox=box(True,2)
         self.hostname=label(socket.gethostname(),'hostname'); titlebox.pack_start(self.hostname,False,False,0)
         titlebox.pack_start(label('POEDASH','muted'),False,False,0)
         self.header.pack_start(titlebox,True,True,0)
+        self.header_controls=box(False,8)
+        self.header_controls.set_valign(Gtk.Align.CENTER)
+        self.header_controls.get_style_context().add_class('header-controls')
+        self.header.pack_start(self.header_controls,False,False,0)
         self.profile_combo=Gtk.ComboBoxText(); self.profile_combo.connect('changed',self.profile_changed)
-        self.header.pack_start(self.profile_combo,False,False,0)
+        self.header_controls.pack_start(self.profile_combo,False,False,0)
         zoom_controls=box(False,3)
         zoom_controls.pack_start(button('−',lambda:self.change_zoom(-.05),'Zoom out'),False,False,0)
         self.zoom_label=label('100%'); zoom_controls.pack_start(self.zoom_label,False,False,0)
         zoom_controls.pack_start(button('+',lambda:self.change_zoom(.05),'Zoom in'),False,False,0)
         zoom_controls.pack_start(button('↶',lambda:self.change_zoom(reset=True),'Reset dashboard zoom to 100%'),False,False,0)
-        self.header.pack_start(zoom_controls,False,False,0)
-        self.header.pack_start(button('Packages',lambda: self.run('packages.py','launch')),False,False,0)
+        self.header_controls.pack_start(zoom_controls,False,False,0)
+        self.header_controls.pack_start(button('Packages',lambda: self.run('packages.py','launch')),False,False,0)
         self.edit_button=button('Edit',self.edit_menu)
-        self.header.pack_start(self.edit_button,False,False,0)
+        self.header_controls.pack_start(self.edit_button,False,False,0)
         self.clock=label('','clock'); self.header.pack_end(self.clock,False,False,0)
         self.surface.pack_start(self.header,False,False,0)
         self.healthbar=box(False,6)
         self.health_label=label('Checking system health…','muted')
-        self.healthbar.pack_start(self.health_label,True,True,0)
+        self.health_summary=Gtk.Button()
+        self.health_summary.set_relief(Gtk.ReliefStyle.NONE)
+        self.health_summary.set_tooltip_text('Open the reported health issue')
+        self.health_summary.add(self.health_label)
+        self.health_summary.connect('clicked',lambda *_:self.open_health_summary())
+        self.healthbar.pack_start(self.health_summary,True,True,0)
         self.health_button=button('Details',self.show_health)
         self.healthbar.pack_end(self.health_button,False,False,0)
         self.surface.pack_start(self.healthbar,False,False,0)
@@ -623,7 +714,7 @@ class Dashboard:
         self.board.add_overlay(self.guide_layer); self.board.set_overlay_pass_through(self.guide_layer,True)
         self.board_view=scroll(self.board)
         self.board_view.set_policy(Gtk.PolicyType.AUTOMATIC,Gtk.PolicyType.AUTOMATIC)
-        self.board_view.connect('size-allocate',self.allocate)
+        self.board_view.get_child().connect('size-allocate',self.schedule_allocate)
         self.main.pack_start(self.board_view,True,True,0)
         self.surface.pack_start(self.main,True,True,0)
         self.status=label('','freshness'); self.status.set_no_show_all(True)
@@ -696,7 +787,8 @@ class Dashboard:
             try: self.settings.save()
             except (ValueError,OSError) as exc: self.message('Could not save zoom: '+str(exc)); return
         self.apply_appearance(); self.build_cards()
-        self.allocate(self.board_view,self.board_view.get_allocation())
+        viewport=self.board_view.get_child()
+        self.allocate(viewport,viewport.get_allocation())
         self.message(f"Zoom {round(appearance['scale']*100)}% · ↶ restores 100%"+(' · Save to keep this preview' if self.transaction else ''))
         self.update_edit_buttons()
 
@@ -731,6 +823,10 @@ class Dashboard:
         except OSError: pass
         colors={name:value for name,value in re.findall(r'\$(\w+):\s*(#[0-9a-fA-F]{6})',text)}
         colors={**{'accent':'#d3bbfc','background':'#0f0d13','card':'#1d1b20','foreground':'#e7e0e8','muted':'#948f99','border':'#49454e'},**colors}
+        metric_css='\n'.join(
+            f".metric-{metric} {{ color: rgb({','.join(str(round(c*255)) for c in color)}); }}\n"
+            f"progressbar.metric-{metric} progress {{ background: rgb({','.join(str(round(c*255)) for c in color)}); }}"
+            for metric,color in METRIC_COLORS.items())
         def rgba(color,alpha):
             value=colors[color].lstrip('#')
             return 'rgba('+','.join(str(int(value[i:i+2],16)) for i in (0,2,4))+','+str(alpha)+')'
@@ -742,18 +838,27 @@ class Dashboard:
         .edit-cover {{ background: rgba(180,150,240,.035); }}
         .card:hover {{ border-color: {colors['muted']}; }}
         .heading {{ color: {colors['accent']}; font-weight: bold; }}
-        .hostname, .clock {{ font-size: {round((appearance['font_size']+12)*zoom)}px; font-weight: bold; }}
+        .dashboard-header * {{ font-size: {appearance['font_size']}px; }}
+        .hostname, .clock {{ font-size: {appearance['font_size']+12}px; font-weight: bold; }}
         .media-title {{ font-size: {round((appearance['font_size']+5)*zoom)}px; font-weight: bold; }}
         .muted, .freshness {{ color: {colors['muted']}; }}
         .freshness {{ font-size: {max(8,round((appearance['font_size']-3)*zoom))}px; }}
-        .month {{ font-family: monospace; }}
+        .calendar-day {{ min-height: {round(24*zoom)}px; padding: {max(1,round(2*zoom))}px 0; }}
+        .calendar-today {{ color: {colors['background']}; background-color: {colors['accent']}; border-radius: {round(6*zoom)}px; font-weight: bold; }}
         .warning {{ color: #f3a580; }}
+        .updates-current {{ color: #8dd5a0; font-weight: bold; }}
+        .updates-pending {{ color: #e6a85c; font-weight: bold; }}
+        .updates-critical {{ color: #ff5c68; font-weight: bold; }}
+        .updates-unknown {{ color: {colors['muted']}; }}
         button, combobox, entry, spinbutton {{ color: {colors['foreground']}; background: {rgba('card',.95)}; border: 1px solid {colors['border']}; border-radius: 6px; padding: {max(2,round(4*zoom))}px {max(3,round(7*zoom))}px; }}
+        .header-controls button {{ min-height: 20px; min-width: 16px; padding: 2px 6px; }}
+        .header-controls combobox {{ min-height: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }}
         button:hover {{ border-color: {colors['accent']}; }}
         button:disabled {{ opacity: .45; }}
         textview, textview text {{ color: {colors['foreground']}; background: transparent; }}
         progressbar trough {{ min-height: 6px; background: {colors['border']}; }}
         progressbar progress {{ min-height: 6px; background: {colors['accent']}; }}
+        {metric_css}
         .drawer {{ background: {colors['background']}; border: 1px solid {colors['accent']}; border-radius: 10px; }}
         popover, menu {{ background: {colors['background']}; color: {colors['foreground']}; }}
         scrollbar slider {{ min-width: 5px; min-height: 20px; background: {colors['border']}; border-radius: 3px; }}
@@ -779,33 +884,56 @@ class Dashboard:
             card.show_all(); card.set_editing(self.editing)
         self.reflow()
 
+    def layout_for_size(self,width,height):
+        zoom=self.profile['appearance'].get('scale',1)
+        logical_width,logical_height=width/zoom,height/zoom
+        saved=self.profile['layouts'].get(self.display_key,{})
+        # Keep custom layouts while their cards remain readable. Narrow views
+        # reflow temporarily; zoom alone never replaces the saved arrangement.
+        if set(saved)==set(self.cards) and all(rect[2]*logical_width>=250 for rect in saved.values()): layout=deepcopy(saved)
+        else:
+            layout=default_layout(list(self.cards),logical_width,logical_height,self.profile['appearance']['spacing'],self.data['active_profile'])
+            if logical_width>=850 and all(key in layout for key in ('performance','processes','shares')):
+                # Shares take space from the scrolling process list as mount text grows.
+                shares=self.samples.get('shares',{}).get('value') or []
+                share_rect=layout['shares']; process_rect=layout['processes']
+                if abs(share_rect[0]-process_rect[0])<.001:
+                    appearance=self.profile['appearance']; font=appearance['font_size']*zoom
+                    chars=max(12,int((share_rect[2]*width-32)/(font*.65)))
+                    lines=sum(3+math.ceil((len(s.get('source',''))+len(s.get('target','')))/chars) for s in shares if isinstance(s,dict))
+                    desired=max(share_rect[3]*height,85*zoom+lines*(font*1.5+5*zoom))
+                    extra=min(max(0,desired-share_rect[3]*height),max(0,process_rect[3]*height-140*zoom))
+                    process_rect[3]-=extra/height
+                    share_rect[1]-=extra/height; share_rect[3]+=extra/height
+        return layout
+
     def reflow(self):
         width,height=self.canvas_size
         if width<2 or height<2: return
-        saved=self.profile['layouts'].get(self.display_key,{})
-        if set(saved)==set(self.cards): self.layout=deepcopy(saved)
-        else:
-            self.layout=default_layout(list(self.cards),width,height,round(self.profile['appearance']['spacing']*self.profile['appearance'].get('scale',1)),self.data['active_profile'])
-            if width>=850 and all(key in self.layout for key in ('performance','processes','shares')):
-                # Shares take space from the scrolling process list as mount text grows.
-                shares=self.samples.get('shares',{}).get('value') or []
-                share_rect=self.layout['shares']; process_rect=self.layout['processes']
-                if abs(share_rect[0]-process_rect[0])<.001:
-                    appearance=self.profile['appearance']; font=appearance['font_size']; gap=appearance['spacing']
-                    chars=max(12,int((share_rect[2]*width-32)/(font*.65)))
-                    lines=sum(3+math.ceil((len(s.get('source',''))+len(s.get('target','')))/chars) for s in shares if isinstance(s,dict))
-                    desired=max(share_rect[3]*height,85+lines*(font*1.5+5))
-                    extra=min(max(0,desired-share_rect[3]*height),max(0,process_rect[3]*height-140))
-                    process_rect[3]-=extra/height
-                    share_rect[1]-=extra/height; share_rect[3]+=extra/height
+        self.layout=self.layout_for_size(width,height)
         for key,rect in self.layout.items(): self.place_card(key,rect)
         self.guide_layer.queue_draw()
+
+    def schedule_allocate(self,*_):
+        # Resize children after GTK finishes allocating the viewport; changing
+        # their requests inside that allocation can leave stale card bounds.
+        if not getattr(self,'allocate_idle',None):
+            self.allocate_idle=GLib.idle_add(self.allocate_viewport)
+
+    def allocate_viewport(self):
+        self.allocate_idle=None
+        if self.closing: return False
+        viewport=self.board_view.get_child()
+        self.allocate(viewport,viewport.get_allocation())
+        return False
 
     def allocate(self,widget,allocation):
         zoom=self.profile['appearance'].get('scale',1)
         count=len(self.profile['visible'])
-        virtual_width=max(allocation.width-8,round((allocation.width-8)*zoom))
-        columns=3 if virtual_width>=850 else 2 if virtual_width>=550 else 1
+        if allocation.width<2 or allocation.height<2: return
+        virtual_width=max(1,allocation.width-8)
+        logical_width=virtual_width/zoom
+        columns=3 if logical_width>=850 else 2 if logical_width>=550 else 1
         if columns==3:
             visible=self.profile['visible']
             groups=[sum(c in visible for c in group) for group in (('arch','system','connectivity','session','power'),('performance','processes','shares'),('calendar','player'))]
@@ -815,6 +943,13 @@ class Dashboard:
         else: max_rows=max(1,math.ceil(count/columns))
         minimum=round((max_rows*(self.profile['appearance']['font_size']*4+70)+max(0,max_rows-1)*self.profile['appearance']['spacing'])*zoom)
         size=(max(1,virtual_width),max(allocation.height,round(allocation.height*zoom),minimum))
+        # Fixed-position children can exceed a requested size. Reserve enough
+        # height for their actual header/footer minima before placing any card.
+        for _ in range(3):
+            layout=self.layout_for_size(*size)
+            required=max([size[1]]+[math.ceil((self.cards[key].content.get_preferred_height()[0]+2)/rect[3]) for key,rect in layout.items()])
+            if required==size[1]: break
+            size=(size[0],required)
         if size!=self.canvas_size:
             self.canvas_size=size
             self.board.set_size_request(*size)
@@ -885,14 +1020,16 @@ class Dashboard:
     def undo(self):
         if self.transaction and self.transaction.undo():
             self.apply_appearance(); self.build_cards()
-            self.allocate(self.board_view,self.board_view.get_allocation())
+            viewport=self.board_view.get_child()
+            self.allocate(viewport,viewport.get_allocation())
             self.update_edit_buttons()
             self.snap_check.set_active(self.profile['appearance']['snap'])
 
     def redo(self):
         if self.transaction and self.transaction.redo():
             self.apply_appearance(); self.build_cards()
-            self.allocate(self.board_view,self.board_view.get_allocation())
+            viewport=self.board_view.get_child()
+            self.allocate(viewport,viewport.get_allocation())
             self.update_edit_buttons()
             self.snap_check.set_active(self.profile['appearance']['snap'])
 
@@ -954,6 +1091,7 @@ class Dashboard:
         else: self.drawer.hide()
 
     def drawer_page(self,title,editable=True):
+        self.drawer_generation=getattr(self,'drawer_generation',0)+1
         clear(self.drawer)
         heading=box(False,6); heading.pack_start(label(title,'heading'),True,True,0)
         heading.pack_end(button('×',self.close_panel,'Close panel'),False,False,0)
@@ -1327,11 +1465,54 @@ class Dashboard:
         for source,sample in self.samples.items():
             if sample.get('error'): parent.pack_start(label(SOURCE_TITLES.get(source,source.title())+': '+sample['error'],'warning',True),False,False,0)
         for issue in issues:
-            parent.pack_start(button(issue['text'],lambda key=issue['card']:self.focus_card(key)),False,False,0)
+            parent.pack_start(button(issue['text'],lambda issue=issue:self.open_health_issue(issue)),False,False,0)
         parent.pack_start(label('Checks cover disk space, failed system/user services, network connectivity, monitored shares and low battery.',wrap=True),False,False,0)
         parent.pack_start(button('Check again now',lambda:[self.engine.request(s) for s in ('health','network','shares','power')]),False,False,0)
         parent.pack_start(button('Configure monitored shares',lambda:self.open_settings('Cards')),False,False,0)
         reveal(self.drawer)
+
+    def open_health_summary(self):
+        issues=getattr(self,'issues',[])
+        if len(issues)==1 and 'unit' in issues[0]: self.open_health_issue(issues[0])
+        else: self.show_health()
+
+    def open_health_issue(self,issue):
+        if 'unit' in issue:
+            self.show_service_details(issue['unit'],issue['scope'])
+        else:
+            self.focus_card(issue['card'])
+
+    def show_service_details(self,unit,scope):
+        parent=self.drawer_page('Unit diagnostics',editable=False)
+        generation=self.drawer_generation
+        row(parent,'Unit',unit)
+        row(parent,'Manager','Your user session' if scope=='user' else 'System')
+        parent.pack_start(label('Current status and the last 50 accessible log entries from this boot.',wrap=True),False,False,0)
+        buffers={}
+        for key,title in [('status','Current status'),('journal','Recent logs')]:
+            parent.pack_start(label(title,'heading'),False,False,0)
+            view=Gtk.TextView(editable=False,cursor_visible=False,monospace=True)
+            view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+            buffers[key]=view.get_buffer(); buffers[key].set_text('Loading…')
+            pane=scroll(view); pane.set_size_request(-1,180 if key=='status' else 240)
+            parent.pack_start(pane,False,False,0)
+        refresh=button('Refresh details',lambda:self.show_service_details(unit,scope))
+        refresh.set_sensitive(False)
+        parent.pack_start(refresh,False,False,0)
+        parent.pack_start(button('Back to system health',self.show_health),False,False,0)
+        reveal(self.drawer)
+        def receive_details(result):
+            if self.closing or self.drawer_generation!=generation or not self.drawer.get_visible():
+                return False
+            for key,buffer in buffers.items(): buffer.set_text(result[key])
+            refresh.set_sensitive(True)
+            self.engine.request('health')
+            return False
+        def read_details():
+            try: result=service_details(unit,scope)
+            except (OSError,ValueError) as exc: result={'status':str(exc),'journal':'Details unavailable.'}
+            GLib.idle_add(receive_details,result)
+        threading.Thread(target=read_details,daemon=True,name='poedash-service-details').start()
 
     def focus_card(self,key):
         self.drawer.hide()
@@ -1412,6 +1593,7 @@ class Dashboard:
         if self.visible:
             self.clock.set_text(now.strftime('%H:%M\n%a %d %b'))
             for card in self.cards.values():
+                if card.key=='calendar' and card.calendar_date!=now.date(): card.render()
                 card.update_freshness()
                 for widget in card.body.get_children():
                     if isinstance(widget,Graph): widget.queue_draw()

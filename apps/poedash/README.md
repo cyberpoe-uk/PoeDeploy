@@ -8,10 +8,15 @@ remains available as a fallback when GTK desktop support is unavailable.
 ## Zoom
 
 Use **− / percentage / +** beside the profile selector to scale the dashboard
-from 50% to 200% in 5% steps. **↶** restores 100%. Text, spacing, controls and
-the card canvas scale together; scrollbars appear when needed. Zoom is saved
-per profile. During an editing session it remains a preview until Save. These
-controls replace the old Comfortable/Compact switch.
+from 50% to 200% in 5% steps. **↶** restores 100%. Cards stay within the screen
+width and reflow into fewer columns as text and controls grow. Scroll vertically
+to reach the remaining cards. The header stays compact so zoom and profile
+controls remain accessible. Zoom is saved per profile. During an editing session
+it remains a preview until Save. Your saved card arrangement returns when there
+is enough room; zoom alone does not replace it.
+
+Resolution changes update the view live. Saved layouts are separate for each
+display, resolution and display scale.
 
 ## Edit
 
@@ -42,8 +47,9 @@ moving a card does not activate its normal controls.
 ## History and health
 
 Performance displays CPU/RAM and CPU-temperature graphs, Connectivity displays
-upload/download history, and Power displays battery-consumption history. Choose
-5, 15, 30 or 60 minutes in Appearance. History is stored locally and limited to
+upload/download history, and Power displays battery-consumption history.
+Performance and Connectivity readings and graph legends share their line colours.
+Choose 5, 15, 30 or 60 minutes in Appearance. History is stored locally and limited to
 one hour; collection gaps are not filled with invented samples.
 
 The health strip reports disks at least 90% full, failed system/user services,
@@ -52,7 +58,9 @@ VPNs. Select **Health/Details** to inspect issues or jump to a card. Use **Monit
 these mounts** on Mounted Shares, or enter expected paths and choose monitored
 VPNs in Edit → Cards. Monitoring a VPN is opt-in.
 
-Every data card reports its last update, collection errors or stale readings.
+Hover over a card's ↻ button to see its last update time. Collection errors and
+stale readings change the button to a warning indicator, with details on hover.
+Cards reserve their full body height for content, without an update footer.
 On battery, collectors and the audio visualiser pause while the dashboard is
 hidden. On AC, collection continues. Custom refresh intervals are retained
 across power-source changes. A card's ↻ button requests an immediate update.
@@ -63,7 +71,11 @@ across power-source changes. A card's ↻ button requests an immediate update.
 - Top Processes filters/sorts its list and opens process details without exposing
   command-line arguments. btop remains available for deeper inspection.
 - Connectivity opens addresses/routes; System expands storage/service details.
-- Player keeps artwork, seeking, playback controls and the audio visualiser.
+- Failed units in the health summary and System card open their exact system or
+  user status and recent journal entries. Details load in the background and can
+  be refreshed; opening them does not change the unit.
+- Player scales artwork to the available card space and keeps the audio visualiser,
+  seeking and playback controls at the bottom.
 - Session & Idle adjusts and applies the existing Hypridle configuration.
 - Power reads the existing power-profile policy and offers supported profiles.
 - Notes saves locally after typing; Tasks saves a local checklist.

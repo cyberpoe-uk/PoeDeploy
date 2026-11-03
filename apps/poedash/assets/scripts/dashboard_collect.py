@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 
 from dashboard_model import REFRESH, SOURCES, read_json
 from battery import reading as battery_reading
+from service_health import failed_units
 
 COMMANDS = {'cpu': ['cpu.sh'], 'ram': ['arch-status.sh', 'ram'],
             'cpu_temperature': ['cpu-temperature.py'], 'gpu': ['gpu.py', '--passive'],
@@ -77,8 +78,8 @@ def health_issues(values, expected=(), expected_vpns=()):
     for disk in health.get('disks', []):
         if disk.get('percent', 0) >= 90:
             issues.append({'card': 'system', 'text': f"{disk['path']} disk {disk['percent']}% full"})
-    for unit in health.get('failed', []):
-        issues.append({'card': 'system', 'text': 'Failed service: ' + unit})
+    for unit in failed_units(health.get('failed', [])):
+        issues.append({'card': 'system', 'text': f"Failed {unit['scope']} unit: {unit['unit']}", **unit})
     targets = {s.get('target') for s in values.get('shares', []) if isinstance(s, dict)}
     if 'shares' in values:
         for target in expected:
@@ -152,8 +153,9 @@ class Collectors:
             failed = []
             for scope in ([], ['--user']):
                 try:
-                    out = self.run(['systemctl', *scope, '--failed', '--no-legend', '--plain', '--no-pager'], timeout=3)
-                    failed += [line.split()[0] for line in out.splitlines() if line.strip()][:15]
+                    out = self.run(['systemctl', *scope, '--failed', '--no-legend', '--plain', '--no-pager', '--full'], timeout=3)
+                    failed += [{'unit': line.split()[0], 'scope': 'user' if scope else 'system'}
+                               for line in out.splitlines() if line.strip()][:15]
                 except (OSError, RuntimeError): pass
             return {'disks': disks, 'failed': failed}
         if source == 'containers':

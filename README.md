@@ -218,14 +218,20 @@ visible Save/Cancel controls. Daily, Monitoring and Minimal profiles remember
 separate layouts for each display.
 
 **− / percentage / + / reset** replaces Compact/Comfortable with continuous
-50–200% zoom. CPU/RAM/temperature, traffic and power graphs keep up to an hour
-of local history. The health strip opens actionable details, and card footers
-report freshness, errors or pauses. Notes, Tasks, Weather, RSS, Containers, NAS
-and Remote Machine cards are available in the card library.
+50–200% zoom. Cards reflow within the screen width and scroll vertically as
+needed, including after live resolution changes. CPU/RAM/temperature, traffic
+and power graphs keep up to an hour of local history, with matching colours on
+Performance and Connectivity readings. Hover over a card's refresh button for
+its update time, errors or pauses. The health strip opens actionable details.
+
+Calendar centers the month above a full-width grid and highlights today. Player
+scales album artwork to the card space and keeps playback controls at the bottom.
+Notes, Tasks, Weather, RSS, Containers, NAS and Remote Machine cards are available
+in the card library.
 
 See the [PoeDash guide](apps/poedash/README.md) for editing, integration setup,
 settings recovery and real-pointer GUI validation. The image above shows the
-earlier layout; the current version adds editing, profiles and these controls.
+earlier layout. The current version adds editing, profiles and these controls.
 
 A narrow app rail stays below the hostname. Right-click to pin/unpin an app.
 Pinned entries stay above recent apps, separated by a subtle line. Clicking an

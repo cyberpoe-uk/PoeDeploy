@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+import socket
 from pathlib import Path
 import tempfile
 import unittest
@@ -104,29 +105,97 @@ class DashboardControl(unittest.TestCase):
         launch.assert_called_once_with([c.sys.executable, str(root / 'scripts/dashboard-control.py'),
                                        '--root', str(root), 'update-run'], start_new_session=True,
                                       stdin=c.subprocess.DEVNULL, stdout=c.subprocess.DEVNULL,
-                                      stderr=c.subprocess.DEVNULL)
+                                      stderr=c.subprocess.DEVNULL, cwd=c.Path.home())
 
     def test_background_update_notifies_after_surface_reopens(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             result = c.subprocess.CompletedProcess([], 0, stdout='dashboard: dashboard\n')
             with patch.object(c, 'update_cache', return_value=root / 'cache'), \
+                 patch.object(c, 'install_update') as install, \
                  patch.object(c.subprocess, 'run', return_value=result) as run, \
                  patch.object(c, 'update_notice') as notice:
                 c.run_update(root)
-            self.assertEqual(run.call_args_list[0].args[0], ['bash', str(root / 'scripts/update.sh'), str(root)])
+            self.assertEqual(install.call_args.args[0], root)
+            self.assertEqual(run.call_args_list[0].args[0], ['bash', str(root / 'scripts/start.sh')])
             self.assertEqual(run.call_args_list[0].kwargs['stdin'], c.subprocess.DEVNULL)
+            self.assertEqual(json.loads((root / 'cache/update-status.json').read_text())['state'], 'complete')
             notice.assert_called_once_with('Updated successfully.')
 
     def test_failed_background_update_retains_error_log_and_notifies(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             with patch.object(c, 'update_cache', return_value=root / 'cache'), \
-                 patch.object(c.subprocess, 'run', return_value=c.subprocess.CompletedProcess([], 42)), \
+                 patch.object(c, 'install_update', side_effect=RuntimeError('Installer exited with status 42')), \
                  patch.object(c, 'update_notice') as notice:
                 c.run_update(root)
             self.assertTrue(notice.call_args.kwargs['failed'])
             self.assertIn('status 42', (root / 'cache/update.log').read_text())
+            state = json.loads((root / 'cache/update-status.json').read_text())
+            self.assertEqual(state['state'], 'failed')
+            self.assertIn('status 42', state['detail'])
+
+    def test_native_surface_is_ready_without_eww(self):
+        with tempfile.TemporaryDirectory(prefix='/tmp/pd-') as tmp:
+            root = Path(tmp)
+            (root / 'state').mkdir()
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+                server.bind(str(root / 'state/native.sock'))
+                server.listen()
+                import threading
+                def respond():
+                    with server.accept()[0] as connection:
+                        self.assertEqual(connection.recv(64), b'status')
+                        connection.sendall(b'active\n')
+                worker = threading.Thread(target=respond, daemon=True)
+                worker.start()
+                with patch.object(c.subprocess, 'run') as eww:
+                    self.assertTrue(c.surface_ready(root))
+                worker.join(timeout=3)
+                self.assertFalse(worker.is_alive())
+                eww.assert_not_called()
+
+    def test_stale_native_socket_allows_eww_fallback(self):
+        with tempfile.TemporaryDirectory(prefix='/tmp/pd-') as tmp:
+            root = Path(tmp)
+            (root / 'state').mkdir()
+            (root / 'state/native.sock').touch()
+            result = c.subprocess.CompletedProcess([], 0, stdout='dashboard: dashboard\n')
+            with patch.object(c.shutil, 'which', return_value='/bin/eww'), \
+                 patch.object(c.subprocess, 'run', return_value=result):
+                self.assertTrue(c.surface_ready(root))
+
+    def test_disabled_dashboard_stays_disabled_after_update(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'disabled').touch()
+            with patch.object(c, 'update_cache', return_value=root / 'cache'), \
+                 patch.object(c, 'install_update'), patch.object(c.subprocess, 'run') as launch, \
+                 patch.object(c, 'update_notice'):
+                c.run_update(root)
+            launch.assert_not_called()
+            self.assertTrue((root / 'disabled').exists())
+            self.assertEqual(json.loads((root / 'cache/update-status.json').read_text())['state'], 'complete')
+
+    def test_installer_streams_progress_and_keeps_failure_output(self):
+        for code in (0, 42):
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / 'scripts').mkdir()
+                (root / 'scripts/update.sh').write_text(
+                    'echo POEDASH_UPDATE_STAGE=download\n'
+                    'echo POEDASH_UPDATE_STAGE=install\n'
+                    'echo installer-details >&2\nexit ' + str(code) + '\n')
+                with patch.object(c, 'update_cache', return_value=root / 'cache'), \
+                     patch.object(c, 'update_status', wraps=c.update_status) as status, \
+                     (root / 'test.log').open('w') as log:
+                    if code:
+                        with self.assertRaisesRegex(RuntimeError, 'status 42'):
+                            c.install_update(root, log)
+                    else:
+                        c.install_update(root, log)
+                self.assertEqual([call.args[1] for call in status.call_args_list], ['Downloading', 'Installing'])
+                self.assertIn('installer-details', (root / 'test.log').read_text())
 
     def test_duplicate_background_updates_do_not_run_installer(self):
         with tempfile.TemporaryDirectory() as tmp:

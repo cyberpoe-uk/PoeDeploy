@@ -3,6 +3,8 @@ import contextlib
 import importlib.util
 import io
 import os
+import fcntl
+import signal
 from pathlib import Path
 import json
 import subprocess
@@ -110,6 +112,39 @@ class ObserverRecovery(unittest.TestCase):
 
 
 class SurfaceVisibility(unittest.TestCase):
+    def test_eww_autostart_does_not_keep_the_startup_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            root = home / 'dashboard'
+            (root / 'scripts').mkdir(parents=True)
+            script = root / 'scripts/start.sh'
+            script.write_text((ROOT / 'apps/poedash/assets/scripts/start.sh').read_text())
+            (root / 'poedash.py').write_text('')
+            binaries = home / 'bin'
+            binaries.mkdir()
+            fake_eww = binaries / 'eww'
+            fake_eww.write_text('''#!/usr/bin/env python3
+import os, subprocess, sys
+if sys.argv[-2:] == ['open', 'dashboard']:
+    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'],
+                             close_fds=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    with open(os.environ['DAEMON_PID'], 'w') as stream:
+        stream.write(str(child.pid))
+''')
+            fake_eww.chmod(0o755)
+            (binaries / 'sleep').write_text('#!/bin/sh\nexit 0\n')
+            (binaries / 'sleep').chmod(0o755)
+            pid_path = home / 'daemon.pid'
+            env = dict(os.environ, HOME=str(home), XDG_CACHE_HOME=str(home / '.cache'),
+                       DAEMON_PID=str(pid_path), PATH=str(binaries) + os.pathsep + os.environ['PATH'])
+            try:
+                subprocess.run(['bash', str(script)], env=env, check=True, timeout=10)
+                with (home / '.cache/poedash/start.lock').open() as lock:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally:
+                if pid_path.exists():
+                    os.kill(int(pid_path.read_text()), signal.SIGTERM)
+
     def test_refresh_recreates_only_its_own_dashboard_surface(self):
         for relative in ('apps/poedash/assets',):
             with self.subTest(relative=relative), tempfile.TemporaryDirectory() as tmp:

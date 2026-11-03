@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -87,6 +88,16 @@ class Installation(unittest.TestCase):
         self.args.dry_run = True
         self.install()
         self.assertEqual(before, sorted(str(p) for p in self.home.rglob('*')))
+
+    def test_upgrade_excludes_running_native_socket_from_backup(self):
+        self.install()
+        (self.root / 'state').mkdir(exist_ok=True)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            server.bind(str(self.root / 'state/native.sock'))
+            with patch.object(poedash, 'native_control'):
+                self.install()
+        for backup in (self.home / '.local/state/poedash/backups').iterdir():
+            self.assertFalse((backup / 'config/state/native.sock').exists())
 
     def test_interactive_desktop_install_refreshes_running_dashboard(self):
         self.args.no_start = False

@@ -219,7 +219,7 @@ def install(args, root):
     backup = Path(os.environ.get('XDG_STATE_HOME', Path.home() / '.local/state')) / 'poedash/backups' / datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     backup.mkdir(parents=True, mode=0o700)
     if root.exists():
-        shutil.copytree(root, backup / 'config')
+        shutil.copytree(root, backup / 'config', ignore=shutil.ignore_patterns('native.sock'))
     if binpath.exists():
         shutil.copy2(binpath, backup / 'poedash-command')
     if not args.no_integrate:

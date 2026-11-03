@@ -8,8 +8,10 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
+import tempfile
 import time
 
 
@@ -109,7 +111,60 @@ def update(root):
     validate_update_target(root)
     subprocess.Popen([sys.executable, str(root / 'scripts/dashboard-control.py'),
                       '--root', str(root), 'update-run'], start_new_session=True,
-                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     cwd=Path.home())
+
+
+def update_status(state, stage, progress, detail=''):
+    cache = update_cache()
+    cache.mkdir(parents=True, exist_ok=True)
+    payload = dict(state=state, stage=stage, progress=progress, detail=detail, updated=time.time())
+    fd, temporary = tempfile.mkstemp(prefix='.update-status-', dir=cache)
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            json.dump(payload, stream)
+        os.replace(temporary, cache / 'update-status.json')
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def install_update(root, log):
+    stages = {'download': ('Downloading', .2), 'install': ('Installing', .6)}
+    with subprocess.Popen(['bash', str(root / 'scripts/update.sh'), str(root)],
+                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, text=True, cwd=Path.home()) as process:
+        for line in process.stdout:
+            log.write(line)
+            log.flush()
+            phase = line.strip().removeprefix('POEDASH_UPDATE_STAGE=')
+            if line.startswith('POEDASH_UPDATE_STAGE=') and phase in stages:
+                stage, progress = stages[phase]
+                update_status('running', stage, progress)
+        code = process.wait()
+    if code:
+        raise RuntimeError(f'Installer exited with status {code}')
+
+
+def surface_ready(root):
+    native = root / 'state/native.sock'
+    if native.exists():
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+                connection.settimeout(2)
+                connection.connect(str(native))
+                connection.sendall(b'status')
+                if connection.recv(64).strip() == b'active':
+                    return True
+        except OSError:
+            pass
+    if shutil.which('eww'):
+        try:
+            ready = subprocess.run(['eww', '--config', str(root), 'active-windows'],
+                                   capture_output=True, text=True, timeout=3, check=False)
+            return ready.returncode == 0 and 'dashboard: dashboard' in ready.stdout.splitlines()
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return False
 
 
 def run_update(root):
@@ -127,24 +182,27 @@ def run_update(root):
         with log_path.open('w') as log:
             log_path.chmod(0o600)
             try:
-                result = subprocess.run(['bash', str(root / 'scripts/update.sh'), str(root)],
-                                        stdin=subprocess.DEVNULL, stdout=log, stderr=log, check=False)
-                if result.returncode:
-                    raise RuntimeError(f'Installer exited with status {result.returncode}')
+                update_status('running', 'Starting', .05)
+                install_update(root, log)
                 # Keep launch suppression active until the replacement surface is ready.
                 if not (root / 'disabled').exists():
-                    for _ in range(30):
-                        ready = subprocess.run(['eww', '--config', str(root), 'active-windows'],
-                                               capture_output=True, text=True, timeout=3, check=False)
-                        if ready.returncode == 0 and 'dashboard: dashboard' in ready.stdout:
+                    update_status('running', 'Restarting', .9)
+                    subprocess.run(['bash', str(root / 'scripts/start.sh')],
+                                   stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                   check=True, timeout=45, cwd=Path.home())
+                    deadline = time.monotonic() + 30
+                    while time.monotonic() < deadline:
+                        if surface_ready(root):
                             break
                         time.sleep(.5)
                     else:
                         raise RuntimeError('Installed, but the dashboard did not reopen. Try poedash start.')
             except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
                 print(str(exc), file=log, flush=True)
+                update_status('failed', 'Update failed', 0, f'{exc}. Details: {log_path}')
                 update_notice(f'{exc}. Details: {log_path}', failed=True)
                 return
+        update_status('complete', 'Updated', 1)
         update_notice('Updated successfully.')
 
 
