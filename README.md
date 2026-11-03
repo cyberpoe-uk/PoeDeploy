@@ -26,8 +26,11 @@ This script does not partition disks or replace an Arch installation guide.
 bash <(curl -fsSL https://cyberpoe.uk/poedeploy-latest)
 ```
 
-The launcher downloads the latest stable release and displays its version. If
-Git is missing, it asks before installing it. You can also inspect a checkout:
+The launcher selects the highest stable version tag (`vMAJOR.MINOR.PATCH`) and
+displays its version. The latest stable tag checked for this README is
+[`v1.6.2`](https://github.com/cyberpoe-uk/PoeDeploy/tree/v1.6.2).
+If Git is missing, it asks before installing it. A checkout of `main` can contain
+changes beyond the stable tag:
 
 ```bash
 git clone https://github.com/cyberpoe-uk/PoeDeploy.git
@@ -132,14 +135,6 @@ Desktop and dotfile changes should be reviewed on an existing customised system.
 Offers the supported SDDM setup and ML4W theme, preserving existing configuration
 backups where the installer manages files.
 
-### Fingerprint authentication
-
-Detects the reader, offers enrollment, and requires a successful verification
-before enabling supported SDDM/Hyprlock login changes. Password login remains
-available. The experimental Goodix GDIX51C0 path is pinned and requires consent.
-It does not enable fingerprints for SSH or sudo.
-[Hardware details and removal](docs/fingerprint.md).
-
 ### Optional applications
 
 Choose the applications you want. PoeDash, VPN clients and security tools are
@@ -186,6 +181,11 @@ behavior still require on-device testing.
 
 ## PoeDash
 
+The editable GTK dashboard described below is available on `main`, including
+through `poedash update`. Stable tag `v1.6.2` bundles the earlier Eww dashboard
+with Compact/Comfortable controls. Update PoeDash to use editing, profiles,
+continuous zoom and optional cards.
+
 PoeDash is the single dashboard bundled with PoeDeploy. It places your hostname
 above a themed desktop overview on workspace 1, with application windows above
 it. The editable surface uses GTK and GTK Layer Shell, with Eww as a fallback,
@@ -221,13 +221,21 @@ separate layouts for each display.
 50–200% zoom. Cards reflow within the screen width and scroll vertically as
 needed, including after live resolution changes. CPU/RAM/temperature, traffic
 and power graphs keep up to an hour of local history, with matching colours on
-Performance and Connectivity readings. Hover over a card's refresh button for
+Performance and Connectivity readings. Choose a 5, 15, 30 or 60 minute graph
+range in Appearance. Hover over a card's refresh button for
 its update time, errors or pauses. The health strip opens actionable details.
 
 Calendar centers the month above a full-width grid and highlights today. Player
 scales album artwork to the card space and keeps playback controls at the bottom.
 Notes, Tasks, Weather, RSS, Containers, NAS and Remote Machine cards are available
-in the card library.
+in the card library. Configure them in **Edit → Cards**: Weather uses coordinates
+and Open-Meteo, RSS takes feed URLs, Containers uses existing local Docker access,
+and NAS/Remote Machine read a configured JSON endpoint with an optional bearer
+token. Notes and Tasks save locally.
+
+Mounted Shares can monitor selected mounts. VPN health monitoring is opt-in.
+Failed services open their status and recent journal entries from Health or the
+System card.
 
 See the [PoeDash guide](apps/poedash/README.md) for editing, integration setup,
 settings recovery and real-pointer GUI validation. The image above shows the
@@ -364,7 +372,10 @@ poedash uninstall
 ```
 
 User configuration is under `~/.config/poedash`, with backups under
-`~/.local/state/poedash/backups`. [Dashboard guide](apps/README.md).
+`~/.local/state/poedash/backups`. Profiles, layouts, integrations, notes and tasks
+are stored in `dashboard.json`; local graph history is in `state/history.sqlite3`.
+Invalid dashboard configuration is backed up before defaults are recovered.
+[Dashboard guide](apps/README.md).
 
 ## Optional applications
 
@@ -433,5 +444,5 @@ include meaningful checks for changed behavior.
 
 Useful guides: [boot/UKI/Secure Boot](docs/boot-and-secure-boot.md),
 [kernel updates](docs/kernel-update-check.md), [network shares](docs/network-shares.md),
-[fingerprints](docs/fingerprint.md), [MateBook audio](docs/matebook-audio.md),
+[MateBook audio](docs/matebook-audio.md),
 [package search](docs/package-search.md), [themes](themes/README.md).
