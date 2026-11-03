@@ -11,9 +11,9 @@ import time
 from battery import reading as battery_state
 
 ROOT = Path(__file__).resolve().parent.parent
-CADENCE = {'cpu': 2, 'ram': 3, 'gpu': 5, 'network': 5, 'vpn': 5,
+CADENCE = {'cpu_temperature': 5, 'cpu': 2, 'ram': 3, 'gpu': 5, 'network': 5, 'vpn': 5,
            'power': 1, 'processes': 3, 'shares': 15, 'arch': 60, 'media': 5}
-COMMANDS = {'cpu': ['cpu.sh'], 'ram': ['arch-status.sh', 'ram'], 'gpu': ['gpu.py'],
+COMMANDS = {'cpu_temperature': ['cpu-temperature.py'], 'cpu': ['cpu.sh'], 'ram': ['arch-status.sh', 'ram'], 'gpu': ['gpu.py'],
             'network': ['network.sh'], 'vpn': ['vpn.sh'], 'power': ['power.py'],
             'processes': ['processes.py'], 'shares': ['shares.py'],
             'arch': ['arch-status.sh'], 'media': ['media.py']}

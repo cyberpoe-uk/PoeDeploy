@@ -5,6 +5,7 @@
 (defvar refresh_allowed false)
 (deflisten home_visible :initial true `./scripts/workspace.py --listen`)
 (defvar cpu 0)
+(defvar cpu_temperature "--")
 (defvar ram 0)
 (defvar gpu '{"usage":0,"label":"--","temperature":"--"}')
 (defvar network '{"interface":"--","ip":"--","tailscale":"--","state":"Offline"}')
@@ -20,7 +21,7 @@
 (defvar shares '["Checking mounted shares"]')
 (defvar media '{"available":false,"player":"No media","title":"Nothing playing","artist":"","status":"Stopped","position":"0:00","length":"0:00","progress":0,"icon":"♪","art":""}')
 ;; Start with narrow geometry until the monitor listener reports the actual size.
-(defvar layout '{"density": "comfortable", "columns": 0, "gap": 4, "row_gap": 4, "padding": 6, "rail_width": 44, "rail_labels": false, "rail_content_width": 24, "app_name_size": 9, "rail_name_chars": 3, "wave_height": 24, "session_width": 69, "card_width": 232, "card_padding": 10, "arch_height": 40, "system_height": 40, "calendar_height": 40, "performance_height": 40, "processes_height": 40, "connectivity_height": 40, "player_height": 40, "shares_height": 40, "management_height": 40, "header_height": 59, "top_height": 40, "middle_height": 40, "bottom_height": 40, "list_height": 20, "share_height": 20, "power_height": 20, "font_size": 11, "small_size": 9, "heading_size": 13, "title_size": 23, "media_title_size": 15, "media_control": 34, "album_size": 28, "media_text_width": 188, "process_name_chars": 24, "key_width": 51, "calendar_size": 9, "calendar_inline": true, "month_width": 120, "agenda_width": 108, "agenda_height": 30, "hostname_width": 18, "stat_key_chars": 15, "text_width": 17, "hostname": "Loading\u2026", "grid": "(box)"}')
+(defvar layout '{"density": "comfortable", "columns": 0, "gap": 4, "row_gap": 4, "padding": 6, "rail_width": 44, "rail_labels": false, "rail_content_width": 24, "app_name_size": 9, "rail_name_chars": 3, "wave_height": 24, "session_width": 69, "card_width": 232, "middle_width": 232, "card_padding": 10, "arch_height": 40, "system_height": 40, "calendar_height": 40, "performance_height": 40, "processes_height": 40, "connectivity_height": 40, "player_height": 40, "shares_height": 40, "management_height": 40, "header_height": 59, "top_height": 40, "middle_height": 40, "bottom_height": 40, "list_height": 20, "share_height": 20, "power_height": 20, "idle_height": 20, "session_height": 40, "font_size": 11, "small_size": 9, "heading_size": 13, "title_size": 23, "media_title_size": 15, "media_control": 34, "album_size": 28, "media_text_width": 188, "process_name_chars": 24, "key_width": 51, "calendar_size": 9, "calendar_inline": true, "month_width": 120, "agenda_width": 108, "agenda_height": 30, "hostname_width": 18, "stat_key_chars": 15, "text_width": 17, "hostname": "Loading\u2026", "grid": "(box)"}')
 (deflisten dashboard_grid :initial "(box)" `exec ./scripts/layout.py listen`)
 
 (deflisten wave :initial '{"path":"","active":false,"available":false,"backend":"Starting audio monitor"}' `exec ./scripts/visualizer.py`)
@@ -91,12 +92,13 @@
                   (label :show-truncated false :text {event.title} :width {layout.agenda_width} :height 0 :wrap true :xalign 0))))))))))
 
 (defwidget performance-card [height]
-  (box :class "card metrics-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+  (box :class "card metrics-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.middle_width} :height {height - 2 * layout.card_padding - 4}
     (button :onclick "./scripts/launch.sh system" :tooltip "Open btop" (section-title :text "PERFORMANCE"))
     (meter :name "CPU" :value cpu :display "${cpu}%" :action "./scripts/launch.sh system")
     (meter :name "GPU" :value {gpu.usage} :display {gpu.label} :action "./scripts/launch.sh gpu")
     (meter :name "RAM" :value ram :display "${ram}%" :action "./scripts/launch.sh system")
-    (stat-row :name "GPU temperature" :value {gpu.temperature})
+    (box :visible {cpu_temperature != "--"} (stat-row :name "CPU temperature" :value cpu_temperature))
+    (box :visible {gpu.temperature != "--" && gpu.temperature != ""} (stat-row :name "GPU temperature" :value {gpu.temperature}))
     (stat-row :name "Load 1 / 5 / 15m" :value {system_info.load})))
 
 ;; Specify both dimensions so Eww 0.6 does not retain a previous allocated width.
@@ -110,7 +112,7 @@
       (label :text "RAM ${process.memory}" :halign "start"))))
 
 (defwidget processes-card [height]
-  (box :class "card processes-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+  (box :class "card processes-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.middle_width} :height {height - 2 * layout.card_padding - 4}
     (button :onclick "./scripts/launch.sh system" :tooltip "Open btop" (section-title :text "TOP PROCESSES"))
     (label :show-truncated false :class "column-heading" :style "font-size: ${layout.small_size}px;" :text "PROCESS / PID · CPU / RAM" :halign "start")
     (scroll :hscroll false :vscroll true :width 0 :height {layout.list_height} :vexpand true
@@ -157,13 +159,13 @@
       (media-control :action "next" :icon "" :tooltip "Next"))))
 
 (defwidget shares-card [height]
-  (box :class "card shares-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+  (box :class "card shares-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.middle_width} :height {height - 2 * layout.card_padding - 4}
     (section-title :text "MOUNTED SHARES")
     (label :show-truncated false :class "subheading" :style "font-size: ${layout.small_size}px;" :text "SMB / NFS SHARES" :halign "start")
     (scroll :hscroll false :vscroll true :width 0 :height {layout.share_height} :vexpand true
       (box :orientation "v" :space-evenly false :spacing 6
         (for share in shares
-          (label :show-truncated false :class "share-row" :text share :xalign 0 :wrap true :hexpand true :width {layout.card_width - 16} :height 0 :tooltip share))))))
+          (label :show-truncated false :class "share-row" :text share :xalign 0 :wrap true :hexpand true :width {layout.middle_width - 16} :height 0 :tooltip share))))))
 
 (defwidget session-status [heading value detail]
   (box :orientation "v" :space-evenly false :spacing 2
@@ -178,23 +180,30 @@
     (button :active {idle.supported} :onclick "./scripts/idle-control.py adjust ${field} 1" :timeout "5s" (label :text "+"))
     (label :text "min" :class "micro")))
 
-(defwidget power-card [height]
+(defwidget session-card [height]
   (box :class "card power-idle-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
     (section-title :text "SESSION & IDLE")
-    (box :space-evenly true :spacing {layout.row_gap}
-      (session-status :heading "Source" :value {power_profile.source == "ac" ? "AC" : power_profile.source == "battery" ? "Battery" : power_profile.source == "desktop" ? "Desktop" : "Unknown"} :detail "Current system power source")
-      (session-status :heading "Profile" :value {power_profile.active == "performance" ? "Performance" : power_profile.active == "balanced" ? "Balanced" : power_profile.active == "power-saver" ? "Power Saver" : power_profile.active} :detail {power_profile.message != "" ? power_profile.message : "Active system power profile. Change it using QuickShell's power menu."})
-      (session-status :heading "Selected by" :value {!power_profile.supported ? "Unavailable" : !power_profile.enabled ? "Manual" : power_profile.mode == "Automatic" ? "Automatic" : "Manual"} :detail {power_profile.enabled ? "Automatic: PoeDash selects Performance on AC/Desktop and Power Saver on battery. Manual choices in QuickShell remain until the next power-source transition." : "PoeDash automatic switching is disabled. The current profile is retained."}))
-    (scroll :hscroll false :vscroll true :width 0 :height {layout.power_height} :vexpand true
+    (scroll :hscroll false :vscroll true :width 0 :height {layout.idle_height} :vexpand true
       (box :orientation "v" :space-evenly false :spacing {layout.row_gap}
         (idle-setting :name "Screen Off" :field "screen" :value {idle.screen_text} :detail {idle.screen_detail})
         (idle-setting :name "Lock Screen" :field "lock" :value {idle.lock_text} :detail {idle.lock_detail})
         (idle-setting :name "Auto Suspend" :field "suspend" :value {idle.suspend_text} :detail {idle.suspend_detail})
         (label :text {idle.message} :tooltip {idle.message} :wrap true :xalign 0 :width {layout.card_width - 16} :height 0 :style "font-size: ${layout.small_size}px;")
         (button :active {idle.supported && idle.dirty} :halign "end" :onclick "./scripts/idle-control.py apply" :timeout "25s" (label :text "Apply"))
-    (label :visible {power.present && power.on_battery} :class "card-title" :style "font-size: ${layout.heading_size}px;" :text "POWER" :halign "start")
-    (label :visible {power.present && power.on_battery} :text {power.remaining != "" ? "${power.battery} · ${power.watts} · ${power.remaining}" : "${power.battery} · ${power.watts} · Remaining unavailable"} :tooltip {power.available ? "${power.status} · Power draw ${power.watts}" : power.status} :halign "start" :style "font-size: ${layout.small_size}px;")
 ))))
+
+(defwidget power-card [height]
+  (box :class "card power-card" :style "padding: ${layout.card_padding}px;" :vexpand true :orientation "v" :space-evenly false :spacing {layout.row_gap} :width {layout.card_width} :height {height - 2 * layout.card_padding - 4}
+    (section-title :text "POWER")
+    (box :space-evenly true :spacing {layout.row_gap}
+      (session-status :heading "Source" :value {power_profile.source == "ac" ? "AC" : power_profile.source == "battery" ? "Battery" : power_profile.source == "desktop" ? "Desktop" : "Unknown"} :detail "Current system power source")
+      (session-status :heading "Profile" :value {power_profile.active == "performance" ? "Performance" : power_profile.active == "balanced" ? "Balanced" : power_profile.active == "power-saver" ? "Power Saver" : power_profile.active} :detail {power_profile.message != "" ? power_profile.message : "Active system power profile. Change it using QuickShell's power menu."})
+      (session-status :heading "Selected by" :value {!power_profile.supported ? "Unavailable" : !power_profile.enabled ? "Manual" : power_profile.mode == "Automatic" ? "Automatic" : "Manual"} :detail {power_profile.enabled ? "Automatic: PoeDash selects Performance on AC/Desktop and Power Saver on battery. Manual choices in QuickShell remain until the next power-source transition." : "PoeDash automatic switching is disabled. The current profile is retained."}))
+    (box :visible {power.present} :orientation "v" :space-evenly false :spacing {layout.row_gap}
+      (stat-row :name "Battery" :value {power.battery})
+      (stat-row :name "Status" :value {power.status})
+      (stat-row :name "Consumption" :value {power.watts})
+      (stat-row :name "Remaining" :value {power.remaining != "" ? power.remaining : "--"}))))
 
 (defwidget dashboard-grid []
   (literal :content dashboard_grid))

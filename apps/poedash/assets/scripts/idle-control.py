@@ -380,6 +380,8 @@ def snapshot(root=ROOT):
 
 
 def publish(data, root):
+    if (root / 'state/native.sock').exists():
+        return  # Native surface reads the persisted draft after the action.
     run(['eww', '--config', root, 'update', 'idle=' + json.dumps(display_values(data))])
 
 

@@ -182,8 +182,85 @@ def geometry(width, height, mode='comfortable'):
     return data
 
 
+def poedash_geometry(width, height, mode='comfortable', share_count=0, share_rows=None):
+    """Balance the PoeDash columns; smaller displays scroll each card."""
+    data = geometry(width, height, mode)
+    gap = data['gap']
+    # Give the middle column 20% more width, drawing equally from each side.
+    base_width = data['card_width']
+    donation = round(base_width * .10) if data['columns'] == 3 else 0
+    data['card_width'] = base_width - donation
+    data['middle_width'] = base_width + 2 * donation
+    budget = max(100, height - 2 * data['padding'] - data['header_height'] - gap - 32)
+    line = math.ceil(data['font_size'] * 1.35) + data['row_gap']
+    chrome = 2 * data['card_padding'] + data['heading_size'] + 8
+    columns = [('arch', 'system', 'connectivity', 'session', 'power'),
+               ('performance', 'processes', 'shares'), ('calendar', 'player')]
+    desired = {'arch': chrome + 4 * line, 'system': chrome + 7 * line,
+               'connectivity': chrome + 7 * line, 'session': chrome + 6 * line,
+               'power': chrome + 7 * line}
+    if data['columns'] == 3:
+        room = budget - 4 * gap
+        # Reserve usable heights and scroll card contents when space is tight.
+        factor = min(1, room / sum(desired.values()))
+        for name, size in desired.items():
+            data[name + '_height'] = max(1, int(size * factor))
+        # Power consumes all space left below the other left-column cards.
+        data['power_height'] = room - sum(data[name + '_height'] for name in ('arch', 'system', 'connectivity', 'session'))
+        data['performance_height'] = chrome + 6 * line
+        room = budget - 2 * gap
+        data['performance_height'] = min(data['performance_height'], int(room * .45))
+        chars = max(12, int((data['middle_width'] - 32) / (data['font_size'] * .65)))
+        # Allow extra lines for word wrapping and the row's CSS padding.
+        share_lines = sum(max(2, math.ceil(len(row) / chars) + 1) for row in share_rows) if share_rows else max(1, share_count) * 3
+        wanted = chrome + (2 + share_lines) * line + max(1, share_count) * 8
+        process_minimum = max(100, int(room * .22))
+        data['shares_height'] = min(room - data['performance_height'] - process_minimum,
+                                    max(int(room * .26), wanted))
+        data['processes_height'] = room - data['performance_height'] - data['shares_height']
+        data['calendar_height'] = int((budget - gap) * .60)
+        data['player_height'] = budget - gap - data['calendar_height']
+    else:
+        ordered = ['arch', 'system', 'connectivity', 'session', 'power',
+                   'performance', 'processes', 'shares', 'calendar', 'player']
+        columns = [tuple(ordered[i::data['columns']]) for i in range(data['columns'])]
+        for cards in columns:
+            size = max(1, (budget - (len(cards) - 1) * gap) // len(cards))
+            for name in cards:
+                data[name + '_height'] = size
+    grid = '(box :space-evenly false :spacing {layout.gap} :vexpand true'
+    for cards in columns:
+        column_width = 'middle_width' if 'performance' in cards and data['columns'] == 3 else 'card_width'
+        grid += (f'(box :orientation "v" :space-evenly false :spacing {{layout.gap}} :vexpand true'
+                 f' :width {{layout.{column_width} + 2 * layout.card_padding + 4}}')
+        for card in cards:
+            # Bound minimum widget sizes so tall content cannot push cards off screen.
+            expand = 'true' if card == cards[-1] else 'false'
+            grid += (f'(scroll :hscroll false :vscroll true :vexpand {expand} :width 0 :height {{layout.{card}_height}}'
+                     f' ({card}-card :height {{layout.{card}_height}}))')
+        grid += ')'
+    data['grid'] = grid + ')'
+    data['management_height'] = data['power_height']
+    data['idle_height'] = max(20, data['session_height'] - chrome)
+    data['list_height'] = max(20, data['processes_height'] - chrome - line)
+    data['share_height'] = max(20, data['shares_height'] - chrome - line)
+    data['session_width'] = max(24, int((data['card_width'] - 16 - 2 * data['row_gap']) // 3))
+    data['calendar_inline'] = data['card_width'] >= data['month_width'] + 65 + gap
+    data['agenda_width'] = data['card_width'] - data['month_width'] - gap if data['calendar_inline'] else data['card_width']
+    data['process_name_chars'] = max(6, int((data['middle_width'] - data['small_size'] * .62 * 12) / (data['font_size'] * .62)))
+    data['agenda_height'] = max(30, data['calendar_height'] - chrome - 2 * line)
+    data['album_size'] = max(28, min(data['album_size'], data['player_height'] - chrome - data['media_control'] - data['wave_height'] - 3 * gap))
+    data['media_text_width'] = max(80, data['card_width'] - data['album_size'] - 16)
+    return data
+
+
 def snapshot(root):
-    data = geometry(*monitor_size(root), density(root))
+    size, mode = monitor_size(root), density(root)
+    if (root / 'dashboard-id').exists() and (root / 'dashboard-id').read_text().strip() == 'poedash':
+        shares = load(root / 'state/share-count.json')
+        data = poedash_geometry(*size, mode, share_count=shares.get('count', 0), share_rows=shares.get('rows'))
+    else:
+        data = geometry(*size, mode)
     data['hostname'] = socket.gethostname() or 'localhost'
     return data
 

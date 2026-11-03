@@ -188,7 +188,8 @@ behavior still require on-device testing.
 
 PoeDash is the single dashboard bundled with PoeDeploy. It places your hostname
 above a themed desktop overview on workspace 1, with application windows above
-it. It uses Eww and integrates with supported ML4W QuickShell/Waybar controls.
+it. The editable surface uses GTK and GTK Layer Shell, with Eww as a fallback,
+and integrates with supported ML4W QuickShell/Waybar controls.
 
 <p align="center">
   <img src="assets/screenshots/poedash-live.png" alt="PoeDash running on the development PC" width="1100">
@@ -200,18 +201,31 @@ on your display, theme, installed applications and hardware.
 
 ### Layout and applications
 
-The wide layout has three columns:
+The default wide layout has three columns:
 
-| | | |
+| Left | Middle | Right |
 | --- | --- | --- |
-| Arch | System | Calendar |
-| Performance | Top Processes | Connectivity |
-| Player | Mounted Shares | Session & Idle |
+| Arch | Performance | Calendar |
+| System | Top Processes | Player |
+| Connectivity | Mounted Shares | |
+| Session & Idle | | |
+| Power | | |
 
-Cards adapt to logical display size, including scaling and resolutions through
-4K. Compact and Comfortable switch live and persist across restarts. Compact uses
-smaller text while retaining card bounds and recent-app icon/name sizes. Smaller
-screens use fewer columns and bounded internal scrolling for long content.
+Use **Edit** beside Packages to move, resize or swap cards, adjust each data
+source's refresh interval, preview appearance changes, add optional cards, and
+manage profiles. Layout mode includes alignment guides, snapping, undo/redo and
+visible Save/Cancel controls. Daily, Monitoring and Minimal profiles remember
+separate layouts for each display.
+
+**− / percentage / + / reset** replaces Compact/Comfortable with continuous
+50–200% zoom. CPU/RAM/temperature, traffic and power graphs keep up to an hour
+of local history. The health strip opens actionable details, and card footers
+report freshness, errors or pauses. Notes, Tasks, Weather, RSS, Containers, NAS
+and Remote Machine cards are available in the card library.
+
+See the [PoeDash guide](apps/poedash/README.md) for editing, integration setup,
+settings recovery and real-pointer GUI validation. The image above shows the
+earlier layout; the current version adds editing, profiles and these controls.
 
 A narrow app rail stays below the hostname. Right-click to pin/unpin an app.
 Pinned entries stay above recent apps, separated by a subtle line. Clicking an
@@ -227,13 +241,14 @@ resumes refreshes. On AC, refreshes continue even when the dashboard is hidden.
 Lightweight workspace/power checks remain available so these transitions work.
 Actual power-profile management and idle enforcement continue independently.
 
-Visible general metrics normally update every two seconds on battery. The Power
-readings use **five seconds on battery and one second on AC**. Playing media is
-sampled every second. Laptop GPU telemetry is passive by default.
+Refresh intervals are configurable per source through Edit → Refresh intervals.
+Your selected intervals are retained across power-source changes, with an
+independent media worker so slow integrations do not block the player. Laptop
+GPU telemetry is passive by default.
 
 ### Player and seekable audio wave
 
-Album artwork grows with its card. Click artwork or a song title to open the
+The Player card shows album artwork and track details. Use Open to activate the
 playing application. Click or drag the wave/progress slider to seek in a track.
 Streams without a known duration cannot seek.
 

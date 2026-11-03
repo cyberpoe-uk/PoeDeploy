@@ -76,6 +76,10 @@ def switch(root, action):
                                  start_new_session=True)
         else:
             marker.write_text('Dashboard disabled\n')
+            native = root / 'scripts/dashboard_native.py'
+            if native.is_file():
+                subprocess.run(['python3', str(native), '--root', str(root), '--control', 'quit'],
+                               check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
             if shutil.which('eww'):
                 subprocess.run(['eww', '--config', str(root), 'kill'], check=False,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

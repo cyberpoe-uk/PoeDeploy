@@ -171,7 +171,7 @@ def ui_paused(root):
 
 def publish(data):
     # Eww may be closed. Policy always persists; the UI listener reads it later.
-    if ui_paused(ROOT) or not shutil.which('eww'): return
+    if ui_paused(ROOT) or (ROOT / 'state/native.sock').exists() or not shutil.which('eww'): return
     try: run(['eww', '--config', ROOT, 'update', 'power_profile=' + json.dumps(data)])
     except (OSError, RuntimeError, subprocess.SubprocessError): pass
 

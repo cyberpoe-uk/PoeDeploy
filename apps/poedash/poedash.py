@@ -20,13 +20,21 @@ THEME_BEGIN, THEME_END = '# BEGIN POEDASH', '# END POEDASH'
 PACKAGES = ['hyprland', 'jq', 'python', 'iproute2', 'util-linux', 'procps-ng',
             'coreutils', 'glib2', 'gawk', 'sed', 'grep', 'bash', 'pacman-contrib', 'kitty',
             'btop', 'nvtop', 'rofi', 'libnotify', 'ttf-jetbrains-mono-nerd',
-            'matugen', 'playerctl', 'socat', 'libpulse']
+            'matugen', 'playerctl', 'socat', 'libpulse', 'python-gobject', 'python-cairo', 'gtk-layer-shell']
 REQUIRED = ['hyprctl', 'eww', 'jq', 'python3', 'ip', 'cal', 'flock', 'free',
             'timeout', 'gio', 'checkupdates', 'kitty', 'btop', 'nvtop', 'rofi', 'notify-send', 'matugen', 'playerctl', 'socat', 'parec']
 
 
 def run(argv, **kw):
     return subprocess.run([str(x) for x in argv], check=True, **kw)
+
+
+def native_control(root, command):
+    script = root / 'scripts/dashboard_native.py'
+    if not script.is_file():
+        return False
+    return subprocess.run([sys.executable, str(script), '--root', str(root), '--control', command],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15).returncode == 0
 
 
 def refresh(root):
@@ -223,13 +231,14 @@ def install(args, root):
         parsed = tomllib.loads(matugen_text)
     preserved = {}
     legacy_backup = backup / 'retired-legacy-eww'
-    for preserved_name in ('settings.json', 'colors.scss', 'disabled', 'layout.json'):
+    for preserved_name in ('settings.json', 'colors.scss', 'disabled', 'layout.json', 'dashboard.json'):
         path = root / preserved_name
         if path.is_file():
             preserved[preserved_name] = path.read_bytes()
         elif (legacy_backup / preserved_name).is_file():
             preserved[preserved_name] = (legacy_backup / preserved_name).read_bytes()
     if root.exists():
+        native_control(root, 'quit')
         if shutil.which('eww'):
             subprocess.run(['eww', '--config', str(root), 'kill'], check=False,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -275,6 +284,8 @@ def install(args, root):
         (root / 'disabled').write_bytes(preserved['disabled'])
     if 'layout.json' in preserved:
         (root / 'layout.json').write_bytes(preserved['layout.json'])
+    if 'dashboard.json' in preserved:
+        atomic(root / 'dashboard.json', preserved['dashboard.json'].decode(), 0o600)
     shutil.copy2(SOURCE / 'poedash.py', root / 'poedash.py')
     render(root)
     run([sys.executable, root / 'scripts/dashboard-control.py', '--root', root, 'prepare'])
@@ -315,6 +326,7 @@ def install(args, root):
 
 
 def uninstall(root):
+    native_control(root, 'quit')
     if (root / 'scripts/power-control.py').is_file():
         run([sys.executable, root / 'scripts/power-control.py', 'uninstall'])
     manifest = json.loads((root / 'install.json').read_text())
@@ -347,7 +359,8 @@ def theme(root, wallpaper):
         path = Path(tmp) / 'config.toml'
         path.write_text(cfg)
         run(['matugen', '--config', path, 'image', wallpaper])
-    subprocess.run(['eww', '--config', str(root), 'reload'])
+    if not native_control(root, 'reload'):
+        subprocess.run(['eww', '--config', str(root), 'reload'])
 
 
 def main():
@@ -382,12 +395,13 @@ def main():
             # polls remain read-only and never open a permission dialog.
             subprocess.Popen([sys.executable, str(calendar), '--check-offline-cache'],
                              start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if args.action == 'reload':
+        if args.action == 'reload' and not native_control(root, 'reload'):
             run(['eww', '--config', root, 'reload'])
     elif args.action == 'start':
         run([root / 'scripts/start.sh'])
     elif args.action == 'stop':
-        run(['eww', '--config', root, 'kill'])
+        if not native_control(root, 'quit'):
+            run(['eww', '--config', root, 'kill'])
     elif args.action in ('enable', 'disable', 'update'):
         run([sys.executable, root / 'scripts/dashboard-control.py', '--root', root, args.action])
     elif args.action == 'uninstall':

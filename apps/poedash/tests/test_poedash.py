@@ -49,6 +49,10 @@ class Installation(unittest.TestCase):
         (self.root / 'obsolete-interface-file').write_text('remove me')
         (self.root / 'disabled').touch()
         (self.root / 'layout.json').write_text('{"density":"comfortable"}')
+        dashboard = '{"version":1,"notes":"keep my private note"}'
+        (self.root / 'dashboard.json').write_text(dashboard)
+        (self.root / 'state').mkdir(exist_ok=True)
+        (self.root / 'state/history.fixture').write_text('saved history')
         self.hypr.write_text(self.hypr.read_text() + '-- later user edit\n')
         self.install()
         self.assertEqual(self.hypr.read_text().count(poedash.BEGIN), 1)
@@ -58,6 +62,9 @@ class Installation(unittest.TestCase):
         self.assertFalse((self.root / 'obsolete-interface-file').exists())
         self.assertTrue((self.root / 'disabled').exists())
         self.assertEqual(json.loads((self.root / 'layout.json').read_text())['density'], 'comfortable')
+        self.assertEqual((self.root / 'dashboard.json').read_text(), dashboard)
+        self.assertEqual((self.root / 'dashboard.json').stat().st_mode & 0o777, 0o600)
+        self.assertEqual((self.root / 'state/history.fixture').read_text(), 'saved history')
         self.assertTrue((self.root / 'scripts/layout.py').stat().st_mode & 0o111)
         self.assertTrue((self.root / 'scripts/workspace.py').stat().st_mode & 0o111)
         self.assertEqual((self.root / 'dashboard-id').read_text(), 'poedash\n')
@@ -193,11 +200,11 @@ class Installation(unittest.TestCase):
         self.install()
         self.assertEqual(poedash.settings(self.root)['name'], 'Studio PC')
         yuck = (self.root / 'eww.yuck').read_text()
-        for feature in ('TOP PROCESSES', 'Power draw', 'SMB / NFS SHARES',
+        for feature in ('TOP PROCESSES', 'Consumption', 'SMB / NFS SHARES',
                         'SPECIFICATIONS', 'media-control.sh open',
                         'Tailscale IP', ':wrap true', 'media.art'):
             self.assertIn(feature, yuck)
-        self.assertIn(':visible {power.present && power.on_battery}', yuck)
+        self.assertIn(':visible {power.present}', yuck)
         self.assertIn(':visible home_visible', yuck)
         self.assertNotIn('dashboard-away', yuck)
         self.assertIn('deflisten home_visible', yuck)

@@ -7,33 +7,29 @@ PoeDash displays the current hostname above a narrow, themed application rail.
 Right-click applications to pin or unpin them. Pins appear above recent apps,
 separated by a subtle line. History and pins persist across dashboard updates.
 
-The wide layout uses three columns:
+The default wide layout places Arch, System, Connectivity, Session & Idle and
+Power on the left; Performance, Top Processes and Mounted Shares in the middle;
+and Calendar and Player on the right. Mounted Shares takes space from the
+scrolling process list as its content grows.
 
-| | | |
-| --- | --- | --- |
-| Arch | System | Calendar |
-| Performance | Top Processes | Connectivity |
-| Player | Mounted Shares | Session & Idle |
+**Edit** beside Packages opens layout editing, refresh intervals, appearance,
+card visibility/integration settings and profile management. Cards can be moved,
+resized from all edges/corners, or swapped. Save/Cancel, undo/redo, alignment
+guides and optional snapping support editing. Profiles retain separate layouts
+for each monitor. Zoom uses − / percentage / + / reset instead of density modes.
 
-The layout adapts to display scaling, desktop bars and narrower monitors.
-Comfortable is the default and uses the former Compact text sizes. Compact text
-is six pixels smaller where readable. Recent/pinned app icons and app-name
-captions keep their previous sizes. Each mode retains its existing card sizes
-and spacing. Card heights
-and typography adapt to the viewport so the dashboard itself does not scroll.
-The dashboard button changes density live and saves the selection. App captions
-use smaller text, with icons as their primary visual identifiers.
+History graphs, a clickable health summary, per-card freshness/error reporting,
+local Notes and Tasks, plus optional Weather, RSS, Containers, NAS and Remote
+Machine cards are included. See the [PoeDash guide](poedash/README.md) for the
+full feature list and setup details.
 
-Battery details hide on desktops, while profile and idle controls remain visible.
-Remaining time appears only when the OS supplies a valid estimate. The Power
-subsection appears only on battery, refreshes every five seconds there, and is
-hidden on AC or batteryless desktops. Power telemetry uses one second on AC. General
-metrics update every two seconds on battery, with existing intervals preserved
-on AC. Playing media updates independently every second. Hidden dashboards
-pause collectors, polls and UI feeds on battery. AC-powered dashboards continue
-refreshing when hidden. Lightweight visibility/power checks and the separate
-power-policy service remain active. Laptop GPU monitoring defaults to passive telemetry.
-Set `gpu_monitoring` to `detailed` or `passive` in `layout.json` to override it.
+The native surface uses GTK 3 and GTK Layer Shell; Eww remains a fallback.
+Refresh intervals are configurable per data source and persist across restarts.
+Hidden dashboards pause collectors and UI feeds on battery; AC-powered dashboards
+continue refreshing. Lightweight visibility/power checks and the separate
+power-policy service remain active. Media has an independent worker. Laptop
+GPU monitoring defaults to passive telemetry. Battery estimates appear only
+when supplied by the operating system.
 
 The player supports MPRIS artwork, track details, a seekable progress/wave slider
 and transport controls. The multicolour wave grows with the played portion and
@@ -43,7 +39,7 @@ Animation is capped at 12 fps on battery and 24 fps on AC, stops on pause, and
 releases the monitor while a battery-powered dashboard is hidden.
 With no player, Play offers background Spotify startup and saved-context resume.
 Missing Spotify opens an approval dialog, then a prefilled package search.
-Clicking artwork or the track title opens the playing application. The calendar
+The Player’s Open button activates the playing application. The calendar
 reads Thunderbird's enabled local calendars and cached events without modifying
 them. Titles wrap and the agenda scrolls. With no connected calendar, it shows
 an empty agenda. Clicking the calendar opens Thunderbird Calendar. The agenda
@@ -79,9 +75,9 @@ network limitations and the separate package-only and full-system-upgrade choice
 
 ## Power and idle settings
 
-The Session & Idle card is the ninth card in the main grid.
-Source, Profile and Selected by identify the current power status. Profile choices
-use QuickShell’s existing menu. There are no duplicate Power tabs or selectors.
+Power has its own card beneath Session & Idle. Source, Profile and Selected by
+identify power status, alongside battery consumption and remaining time. Supported
+power profiles can be selected there or through QuickShell’s existing menu.
 Screen Off, Lock Screen and Auto Suspend use independent minute controls, with
 zero disabling a timer. Apply backs up and updates the discovered Hypridle config,
 restarts the existing daemon and verifies registered timers. Other listeners,
