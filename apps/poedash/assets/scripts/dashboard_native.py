@@ -120,6 +120,49 @@ class Artwork(Gtk.DrawingArea):
         return False
 
 
+class Waveform(Gtk.DrawingArea):
+    """Draw audio levels directly; avoid per-frame SVG decoding and image layout."""
+    def __init__(self):
+        super().__init__()
+        self.payload = {}
+        self.set_size_request(-1, 36)
+        self.connect('draw', self.draw_wave)
+        self.get_accessible().set_name('Audio waveform')
+
+    def set_frame(self, payload):
+        self.payload = payload
+        self.queue_draw()
+
+    def draw_wave(self, widget, cr):
+        values = self.payload.get('values', [])
+        if not values: return False
+        width, height = self.get_allocated_width(), self.get_allocated_height()
+        cr.save()
+        cr.scale(width / 320, height / 32)
+        cr.set_source_rgba(.65, .62, .72, .18)
+        cr.move_to(0, 30); cr.line_to(320, 30); cr.stroke()
+        played = min(320, max(0, self.payload.get('progress', 100) * 3.2))
+        cr.rectangle(0, 0, played, 32); cr.clip()
+        import cairo
+        palette = ((.984,.573,.235),(.937,.267,.267),(.659,.333,.969),(.231,.510,.965))
+        for layer, (offset, gain, opacity) in enumerate(((0,.28,.65),(7,.22,.7),(15,.15,.85))):
+            gradient = cairo.LinearGradient(0, 0, max(1, played), 0)
+            for i, color in enumerate(palette): gradient.add_color_stop_rgba(i/3, *color, opacity)
+            points = [(0,30)] + [(i*320/max(1,len(values)-1),30-max(0,min(100,values[(i+offset)%len(values)]))*gain) for i in range(len(values))] + [(320,30)]
+            cr.move_to(*points[0])
+            # Convert the SVG quadratic ridges to Cairo cubic curves.
+            start = points[0]
+            for i in range(1,len(points)-1):
+                control = points[i]; after = points[i+1]
+                end = ((control[0]+after[0])/2,(control[1]+after[1])/2)
+                cr.curve_to(start[0]+2/3*(control[0]-start[0]),start[1]+2/3*(control[1]-start[1]),end[0]+2/3*(control[0]-end[0]),end[1]+2/3*(control[1]-end[1]),*end)
+                start = end
+            cr.line_to(320,30); cr.line_to(0,30); cr.close_path()
+            cr.set_source(gradient); cr.fill()
+        cr.restore()
+        return False
+
+
 class Graph(Gtk.DrawingArea):
     def __init__(self, app, metrics, maximum=None):
         super().__init__()
@@ -483,7 +526,7 @@ class Card(Gtk.EventBox):
                 except GLib.Error: pass
             self.text(data.get('title','Nothing playing'),'media-title')
             self.text(data.get('artist') or data.get('player',''),'muted')
-            self.wave_image=Gtk.Image(); self.player_controls.pack_start(self.wave_image,False,False,0)
+            self.wave_image=Waveform(); self.player_controls.pack_start(self.wave_image,False,False,0)
             self.update_wave()
             seek=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,0,100,1)
             seek.set_draw_value(False); seek.set_value(float(data.get('progress',0)))
@@ -573,12 +616,7 @@ class Card(Gtk.EventBox):
 
     def update_wave(self):
         if not hasattr(self,'wave_image'): return
-        path=self.app.wave.get('path','')
-        if path and Path(path).is_file():
-            try:
-                width=max(80,self.get_allocated_width()-30)
-                self.wave_image.set_from_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_scale(path,width,36,False))
-            except GLib.Error: pass
+        self.wave_image.set_frame(self.app.wave)
 
     def update_freshness(self):
         sources=SOURCES.get(self.key,())
@@ -735,7 +773,7 @@ class Dashboard:
         self.engine.start()
         self.spawn_listener('desktop.py',['listen'],self.receive_apps)
         if not preview and not smoke: self.spawn_listener('workspace.py',['--listen'],self.receive_workspace)
-        self.spawn_listener('visualizer.py',[],self.receive_wave)
+        self.spawn_listener('visualizer.py',['--native'],self.receive_wave)
         self.ipc_path=self.root/'state/native.sock'
         self.start_ipc()
         self.window.show_all()
@@ -1579,7 +1617,7 @@ class Dashboard:
     def receive_wave(self,payload):
         if self.closing: return False
         self.wave=payload
-        if 'player' in self.cards: self.cards['player'].update_wave()
+        if self.visible and 'player' in self.cards: self.cards['player'].update_wave()
         return False
 
     def poll_profile(self):

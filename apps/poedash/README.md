@@ -61,8 +61,11 @@ VPNs in Edit → Cards. Monitoring a VPN is opt-in.
 Hover over a card's ↻ button to see its last update time. Collection errors and
 stale readings change the button to a warning indicator, with details on hover.
 Cards reserve their full body height for content, without an update footer.
-On battery, collectors and the audio visualiser pause while the dashboard is
-hidden. On AC, collection continues. Custom refresh intervals are retained
+The native audio visualiser pauses whenever the dashboard is hidden. While
+visible, it draws orange, red, purple and blue waveforms directly at 15 fps on
+AC or 10 fps on battery, avoiding per-frame SVG file decoding. The Eww fallback
+retains its SVG renderer. On battery, collectors also pause while the dashboard
+is hidden. On AC, collection continues. Custom refresh intervals are retained
 across power-source changes. A card's ↻ button requests an immediate update.
 
 ## Card actions

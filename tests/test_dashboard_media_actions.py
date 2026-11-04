@@ -1,11 +1,12 @@
 """Media actions and visualization with no real playback or audio recording."""
 import array
+import asyncio
 import importlib.util
 import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 SCRIPTS = Path(__file__).resolve().parents[1] / 'apps/poedash/assets/scripts'
 def module(name):
@@ -126,3 +127,45 @@ class Wave(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class NativeVisualizer(unittest.TestCase):
+    class Finished(Exception):
+        pass
+
+    def test_native_stream_emits_multiple_frames_without_svg_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); (root/'state').mkdir()
+            for name in ('media-playing','home-visible'):
+                (root/'state'/name).write_text('true')
+            process=Mock(returncode=None)
+            process.stdout.readexactly=AsyncMock(return_value=array.array('h',[16000]*1066).tobytes())
+            process.wait=AsyncMock(return_value=0)
+            frames=[]
+            def receive(document, **kwargs):
+                frames.append(json.loads(document))
+                if len(frames)==3: raise self.Finished()
+            with patch.dict(visual.os.environ,{'XDG_RUNTIME_DIR':tmp}), \
+                 patch.object(visual,'audio_command',return_value=(['fake-monitor'],'PulseAudio output monitor')) as command, \
+                 patch.object(visual.asyncio,'create_subprocess_exec',new=AsyncMock(return_value=process)), \
+                 patch('builtins.print',side_effect=receive):
+                with self.assertRaises(self.Finished): asyncio.run(visual.main(root,native=True))
+            self.assertEqual(len(frames),3)
+            self.assertTrue(all(frame['active'] and len(frame['values'])==32 for frame in frames))
+            self.assertFalse(list((root/'poedash-wave').glob('wave-*.svg')))
+            self.assertEqual(command.call_args.args[1],15)
+            process.terminate.assert_called_once()
+
+    def test_native_hidden_dashboard_does_not_start_audio_monitor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); (root/'state').mkdir()
+            (root/'state/media-playing').write_text('true')
+            (root/'state/home-visible').write_text('false')
+            (root/'state/on-battery').write_text('true')
+            with patch.dict(visual.os.environ,{'XDG_RUNTIME_DIR':tmp}), \
+                 patch.object(visual,'audio_command',return_value=(['fake-monitor'],'PulseAudio output monitor')) as command, \
+                 patch.object(visual.asyncio,'create_subprocess_exec',new=AsyncMock()) as spawn, \
+                 patch.object(visual.asyncio,'sleep',new=AsyncMock(side_effect=self.Finished)):
+                with self.assertRaises(self.Finished): asyncio.run(visual.main(root,native=True))
+            spawn.assert_not_called()
+            self.assertEqual(command.call_args.args[1],10)
