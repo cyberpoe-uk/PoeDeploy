@@ -495,7 +495,8 @@ rm -f -- "$POEDEPLOY_LOG"
         root = Path(__file__).resolve().parents[1]
         expected = [
             'apps/poedash/install.sh', 'apps/poedash/poedash.py',
-            'apps/poedash/assets/templates/eww.yuck',
+            'apps/poedash/migration.py',
+            'apps/poedash/assets/scripts/dashboard_native.py',
             'apps/poedash/assets/scripts/DashboardModule.qml',
             'apps/poedash/assets/scripts/dashboard-control.py',
         ]

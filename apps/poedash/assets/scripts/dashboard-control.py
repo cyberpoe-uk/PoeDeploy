@@ -28,45 +28,9 @@ def validate_update_target(root):
         raise RuntimeError('The update control points to another dashboard. Reinstall the intended dashboard to repair the bar integration.')
 
 
-def prepare(root):
-    start = root / 'scripts/start.sh'
-    if not start.is_file():
-        raise RuntimeError('Dashboard is not installed.')
-    guard = '[ -f "$(dirname "$(dirname "$(realpath "$0")")")/disabled" ] && exit 0'
-    text = start.read_text()
-    if guard not in text:
-        first, rest = text.split('\n', 1)
-        text = first + '\n' + guard + '\n' + rest
-    # A disable click must also cancel a startup that is still waiting.
-    text = re.sub(r'(?m)^(\s*)(if ! timeout 3 eww|if timeout 3 eww)', lambda m: m[1] + guard + '\n' + m[0], text) if '# Dashboard toggle checkpoints' not in text else text
-    if '# Dashboard toggle checkpoints' not in text:
-        text += '\n# Dashboard toggle checkpoints\n'
-    if text != start.read_text():
-        backup = start.with_name('start.sh.before-dashboard-toggle')
-        if not backup.exists():
-            shutil.copy2(start, backup)
-        start.write_text(text)
-    # Upgrade old integration without touching unrelated Hyprland settings.
-    lua = root / 'hyprland.lua'
-    if lua.is_file():
-        text = lua.read_text()
-        if 'local function protect_home' in text and 'dashboard_disabled' not in text:
-            block = text
-            function = ('local function dashboard_disabled()\n'
-                        '    local f = io.open(' + json.dumps(str(root / 'disabled')) + ', "r")\n'
-                        '    if f then f:close() return true end\n'
-                        '    return false\nend\n')
-            body = re.sub(r'(local function protect_home[^\n]*\n)', r'\1    if dashboard_disabled() then return end\n', block)
-            body = body.replace('if current and current.workspace', 'if not dashboard_disabled() and current and current.workspace')
-            wrapped = 'do\n' + function + 'if not dashboard_disabled() then\n' + body + '\nend\nend\n'
-            backup = lua.with_name(lua.name + '.before-dashboard-toggle')
-            if not backup.exists():
-                shutil.copy2(lua, backup)
-            lua.write_text(text.replace(block, wrapped, 1))
-
-
 def switch(root, action):
-    prepare(root)
+    if not (root / 'scripts/start.sh').is_file():
+        raise RuntimeError('Dashboard is not installed.')
     with (root / '.toggle.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         marker = root / 'disabled'
@@ -82,9 +46,6 @@ def switch(root, action):
             if native.is_file():
                 subprocess.run(['python3', str(native), '--root', str(root), '--control', 'quit'],
                                check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
-            if shutil.which('eww'):
-                subprocess.run(['eww', '--config', str(root), 'kill'], check=False,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def module(root):
@@ -156,13 +117,6 @@ def surface_ready(root):
                 if connection.recv(64).strip() == b'active':
                     return True
         except OSError:
-            pass
-    if shutil.which('eww'):
-        try:
-            ready = subprocess.run(['eww', '--config', str(root), 'active-windows'],
-                                   capture_output=True, text=True, timeout=3, check=False)
-            return ready.returncode == 0 and 'dashboard: dashboard' in ready.stdout.splitlines()
-        except (OSError, subprocess.SubprocessError):
             pass
     return False
 
@@ -320,7 +274,7 @@ def install_quickshell(root, statusbar=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
-    parser.add_argument('action', choices=['status', 'toggle', 'enable', 'disable', 'prepare', 'waybar', 'quickshell', 'update', 'update-run'])
+    parser.add_argument('action', choices=['status', 'toggle', 'enable', 'disable', 'waybar', 'quickshell', 'update', 'update-run'])
     parser.add_argument('--config', type=Path)
     args = parser.parse_args()
     root = args.root.expanduser().resolve()
@@ -343,8 +297,6 @@ def main():
         run_update(root)
     elif args.action == 'quickshell':
         install_quickshell(root, args.config.expanduser() if args.config else None)
-    elif args.action == 'prepare':
-        prepare(root)
     else:
         switch(root, args.action)
 

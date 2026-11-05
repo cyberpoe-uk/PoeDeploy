@@ -261,7 +261,7 @@ def open_player(apps):
 
 
 def open_calendar(apps, root):
-    preferences = read_json(root / 'layout.json', {})
+    preferences = read_json(root / 'settings.json', {})
     preferred = preferences.get('calendar', 'thunderbird') if isinstance(preferences, dict) else 'thunderbird'
     if preferred == 'google':
         leave_home()
@@ -291,8 +291,7 @@ def open_calendar(apps, root):
                     break
                 time.sleep(0.25)
     else:
-        notify('No calendar application was found. Install a calendar app or choose one in layout.json.')
-
+        notify('No calendar application was found. Install a calendar app or choose one in settings.json.')
 
 
 def ui_paused(root):
@@ -359,10 +358,6 @@ def main():
         if not args.identifier or args.identifier not in apps:
             raise RuntimeError('This application is no longer installed.')
         toggle_pin(args.identifier)
-        try:
-            call('eww', '--config', str(args.root), 'update', 'app_lists=' + json.dumps(app_lists(apps)))
-        except (OSError, subprocess.SubprocessError):
-            pass  # The listener also reads pins, and persisted choices survive restarts.
     elif args.action == 'media':
         open_player(apps)
     else:

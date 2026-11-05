@@ -24,32 +24,29 @@ class DashboardControl(unittest.TestCase):
         home.start()
         self.addCleanup(home.stop)
 
-    def test_disable_enable_preserves_settings_and_scopes_eww(self):
+    def test_disable_enable_preserves_settings_and_stops_only_its_native_surface(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'poedash'
             (root / 'scripts').mkdir(parents=True)
             (root / 'scripts/start.sh').write_text('#!/bin/sh\nexit 0\n')
             (root / 'settings.json').write_text('{"keep": true}')
-            with patch.object(c.shutil, 'which', return_value='/bin/eww'), patch.object(c.subprocess, 'run') as run, patch.object(c.subprocess, 'Popen') as start:
+            with patch.object(c.subprocess, 'run') as run, patch.object(c.subprocess, 'Popen') as start:
                 c.switch(root, 'disable')
                 self.assertTrue((root / 'disabled').exists())
-                run.assert_called_once_with(['eww', '--config', str(root), 'kill'], check=False,
-                                            stdout=c.subprocess.DEVNULL,
-                                            stderr=c.subprocess.DEVNULL)
+                run.assert_not_called()
                 c.switch(root, 'toggle')
                 self.assertFalse((root / 'disabled').exists())
                 start.assert_called_once()
             self.assertEqual((root / 'settings.json').read_text(), '{"keep": true}')
-            self.assertEqual((root / 'scripts/start.sh').read_text().count('&& exit 0'), 1)
+            self.assertEqual((root / 'scripts/start.sh').read_text(), '#!/bin/sh\nexit 0\n')
 
     def test_disabled_startup_does_not_launch_commands(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'poedash'
             (root / 'scripts').mkdir(parents=True)
             start = root / 'scripts/start.sh'
-            start.write_text('#!/bin/bash\nprintf should-not-run\n')
+            start.write_text((Path(__file__).resolve().parents[1] / 'apps/poedash/assets/scripts/start.sh').read_text())
             (root / 'disabled').touch()
-            c.prepare(root)
             result = c.subprocess.run(['bash', str(start)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0)
             self.assertEqual(result.stdout, '')
@@ -71,21 +68,9 @@ class DashboardControl(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / 'config'
             config.write_text('{"modules-right": []}')
-            c.install_waybar(Path(tmp) / 'eww', config)
+            c.install_waybar(Path(tmp) / 'poedash', config)
             self.assertEqual(json.loads(config.read_text())['modules-right'], ['custom/poedash', 'custom/poedash-update'])
 
-    def test_legacy_workspace_guard_is_upgraded_once(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp) / 'poedash'
-            (root / 'scripts').mkdir(parents=True)
-            (root / 'scripts/start.sh').write_text('#!/bin/bash\nexit 0\n')
-            lua = root / 'hyprland.lua'
-            lua.write_text('local function protect_home(window, follow)\nend\n')
-            c.prepare(root)
-            first = lua.read_text()
-            c.prepare(root)
-            self.assertEqual(lua.read_text(), first)
-            self.assertIn('if dashboard_disabled() then return end', first)
 
     def test_existing_switch_gets_one_adjacent_update_button(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -113,6 +98,7 @@ class DashboardControl(unittest.TestCase):
             result = c.subprocess.CompletedProcess([], 0, stdout='dashboard: dashboard\n')
             with patch.object(c, 'update_cache', return_value=root / 'cache'), \
                  patch.object(c, 'install_update') as install, \
+                 patch.object(c, 'surface_ready', return_value=True), \
                  patch.object(c.subprocess, 'run', return_value=result) as run, \
                  patch.object(c, 'update_notice') as notice:
                 c.run_update(root)
@@ -135,7 +121,7 @@ class DashboardControl(unittest.TestCase):
             self.assertEqual(state['state'], 'failed')
             self.assertIn('status 42', state['detail'])
 
-    def test_native_surface_is_ready_without_eww(self):
+    def test_native_surface_is_ready_without_external_commands(self):
         with tempfile.TemporaryDirectory(prefix='/tmp/pd-') as tmp:
             root = Path(tmp)
             (root / 'state').mkdir()
@@ -149,21 +135,20 @@ class DashboardControl(unittest.TestCase):
                         connection.sendall(b'active\n')
                 worker = threading.Thread(target=respond, daemon=True)
                 worker.start()
-                with patch.object(c.subprocess, 'run') as eww:
+                with patch.object(c.subprocess, 'run') as external:
                     self.assertTrue(c.surface_ready(root))
                 worker.join(timeout=3)
                 self.assertFalse(worker.is_alive())
-                eww.assert_not_called()
+                external.assert_not_called()
 
-    def test_stale_native_socket_allows_eww_fallback(self):
+    def test_stale_native_socket_is_not_reported_as_ready(self):
         with tempfile.TemporaryDirectory(prefix='/tmp/pd-') as tmp:
             root = Path(tmp)
             (root / 'state').mkdir()
             (root / 'state/native.sock').touch()
-            result = c.subprocess.CompletedProcess([], 0, stdout='dashboard: dashboard\n')
-            with patch.object(c.shutil, 'which', return_value='/bin/eww'), \
-                 patch.object(c.subprocess, 'run', return_value=result):
-                self.assertTrue(c.surface_ready(root))
+            with patch.object(c.subprocess, 'run') as external:
+                self.assertFalse(c.surface_ready(root))
+            external.assert_not_called()
 
     def test_disabled_dashboard_stays_disabled_after_update(self):
         with tempfile.TemporaryDirectory() as tmp:

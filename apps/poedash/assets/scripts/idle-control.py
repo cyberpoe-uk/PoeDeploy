@@ -379,22 +379,9 @@ def snapshot(root=ROOT):
     return display_values(result)
 
 
-def publish(data, root):
-    if (root / 'state/native.sock').exists():
-        return  # Native surface reads the persisted draft after the action.
-    run(['eww', '--config', root, 'update', 'idle=' + json.dumps(display_values(data))])
-
-
-
-def ui_paused(root):
-    try:
-        return (root / 'state/refresh-paused').read_text().strip() == 'true'
-    except OSError:
-        return False
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['status', 'listen', 'adjust', 'apply'])
+    parser.add_argument('action', choices=['status', 'adjust', 'apply'])
     parser.add_argument('field', nargs='?', choices=KINDS)
     parser.add_argument('delta', nargs='?', type=int, choices=[-10, -1, 1, 10])
     args = parser.parse_args()
@@ -403,39 +390,6 @@ def main():
     if args.action == 'status':
         print(json.dumps(snapshot()))
         return
-    if args.action == 'listen':
-        previous = None
-        while True:
-            try:
-                if ui_paused(ROOT):
-                    time.sleep(1)
-                    continue
-                # Drafts survive failures and refreshes. External changes are read
-                # when no edit is pending, so polling never discards entered values.
-                try:
-                    data = json.loads(state.read_text()) if state.is_file() else snapshot()
-                    if not isinstance(data, dict): raise ValueError('Editor state must be an object')
-                except (OSError, ValueError):
-                    data = snapshot()
-                if data.get('dirty'):
-                    try:
-                        validate({key: data[key] for key in KINDS})
-                        data['known'] = True
-                    except (KeyError, ValueError):
-                        data = snapshot()
-                if not data.get('dirty'):
-                    fresh = snapshot()
-                    if not fresh.get('dirty') and fresh.get('supported') and all(data.get(k) == fresh[k] for k in KINDS) and str(data.get('message', '')).startswith('Applied and verified'):
-                        fresh['message'] = data['message']
-                    data = fresh
-                encoded = json.dumps(display_values(data))
-                if encoded != previous:
-                    print(encoded, flush=True)
-                    previous = encoded
-            except (OSError, ValueError, RuntimeError) as exc:
-                data = dict(screen=0, lock=0, suspend=0, dirty=False, supported=False, known=False, message=str(exc), config='')
-                print(json.dumps(display_values(data)), flush=True)
-            time.sleep(5)
     with (state.parent / '.idle-edit.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         data = json.loads(state.read_text()) if state.is_file() else snapshot()
@@ -455,7 +409,6 @@ def main():
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
                 data.update(dirty=True, message=str(exc))
         state.write_text(json.dumps(display_values(data)))
-        publish(data, ROOT)
 
 
 if __name__ == '__main__':

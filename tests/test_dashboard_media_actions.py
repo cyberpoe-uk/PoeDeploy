@@ -90,7 +90,7 @@ class Wave(unittest.TestCase):
             self.assertNotIn('--device=@DEFAULT_SOURCE@', command)
             self.assertIn('output monitor', backend)
 
-    def test_pcm_silence_real_amplitude_smoothing_and_svg_are_bounded(self):
+    def test_pcm_silence_real_amplitude_and_smoothing_are_bounded(self):
         silence = array.array('h', [0] * 1024).tobytes()
         sound = array.array('h', [16000] * 1024).tobytes()
         self.assertEqual(visual.pcm_levels(silence), [0] * visual.BARS)
@@ -98,20 +98,8 @@ class Wave(unittest.TestCase):
         self.assertTrue(all(0 < n <= 100 for n in levels))
         filtered = visual.smooth(levels, [0] * visual.BARS)
         self.assertTrue(all(0 < n < 100 for n in filtered))
-        self.assertIn('<svg', visual.svg(filtered))
-        self.assertIn(' Q ', visual.svg(filtered))
 
-    def test_wave_has_colored_progress_clip_full_card_width_and_no_cursor(self):
-        image = visual.svg([50] * 32, width=1075, progress=25)
-        self.assertIn('width="1075"', image)
-        self.assertIn('<rect width="80.00"', image)
-        self.assertEqual(image.count('<linearGradient '), 3)
-        self.assertEqual(image.count('T 320,30 L 0,30 Z'), 3)
-        for color in ('#ef4444', '#a855f7', '#facc15', '#3b82f6', '#ffffff', '#000000', '#fb923c'):
-            self.assertIn(color, image)
-        self.assertNotIn('#6ee7b7', image)
-        self.assertNotEqual(image, visual.svg([0] * 32, width=1075, progress=25))
-        self.assertNotIn('<circle', image)
+    def test_song_progress_advances_only_while_playing(self):
         self.assertEqual(visual.song_progress(dict(length=100, position=25, playing=True, sampled=10), 11), 26)
         self.assertEqual(visual.song_progress(dict(length=100, position=25, playing=False, sampled=10), 11), 25)
 
@@ -149,7 +137,7 @@ class NativeVisualizer(unittest.TestCase):
                  patch.object(visual,'audio_command',return_value=(['fake-monitor'],'PulseAudio output monitor')) as command, \
                  patch.object(visual.asyncio,'create_subprocess_exec',new=AsyncMock(return_value=process)), \
                  patch('builtins.print',side_effect=receive):
-                with self.assertRaises(self.Finished): asyncio.run(visual.main(root,native=True))
+                with self.assertRaises(self.Finished): asyncio.run(visual.main(root))
             self.assertEqual(len(frames),3)
             self.assertTrue(all(frame['active'] and len(frame['values'])==32 for frame in frames))
             self.assertFalse(list((root/'poedash-wave').glob('wave-*.svg')))
@@ -166,6 +154,6 @@ class NativeVisualizer(unittest.TestCase):
                  patch.object(visual,'audio_command',return_value=(['fake-monitor'],'PulseAudio output monitor')) as command, \
                  patch.object(visual.asyncio,'create_subprocess_exec',new=AsyncMock()) as spawn, \
                  patch.object(visual.asyncio,'sleep',new=AsyncMock(side_effect=self.Finished)):
-                with self.assertRaises(self.Finished): asyncio.run(visual.main(root,native=True))
+                with self.assertRaises(self.Finished): asyncio.run(visual.main(root))
             spawn.assert_not_called()
             self.assertEqual(command.call_args.args[1],10)

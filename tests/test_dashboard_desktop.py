@@ -4,7 +4,6 @@ import json
 import os
 from pathlib import Path
 import signal
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -184,6 +183,13 @@ class Activation(unittest.TestCase):
             self.assertIn('No player', notify.call_args.args[0])
             desktop.open_calendar({}, Path(tmp))
             self.assertIn('Thunderbird is not installed', notify.call_args.args[0])
+
+    def test_calendar_uses_the_migrated_setting(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(desktop,'leave_home'), patch.object(desktop,'start') as launch:
+            (Path(tmp)/'settings.json').write_text('{"calendar":"google"}')
+            desktop.open_calendar({},Path(tmp))
+            launch.assert_called_once_with('xdg-open','https://calendar.google.com/')
 
 
 if __name__ == '__main__':

@@ -116,7 +116,6 @@ class CollectorTests(unittest.TestCase):
 
     def test_missing_utilities_have_readable_empty_states(self):
         self.assertEqual(self.collect('processes.py', error=FileNotFoundError()), [{'name': 'No process data available', 'pid': '', 'cpu': '', 'memory': ''}])
-        self.assertEqual(self.collect('shares.py', error=FileNotFoundError()), ['No SMB or NFS shares mounted'])
 
     def test_processes_are_limited_and_exclude_the_collector(self):
         rows = ' 1 ps 0.0 0.0\n' + '\n'.join(f'{pid} app{pid} 5.0 1.2' for pid in range(2, 20))
@@ -126,11 +125,6 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual('5.0%', data[0]['cpu'])
         self.assertEqual('1.2%', data[0]['memory'])
 
-    def test_mounted_share_names_are_returned_as_text(self):
-        mounts = {'filesystems': [{'fstype': 'cifs', 'source': '//nas/Team files', 'target': '/mnt/Team files'},
-                                  {'fstype': 'nfs4', 'source': 'server:/export', 'target': '/mnt/nfs'}]}
-        data = self.collect('shares.py', subprocess.CompletedProcess([], 0, json.dumps(mounts)))
-        self.assertEqual(data, ['CIFS  /mnt/Team files  ←  //nas/Team files', 'NFS4  /mnt/nfs  ←  server:/export'])
 
     def test_network_route_and_tailscale_fallback(self):
         body = r'''

@@ -142,14 +142,6 @@ class PowerPolicy(unittest.TestCase):
         (ac / 'online').write_text('1')
         self.assertEqual(power.source(supplies), 'ac')
 
-    def test_desktop_profile_status_remains_visible_without_battery(self):
-        text = (SCRIPTS.parent / 'templates/eww.yuck').read_text()
-        card = text.split('(defwidget power-card')[1].split('(defwidget dashboard-grid')[0]
-        self.assertIn(':heading "Profile"', card)
-        self.assertIn(':heading "Selected by"', card)
-        self.assertNotIn('power_tab', text)
-        self.assertNotIn('power-control.py set', text)
-        self.assertIn('(literal :content dashboard_grid)', text)
 
 class BackendDetection(unittest.TestCase):
     def test_profile_api_uses_only_advertised_profiles(self):

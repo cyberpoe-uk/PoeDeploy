@@ -23,7 +23,7 @@ source=Path(__file__).resolve().parents[2]
 fixture=tempfile.TemporaryDirectory(prefix='poedash-wayland-')
 root=Path(fixture.name)/'dashboard'
 shutil.copytree(source/'assets',root,ignore=shutil.ignore_patterns('__pycache__'))
-for filename,dest in [('dashboard-layout.py','layout.py'),('workspace-state.py','workspace.py'),('desktop-actions.py','desktop.py'),('thunderbird-calendar.py','thunderbird-calendar.py')]:
+for filename,dest in [('workspace-state.py','workspace.py'),('desktop-actions.py','desktop.py'),('thunderbird-calendar.py','thunderbird-calendar.py')]:
  shutil.copy2(source.parent/'shared'/filename,root/'scripts'/dest)
 shutil.copytree(source.parent/'shared/calendar-vendor',root/'scripts/calendar-vendor',ignore=shutil.ignore_patterns('__pycache__'))
 shutil.copy2(root/'settings.example.json',root/'settings.json')

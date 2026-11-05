@@ -162,20 +162,6 @@ class Policy:
             atomic(self.file, data)
 
 
-
-def ui_paused(root):
-    try:
-        return (root / 'state/refresh-paused').read_text().strip() == 'true'
-    except OSError:
-        return False
-
-def publish(data):
-    # Eww may be closed. Policy always persists; the UI listener reads it later.
-    if ui_paused(ROOT) or (ROOT / 'state/native.sock').exists() or not shutil.which('eww'): return
-    try: run(['eww', '--config', ROOT, 'update', 'power_profile=' + json.dumps(data)])
-    except (OSError, RuntimeError, subprocess.SubprocessError): pass
-
-
 def unit_text():
     # systemd ExecStart quoting uses double quotes, not shell single quotes.
     command = ' '.join('"' + a.replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%') + '"' for a in [sys.executable, str(ROOT / 'scripts/power-control.py'), 'watch'])
@@ -280,7 +266,7 @@ async def watch(policy):
                            ('net.hadess.PowerProfiles', '/net/hadess/PowerProfiles')]:
             tasks.append(asyncio.create_task(monitor(['gdbus', 'monitor', '--system', '--dest', name, '--object-path', path], b'PropertiesChanged')))
         try:
-            publish(policy.sync())
+            policy.sync()
             while not stop.is_set():
                 event = asyncio.create_task(queue.get())
                 halted = asyncio.create_task(stop.wait())
@@ -289,7 +275,7 @@ async def watch(policy):
                     if stop.is_set(): break
                     if event in done: await asyncio.sleep(.3)  # coalesce cable event bursts
                     while not queue.empty(): queue.get_nowait()
-                    publish(policy.sync())  # also reconciles missed events after resume
+                    policy.sync()  # also reconciles missed events after resume
                 finally:
                     event.cancel(); halted.cancel()
                     await asyncio.gather(event, halted, return_exceptions=True)
@@ -301,27 +287,14 @@ async def watch(policy):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['install', 'watch', 'status', 'listen', 'set', 'enable', 'disable', 'uninstall'])
+    parser.add_argument('action', choices=['install', 'watch', 'status', 'set', 'enable', 'disable', 'uninstall'])
     parser.add_argument('profile', nargs='?', choices=PROFILES)
     args = parser.parse_args()
     policy = Policy()
     if args.action == 'watch': asyncio.run(watch(policy))
-    elif args.action == 'listen':
-        previous = None
-        while True:
-            if ui_paused(ROOT):
-                time.sleep(1)
-                continue
-            data = dict(supported=False, source='unknown', active='Unavailable', available=[], mode='Unavailable', enabled=False, message='Power profile service is not configured.')
-            data.update(policy.saved())
-            encoded = json.dumps(data)
-            if encoded != previous:
-                print(encoded, flush=True)
-                previous = encoded
-            time.sleep(1)
     elif args.action == 'set':
         if args.profile is None: parser.error('set requires a profile')
-        publish(policy.sync(manual=args.profile))
+        policy.sync(manual=args.profile)
     elif args.action == 'status': print(json.dumps(policy.saved()))
     elif args.action in ('disable', 'uninstall'): remove(policy, args.action == 'uninstall')
     else:

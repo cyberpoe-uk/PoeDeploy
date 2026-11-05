@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('retirement', ROOT / 'apps/poedash/assets/scripts/retire-dashboard.py')
+spec = importlib.util.spec_from_file_location('retirement', ROOT / 'apps/poedash/migration.py')
 migration = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(migration)
 
@@ -157,3 +157,27 @@ class Retirement(unittest.TestCase):
         self.assertTrue(script.with_suffix('.ready').exists())
         self.retire()
         self.assertLess(child.wait(timeout=3),0)
+
+    def test_current_upgrade_stops_old_workers_but_keeps_the_updater_running(self):
+        root=self.new
+        (root/'scripts').mkdir(parents=True)
+        (root/'eww.yuck').write_text('old dashboard')
+        children=[]
+        try:
+            for name in ('workspace.py','dashboard-control.py'):
+                script=root/'scripts'/name
+                script.write_text('import time\nfrom pathlib import Path\nPath(__file__).with_suffix(".ready").touch()\ntime.sleep(60)\n')
+                child=subprocess.Popen([sys.executable,str(script)])
+                children.append(child)
+                for _ in range(100):
+                    if script.with_suffix('.ready').exists():break
+                    time.sleep(.01)
+                self.assertTrue(script.with_suffix('.ready').exists())
+            with patch.object(migration.shutil,'which',return_value=None):
+                migration.stop_legacy_surface(root)
+            self.assertLess(children[0].wait(timeout=3),0)
+            self.assertIsNone(children[1].poll())
+        finally:
+            for child in children:
+                if child.poll() is None:child.terminate()
+                child.wait(timeout=3)

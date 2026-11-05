@@ -34,7 +34,7 @@ class ButtonRefresh(unittest.TestCase):
         self.addCleanup(self.x11.XCloseDisplay, self.display)
         with patch.object(native.Engine, 'start'), patch.object(native.Dashboard, 'spawn_listener'), \
                 patch.object(native.Dashboard, 'start_ipc'):
-            self.app = native.Dashboard(Path(self.temporary.name), preview=True, size=(2560, 1440))
+            self.app = native.Dashboard(Path(self.temporary.name), preview=True, size=(1920, 1080))
         self.app.run = Mock()
         self.pump(.3)
 
@@ -72,12 +72,15 @@ class ButtonRefresh(unittest.TestCase):
     def click(self, widget):
         self.press(widget); self.release()
 
-    def test_header_buttons_dispatch_their_actions(self):
+    def test_header_packages_button_dispatches_its_action(self):
         self.click(self.button(self.app.header_controls, 'Packages'))
         self.app.run.assert_called_once_with('packages.py', 'launch')
+
+    def test_header_edit_button_opens_the_drawer(self):
         self.click(self.app.edit_button)
         self.assertTrue(self.app.drawer.get_mapped())
-        self.click(self.button(self.app.drawer, 'Close'))
+
+    def test_header_zoom_button_changes_zoom(self):
         before = self.app.profile['appearance']['scale']
         self.click(self.button(self.app.header_controls, '+'))
         self.assertGreater(self.app.profile['appearance']['scale'], before)
@@ -121,6 +124,62 @@ class ButtonRefresh(unittest.TestCase):
                 self.assertTrue(detail.get_expanded())
                 labels = [w.get_text() for w in self.descendants(detail) if isinstance(w, self.native.Gtk.Label)]
                 self.assertIn('/new-mount' if key == 'system' else 'new-interface', labels)
+
+    def populate_recent_apps(self):
+        self.app.receive_apps({'pinned': [], 'recent': [
+            {'id': 'test.desktop', 'name': 'Test app', 'icon': 'application-x-executable'}]})
+        self.pump()
+
+    def appearance_control(self, title):
+        return next(w for w in self.descendants(self.app.drawer)
+                    if isinstance(w, self.native.Gtk.SpinButton) and w.get_accessible().get_name() == title)
+
+    def assert_app_sizes(self, text_size, icon_size):
+        self.pump()
+        image = next(w for w in self.descendants(self.app.rail_body) if isinstance(w, self.native.Gtk.Image))
+        text = next(w for w in self.descendants(self.app.rail_body)
+                    if isinstance(w, self.native.Gtk.Label) and w.get_text() == 'Test app')
+        self.assertEqual(image.get_pixel_size(), icon_size)
+        font = text.get_style_context().get_font(self.native.Gtk.StateFlags.NORMAL)
+        pixels = font.get_size() / self.native.Pango.SCALE
+        if not font.get_size_is_absolute():
+            dpi = text.get_screen().get_resolution()
+            pixels *= (dpi if dpi > 0 else 96) / 72
+        self.assertAlmostEqual(pixels, text_size)
+
+    def test_recent_app_sizes_preview_save_and_remain_separate_from_zoom(self):
+        self.populate_recent_apps()
+        self.app.open_settings('Appearance')
+        self.appearance_control('Recent Apps text size').set_value(20)
+        self.appearance_control('Recent Apps icon size').set_value(64)
+        self.assert_app_sizes(20, 64)
+        self.assertEqual(self.app.profile['appearance']['font_size'], 14)
+        self.assertEqual(self.app.profile['appearance']['scale'], 1)
+        self.app.save()
+        saved = self.native.Settings(self.app.root).profile['appearance']
+        self.assertEqual((saved['recent_text_size'], saved['recent_icon_size']), (20, 64))
+        self.assertGreaterEqual(self.app.rail.get_allocated_width(), 100)
+
+    def test_recent_app_sizes_can_be_reduced_and_cancel_restores_them(self):
+        self.populate_recent_apps()
+        self.app.settings.save()
+        self.app.open_settings('Appearance')
+        self.appearance_control('Recent Apps text size').set_value(11)
+        self.appearance_control('Recent Apps icon size').set_value(24)
+        self.assert_app_sizes(11, 24)
+        self.app.cancel()
+        self.assert_app_sizes(14, 40)
+        self.assertEqual(self.native.Settings(self.app.root).profile['appearance']['recent_icon_size'], 40)
+
+    def test_recent_app_sizes_are_independent_between_profiles(self):
+        self.populate_recent_apps()
+        self.app.open_settings('Appearance')
+        self.appearance_control('Recent Apps icon size').set_value(64)
+        self.app.save()
+        self.app.profile_combo.set_active(1)
+        self.assert_app_sizes(14, 40)
+        self.app.profile_combo.set_active(0)
+        self.assert_app_sizes(14, 64)
 
     def tearDown(self):
         self.release()

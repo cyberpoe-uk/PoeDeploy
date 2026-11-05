@@ -1,5 +1,5 @@
 {
   "name": "PoeDash",
   "monitor": 0,
-  "layout": {"scale": "auto", "system_width": 620, "network_width": 520, "lower_height": 250}
+  "calendar": "thunderbird"
 }

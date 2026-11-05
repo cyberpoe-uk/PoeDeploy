@@ -23,7 +23,7 @@ from service_health import failed_units
 COMMANDS = {'cpu': ['cpu.sh'], 'ram': ['arch-status.sh', 'ram'],
             'cpu_temperature': ['cpu-temperature.py'], 'gpu': ['gpu.py', '--passive'],
             'network': ['network.sh'], 'vpn': ['vpn.sh'], 'power': ['power.py'],
-            'processes': ['processes.py'], 'shares': ['shares.py'], 'arch': ['arch-status.sh'],
+            'processes': ['processes.py'], 'arch': ['arch-status.sh'],
             'media': ['media.py'], 'system_info': ['system-info.py'],
             'packages': ['arch-status.sh', 'packages'], 'updates': ['arch-status.sh', 'updates'],
             'calendar': ['thunderbird-calendar.py'], 'session': ['idle-control.py', 'status']}

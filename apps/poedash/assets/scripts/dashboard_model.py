@@ -52,7 +52,8 @@ SOURCE_TITLES = {'cpu': 'CPU usage', 'cpu_temperature': 'CPU temperature', 'ram'
                  'updates': 'Available updates', 'media': 'Player metadata',
                  'system_info': 'Specifications', 'calendar': 'Agenda', 'health': 'Health checks'}
 DEFAULT_APPEARANCE = {'scale': 1.0, 'opacity': .70, 'font_size': 14, 'spacing': 10, 'graphs': True,
-                      'history_minutes': 15, 'snap': True, 'grid_size': 12}
+                      'history_minutes': 15, 'snap': True, 'grid_size': 12,
+                      'recent_text_size': 14, 'recent_icon_size': 40}
 
 
 def atomic_json(path, value):
@@ -116,7 +117,10 @@ def validate(data):
                 raise ValueError('Refresh intervals must be whole seconds from 1 to 86400')
         appearance = profile.get('appearance', {})
         appearance.setdefault('scale', 1.0)
-        for key, low, high in [('scale', .5, 2), ('opacity', .15, 1), ('font_size', 9, 24), ('spacing', 4, 24), ('grid_size', 4, 40)]:
+        appearance.setdefault('recent_text_size', appearance.get('font_size', 14))
+        appearance.setdefault('recent_icon_size', DEFAULT_APPEARANCE['recent_icon_size'])
+        for key, low, high in [('scale', .5, 2), ('opacity', .15, 1), ('font_size', 9, 24), ('spacing', 4, 24), ('grid_size', 4, 40),
+                               ('recent_text_size', 9, 24), ('recent_icon_size', 16, 80)]:
             if not number(appearance.get(key), low, high):
                 raise ValueError('Invalid appearance setting: ' + key)
         if appearance.get('history_minutes') not in (5, 15, 30, 60):

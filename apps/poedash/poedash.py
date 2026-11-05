@@ -20,9 +20,9 @@ THEME_BEGIN, THEME_END = '# BEGIN POEDASH', '# END POEDASH'
 PACKAGES = ['hyprland', 'jq', 'python', 'iproute2', 'util-linux', 'procps-ng',
             'coreutils', 'glib2', 'gawk', 'sed', 'grep', 'bash', 'pacman-contrib', 'kitty',
             'btop', 'nvtop', 'rofi', 'libnotify', 'ttf-jetbrains-mono-nerd',
-            'matugen', 'playerctl', 'socat', 'libpulse', 'python-gobject', 'python-cairo', 'gtk-layer-shell', 'gtk3', 'gcc', 'pkgconf']
-REQUIRED = ['hyprctl', 'eww', 'jq', 'python3', 'ip', 'cal', 'flock', 'free',
-            'timeout', 'gio', 'checkupdates', 'kitty', 'btop', 'nvtop', 'rofi', 'notify-send', 'matugen', 'playerctl', 'socat', 'parec']
+            'matugen', 'playerctl', 'libpulse', 'python-gobject', 'python-cairo', 'gtk-layer-shell', 'gtk3']
+REQUIRED = ['hyprctl', 'jq', 'python3', 'ip', 'flock', 'free',
+            'timeout', 'gio', 'checkupdates', 'kitty', 'btop', 'nvtop', 'rofi', 'notify-send', 'matugen', 'playerctl', 'parec']
 
 
 def run(argv, **kw):
@@ -69,42 +69,21 @@ def monitor_info(monitor):
         for index, item in enumerate(monitors):
             item['_index'] = index
         if isinstance(monitor, int):
-            # Eww uses monitor index, not Hyprland's potentially sparse output ID.
+            # Match GTK's monitor index, not Hyprland's potentially sparse output ID.
             return monitors[monitor]
         return next(m for m in monitors if m['name'] == monitor)
     except (OSError, subprocess.SubprocessError, ValueError, IndexError, StopIteration):
         return None
 
 
-def surface_backend(root):
-    path=Path(root)/'surface-backend'
-    backend=os.environ.get('POEDASH_BACKEND') or (path.read_text().strip() if path.is_file() else 'gtk')
-    if backend not in ('gtk','eww'):raise ValueError('PoeDash backend must be gtk or eww')
-    return backend
-
-
 def render(root):
-    cfg = settings(root)
-    monitor = monitor_info(cfg['monitor'])
-    backend=surface_backend(root)
-    template='eww-shared' if backend=='eww' else 'eww'
-    yuck = (root / ('templates/'+template+'.yuck')).read_text()
-    dashboard_name = json.dumps(cfg['name'], ensure_ascii=False).replace('${', r'\${')
-    yuck = yuck.replace('"@@DASHBOARD_NAME@@"', dashboard_name)
-    selector = cfg['monitor']
-    if isinstance(selector, str) and monitor:
-        # GTK/Eww 0.6 may expose the EDID model rather than the connector name.
-        matchers = list(dict.fromkeys([selector, monitor.get('model') or selector]))
-        matchers.append(monitor.get('_index', 0))
-        selector = json.dumps(matchers)
-    yuck = yuck.replace(':monitor 0', ':monitor ' + json.dumps(selector))
-    css = (root / ('templates/'+template+'.scss')).read_text()
+    settings(root)  # Validate before replacing the compositor integration.
     start = shlex.join([str(root / 'scripts/start.sh')])
-    lua = (root / 'templates/hyprland.lua').read_text().replace('@@START@@', json.dumps(start, ensure_ascii=False))
-    # Validate everything before replacing any generated file.
-    for name, content in [('eww.yuck', yuck), ('eww.scss', css), ('hyprland.lua', lua)]:
-        atomic(root / name, content)
-    print(f'Rendered {root} (responsive layout)')
+    lua = (root / 'templates/hyprland.lua').read_text()
+    lua = lua.replace('@@START@@', json.dumps(start, ensure_ascii=False))
+    lua = lua.replace('@@DISABLED@@', json.dumps(str(root / 'disabled')))
+    atomic(root / 'hyprland.lua', lua)
+    print(f'Rendered GTK integration in {root}')
 
 
 def dependencies(dry_run=False):
@@ -116,31 +95,16 @@ def dependencies(dry_run=False):
         print('Dependencies:', shlex.join(argv), flush=True)
         if not dry_run:
             run(argv)
-    for package, executable in [('eww', 'eww')]:
-        if shutil.which(executable):
-            continue
-        repo = subprocess.run(['pacman', '-Si', package], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
-        helper = shutil.which('paru') or shutil.which('yay')
-        if repo:
-            argv = ['sudo', 'pacman', '-S', '--needed', package]
-        elif helper:
-            argv = [helper, '-S', '--needed', package]
-        else:
-            print(f'{package}: needs an AUR helper (paru/yay) or manual installation.')
-            if not dry_run:
-                raise RuntimeError('Install the missing dependency and rerun. No AUR helper or third-party repository is installed automatically.')
-            continue
-        print('Dependency:', shlex.join(argv), flush=True)
-        if not dry_run:
-            run(argv)
 
 
 def doctor(root):
     failures = []
-    print('Backend: '+surface_backend(root))
-    if surface_backend(root)=='eww':
-        for command in ('cc','pkg-config'):
-            if not shutil.which(command):failures.append('Eww host requires '+command)
+    print('Dashboard: GTK 3')
+    try:
+        run([sys.executable, root / 'scripts/dashboard_native.py', '--check'],
+            capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        failures.append('GTK 3, python-gobject, python-cairo and gtk-layer-shell are required')
     for command in REQUIRED:
         found = shutil.which(command)
         print(f'{"OK" if found else "MISSING"}: {command}')
@@ -194,16 +158,24 @@ def chosen_name(args, root):
 
 
 def retire_legacy_dashboard(config_home, backup, root=None):
-    source = SOURCE / 'assets/scripts/retire-dashboard.py'
+    source = SOURCE / 'migration.py'
     spec = importlib.util.spec_from_file_location('retire_dashboard', source)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
     return migration.retire(config_home, backup, root or config_home / 'poedash')
 
 
+def retire_legacy_surface(root):
+    source = SOURCE / 'migration.py'
+    spec = importlib.util.spec_from_file_location('retire_surface', source)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    migration.stop_legacy_surface(root)
+
+
 def install(args, root):
     assets = SOURCE / 'assets'
-    if not assets.is_dir():
+    if not assets.is_dir() or not (SOURCE / 'migration.py').is_file():
         raise RuntimeError('Run install from a cloned PoeDash repository.')
     config_home = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config'))
     hypr = Path(args.hyprland_config).expanduser().resolve() if args.hyprland_config else config_home / 'hypr/hyprland.lua'
@@ -232,7 +204,9 @@ def install(args, root):
     backup = Path(os.environ.get('XDG_STATE_HOME', Path.home() / '.local/state')) / 'poedash/backups' / datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     backup.mkdir(parents=True, mode=0o700)
     if root.exists():
-        shutil.copytree(root, backup / 'config', ignore=shutil.ignore_patterns('native.sock'))
+        native_control(root, 'quit')
+        retire_legacy_surface(root)
+        shutil.copytree(root, backup / 'config', ignore=shutil.ignore_patterns('native.sock', '__pycache__', '*.pyc'))
     if binpath.exists():
         shutil.copy2(binpath, backup / 'poedash-command')
     if not args.no_integrate:
@@ -244,26 +218,21 @@ def install(args, root):
         parsed = tomllib.loads(matugen_text)
     preserved = {}
     legacy_backup = backup / 'retired-legacy-eww'
-    for preserved_name in ('settings.json', 'colors.scss', 'disabled', 'layout.json', 'dashboard.json', 'surface-backend'):
+    for preserved_name in ('settings.json', 'colors.scss', 'disabled', 'layout.json', 'dashboard.json'):
         path = root / preserved_name
         if path.is_file():
             preserved[preserved_name] = path.read_bytes()
         elif (legacy_backup / preserved_name).is_file():
             preserved[preserved_name] = (legacy_backup / preserved_name).read_bytes()
     if root.exists():
-        native_control(root, 'quit')
-        if shutil.which('eww'):
-            subprocess.run(['eww', '--config', str(root), 'kill'], check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         shutil.rmtree(root)
     root.mkdir(parents=True, exist_ok=True)
     for state_source in (legacy_backup / 'state', backup / 'config/state'):
         if state_source.is_dir():
-            shutil.copytree(state_source, root / 'state', dirs_exist_ok=True)
+            shutil.copytree(state_source, root / 'state', dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns('native.sock', 'surface-backend', 'eww-host', 'share-count.json', 'wave-size.json', '__pycache__'))
     for directory in ('scripts', 'templates'):
-        shutil.copytree(assets / directory, root / directory, dirs_exist_ok=True)
-    shutil.copy2(SOURCE.parent / 'shared/dashboard-layout.py', root / 'scripts/layout.py')
-    (root / 'scripts/layout.py').chmod(0o755)
+        shutil.copytree(assets / directory, root / directory, dirs_exist_ok=True, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     shutil.copy2(SOURCE.parent / 'shared/workspace-state.py', root / 'scripts/workspace.py')
     (root / 'scripts/workspace.py').chmod(0o755)
     shutil.copy2(SOURCE.parent / 'shared/desktop-actions.py', root / 'scripts/desktop.py')
@@ -272,10 +241,8 @@ def install(args, root):
     (root / 'scripts/thunderbird-calendar.py').chmod(0o755)
     shutil.copytree(SOURCE.parent / 'shared/calendar-vendor', root / 'scripts/calendar-vendor', dirs_exist_ok=True, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     atomic(root / 'dashboard-id', 'poedash\n', 0o600)
-    for filename in ('colors.scss', 'settings.example.json', 'media-placeholder.svg'):
+    for filename in ('colors.scss', 'settings.example.json'):
         shutil.copy2(assets / filename, root / filename)
-    if 'surface-backend' in preserved:
-        (root/'surface-backend').write_bytes(preserved['surface-backend'])
     if 'colors.scss' in preserved:
         (root / 'colors.scss').write_bytes(preserved['colors.scss'])
     if 'settings.json' in preserved:
@@ -285,25 +252,26 @@ def install(args, root):
             old_settings = {}
     else:
         old_settings = {}
+    if not isinstance(old_settings, dict): old_settings = {}
     new_settings = json.loads((assets / 'settings.example.json').read_text())
     new_settings['name'] = name
     if 'monitor' in old_settings:
         new_settings['monitor'] = old_settings['monitor']
-    new_schema = set(old_settings) == {'name', 'monitor', 'layout'}
-    if new_schema and isinstance(old_settings.get('layout'), dict):
-        for key in new_settings['layout']:
-            if key in old_settings['layout']:
-                new_settings['layout'][key] = old_settings['layout'][key]
+    # Only the calendar preference survives from the retired layout settings.
+    try:
+        old_layout = json.loads(preserved.get('layout.json', b'{}'))
+    except (ValueError, TypeError):
+        old_layout = {}
+    calendar = old_settings.get('calendar', old_layout.get('calendar', 'thunderbird') if isinstance(old_layout, dict) else 'thunderbird')
+    if isinstance(calendar, str) and 1 <= len(calendar) <= 200 and not any(ord(c) < 32 for c in calendar):
+        new_settings['calendar'] = calendar
     atomic(root / 'settings.json', json.dumps(new_settings, indent=2) + '\n')
     if 'disabled' in preserved:
         (root / 'disabled').write_bytes(preserved['disabled'])
-    if 'layout.json' in preserved:
-        (root / 'layout.json').write_bytes(preserved['layout.json'])
     if 'dashboard.json' in preserved:
         atomic(root / 'dashboard.json', preserved['dashboard.json'].decode(), 0o600)
     shutil.copy2(SOURCE / 'poedash.py', root / 'poedash.py')
     render(root)
-    run([sys.executable, root / 'scripts/dashboard-control.py', '--root', root, 'prepare'])
     run([sys.executable, root / 'scripts/dashboard-control.py', '--root', root, 'quickshell'])
     cli = '#!/usr/bin/env bash\nexec python3 ' + shlex.quote(str(root / 'poedash.py')) + ' --root ' + shlex.quote(str(root)) + ' "$@"\n'
     atomic(binpath, cli, 0o755)
@@ -319,7 +287,7 @@ def install(args, root):
         clean_theme = re.sub(r'(?ms)^# BEGIN POEDASH\n.*?^# END POEDASH\n?', '', matugen_text)
         block = THEME_BEGIN + '\n[templates.poedash]\ninput_path = ' + json.dumps(str(root / 'templates/matugen.scss'))
         block += '\noutput_path = ' + json.dumps(str(root / 'colors.scss'))
-        block += '\npost_hook = ' + json.dumps(shlex.join(['eww', '--config', str(root), 'reload'])) + '\n' + THEME_END + '\n'
+        block += '\n' + THEME_END + '\n'
         atomic(matugen, clean_theme.rstrip() + '\n\n' + block)
         manifest['matugen_config'] = str(matugen)
     atomic(manifest_path, json.dumps(manifest, indent=2) + '\n')
@@ -358,8 +326,6 @@ def uninstall(root):
         if matugen.exists():
             text = re.sub(r'(?ms)^# BEGIN POEDASH\n.*?^# END POEDASH\n?', '', matugen.read_text())
             atomic(matugen, text)
-    if shutil.which('eww'):
-        subprocess.run(['eww', '--config', str(root), 'kill'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     binary = Path(manifest['bin'])
     if binary.exists() and str(root / 'poedash.py') in binary.read_text():
         binary.unlink()
@@ -374,8 +340,7 @@ def theme(root, wallpaper):
         path = Path(tmp) / 'config.toml'
         path.write_text(cfg)
         run(['matugen', '--config', path, 'image', wallpaper])
-    if not native_control(root, 'reload'):
-        subprocess.run(['eww', '--config', str(root), 'reload'])
+    native_control(root, 'reload')
 
 
 def main():
@@ -394,22 +359,12 @@ def main():
         sub.add_parser(name)
     sub.add_parser('theme').add_argument('wallpaper')
     sub.add_parser('power', help='manage automatic power profiles').add_argument('power_action', choices=['status', 'enable', 'disable'])
-    sub.add_parser('backend',help='select the standalone GTK or Eww-hosted shared dashboard').add_argument('surface',choices=['status','gtk','eww'],nargs='?',default='status')
     args = parser.parse_args()
     root = args.root.expanduser().resolve()
     if args.action == 'install':
         if os.geteuid() == 0:
             raise RuntimeError('Run as your desktop user, without sudo. Only package installation uses sudo.')
         install(args, root)
-    elif args.action == 'backend':
-        if args.surface=='status':print(surface_backend(root));return 0
-        if args.surface=='eww':
-            run([sys.executable,root/'scripts/eww-host.py'],stdout=subprocess.DEVNULL)
-        run([sys.executable,root/'scripts/dashboard_native.py','--check'],stdout=subprocess.DEVNULL)
-        atomic(root/'surface-backend',args.surface+'\n',0o600)
-        native_control(root,'quit')
-        if shutil.which('eww'):subprocess.run(['eww','--config',str(root),'kill'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False)
-        run([root/'scripts/start.sh'])
     elif args.action == 'doctor':
         return doctor(root)
     elif args.action in ('render', 'reload'):
@@ -420,13 +375,11 @@ def main():
             # polls remain read-only and never open a permission dialog.
             subprocess.Popen([sys.executable, str(calendar), '--check-offline-cache'],
                              start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if args.action == 'reload' and not native_control(root, 'reload'):
-            run(['eww', '--config', root, 'reload'])
+        if args.action == 'reload': native_control(root, 'reload')
     elif args.action == 'start':
         run([root / 'scripts/start.sh'])
     elif args.action == 'stop':
-        if not native_control(root, 'quit'):
-            run(['eww', '--config', root, 'kill'])
+        native_control(root, 'quit')
     elif args.action in ('enable', 'disable', 'update'):
         run([sys.executable, root / 'scripts/dashboard-control.py', '--root', root, args.action])
     elif args.action == 'uninstall':

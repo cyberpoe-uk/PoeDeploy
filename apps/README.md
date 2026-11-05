@@ -23,7 +23,7 @@ local Notes and Tasks, plus optional Weather, RSS, Containers, NAS and Remote
 Machine cards are included. See the [PoeDash guide](poedash/README.md) for the
 full feature list and setup details.
 
-The native surface uses GTK 3 and GTK Layer Shell; Eww remains a fallback.
+The dashboard uses GTK 3 and GTK Layer Shell directly. Eww is not required.
 Refresh intervals are configurable per data source and persist across restarts.
 Hidden dashboards pause collectors and UI feeds on battery; AC-powered dashboards
 continue refreshing. Lightweight visibility/power checks and the separate

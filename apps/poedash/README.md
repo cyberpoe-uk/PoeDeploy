@@ -1,23 +1,13 @@
 # PoeDash
 
-PoeDash is a local desktop dashboard for Hyprland. Choose either a standalone
-GTK window or an Eww-owned window hosting the same GTK card/editor tree. Both
-backends share `dashboard.json`, collectors, profiles, calendar, weather, card
-interval controls, layout rules, history, idle and power integration.
+PoeDash is a local GTK 3 desktop dashboard for Hyprland. Python builds the
+interface directly with GTK and GTK Layer Shell. Eww is not required or started.
+Profiles, card layouts, calendar, weather, refresh intervals, history, idle timers
+and power integration all use this single interface.
 
-```bash
-poedash backend gtk
-poedash backend eww
-poedash backend status
-```
-
-Save pending edits before switching: the command restarts the surface. The
-choice is preserved by dashboard updates. Eww mode requires Eww plus the common
-`python-gobject`, `python-cairo`, `gtk-layer-shell` and GTK 3 dependencies, and
-`gcc`/`pkgconf` to compile its small local host adapter. The installer includes
-these packages. The adapter is cached per Python/platform/library version and
-rebuilt when necessary. It does not hook global input or emulate a second UI.
-There is no automatic downgrade to the older, feature-limited Eww renderer.
+Install with `bash apps/poedash/install.sh`, then run `poedash doctor` and
+`poedash start`. The installer checks the GTK dependencies. A compiler and an
+AUR helper are not needed for the dashboard itself.
 
 ## Zoom
 
@@ -51,13 +41,17 @@ The **Edit** button beside **Packages** provides:
   and RAM intervals. Intervals range from 1 second to 24 hours. Restore defaults
   is available. Changes take effect when saved.
 - **Appearance**: preview background opacity, font size, spacing, history graphs,
-  graph range and snap grid. Save keeps changes; Cancel restores the saved view.
+  graph range and snap grid. **Recent Apps text size** (9–24 px) and **Recent Apps
+  icon size** (16–80 px) adjust the app rail independently. These also apply to
+  pinned apps, preview immediately, and are saved per profile. Save keeps changes;
+  Cancel restores the saved view.
 - **Add / hide cards**: control visibility and configure optional cards.
 - **Profiles**: duplicate, rename, delete or reset profiles. Daily, Monitoring and
   Minimal are supplied. Each profile has its own card selection, appearance,
   intervals and separate layouts for each display/resolution.
 
-Adding or hiding cards generates a new balanced layout on the current display.
+Adding cards fits them into the available space while preserving existing cards.
+If another card cannot fit, PoeDash asks you to hide a card or reduce zoom.
 Other display layouts remain saved. Short displays scroll the board; individual
 cards also scroll when their content exceeds their chosen height. Recent Apps
 remains in its own sidebar. Layout editing temporarily captures clicks so that
@@ -82,7 +76,7 @@ stale readings change the button to a warning indicator, with details on hover.
 Cards reserve their full body height for content, without an update footer.
 The shared audio visualiser pauses whenever the dashboard is hidden. While
 visible, it draws orange, red, purple and blue waveforms directly at 15 fps on
-AC or 10 fps on battery in both backends, avoiding per-frame SVG file decoding.
+AC or 10 fps on battery, avoiding per-frame SVG file decoding.
 On battery, collectors also pause while the dashboard
 is hidden. On AC, collection continues. Custom refresh intervals are retained
 across power-source changes. A card's ↻ button requests an immediate update.
@@ -138,7 +132,9 @@ open in your browser. Weather data is attributed to
 The installation root defaults to `~/.config/poedash`. Profiles, layouts,
 integration settings, notes and tasks are stored in `dashboard.json` with
 user-only permissions. History is in `state/history.sqlite3`. Existing
-`settings.json`, `layout.json`, palette and power/idle state are retained.
+The monitor, name and calendar preference live in `settings.json`. Palette and
+power/idle state are retained. The calendar preference from an old `layout.json`
+is migrated, and obsolete density and renderer settings are retired.
 
 Writes are atomic. An invalid dashboard configuration is copied to a dated
 `dashboard.invalid-*.json` before defaults are recovered. Installer updates
@@ -149,7 +145,7 @@ surface. Its local control socket is user-only. For GUI verification without
 changing the installed dashboard, prepare a temporary root and run:
 
 ```sh
-python scripts/dashboard_native.py --root /tmp/poedash-preview --preview --smoke
+GDK_BACKEND=x11 xvfb-run -a python3 apps/poedash/assets/scripts/dashboard_native.py --root /tmp/poedash-preview --preview --smoke
 ```
 
 The offscreen check exercises pointer-driven swapping, resize handles, undo/
@@ -170,10 +166,11 @@ Save/Cancel controls, refresh interval editing, appearance preview/cancel and
 layout saving. The pointer is restored and the temporary surface closes. The
 installed dashboard settings are not used or changed.
 
-To check the header against a top status bar's input region, run
+To check the header against a reserved top input region, run
 `python3 apps/poedash/tests/gui/check_header_wayland.py --run` in Hyprland.
-It checks Edit, Packages and zoom with real clicks, reproduces the old overlap,
-and verifies the corrected placement. It briefly visits workspace 1 and restores
+It creates a temporary transparent panel, checks Edit, Packages and zoom with
+real clicks, reproduces the old overlap, and verifies the corrected placement.
+It briefly visits workspace 1 and restores
 the original workspace and pointer; application launches are mocked.
 
 Card clicks, seeking and expanded details across refreshes can also be checked
@@ -193,27 +190,19 @@ Each card’s ⋯ editor includes inline − / + refresh controls for that card 
 Adding or hiding cards preserves the existing layout, including narrow custom cards. New cards use free space first. On a full dashboard, cards in the chosen column share the height reduction equally. Adding a card does not extend the scroll area; additions are refused if minimum usable sizes cannot be maintained. **Edit → Fit cards to screen** compacts an existing tall layout while retaining columns and gaps. Hidden cards remember their previous slot and return there when it is still free.
 
 
-## Backend parity checks
+## GTK layout checks
 
-Both frontends instantiate the same `Dashboard`, `Card`, calendar/weather editors
-and layout model, rather than maintaining parallel implementations. Automated
-checks cover configuration migration, backend persistence and startup locks.
-The GTK offscreen check exercises fixed-height fitting; the Eww integration
-check runs the actual shared UI in a separate, transparent, input-pass-through
-Eww window and verifies card controls, weather search/Save, calendar dates,
-workspace reset, release-only swaps/Undo and close/reopen cleanup.
+The layout check runs on an isolated display and verifies fixed-height fitting,
+adding cards without extending the board, and saving display-specific layouts:
 
-```bash
-python3 apps/poedash/tests/gui/check_fitted_layout.py --size 1440x960
-python3 apps/poedash/tests/gui/check_eww_shared.py --run --startup
+```sh
+GDK_BACKEND=x11 xvfb-run -a python3 apps/poedash/tests/gui/check_fitted_layout.py --size 1440x960
 ```
 
-On another workstation, check out the feature branch and install it as your
-normal desktop user (the installer backs up the existing dashboard):
-
-```bash
-python3 apps/poedash/poedash.py install --non-interactive
-poedash backend gtk
-# Save your edits, then compare the other backend:
-poedash backend eww
-```
+Updates automatically replace old dashboard assets while preserving profiles,
+notes, history, palette, calendar preferences and idle/power state. Old backend
+selectors, Eww templates, host modules and renderer-only helpers are removed.
+Only the upgrade code recognises older Eww installations so it can stop and
+retire the dashboard safely. It never installs Eww or changes unrelated widgets.
+Recovery snapshots remain outside the checkout under
+`~/.local/state/poedash/backups`.

@@ -1,7 +1,6 @@
 import importlib.util
 import hashlib
 import io
-import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -126,7 +125,7 @@ class InstallerTests(unittest.TestCase):
 
     def test_package_installation_adds_missing_tools_with_full_upgrade(self):
         with patch.object(p.subprocess, 'check_output', return_value='ffuf\nchromium\n'), \
-             patch.object(p.shutil, 'which', return_value='/usr/bin/eww'), \
+             patch.object(p.shutil, 'which', return_value='/usr/bin/tool'), \
              patch.object(p, 'run') as command:
             p.install_packages(['nmap', 'ffuf', 'chromium'], False)
             command.assert_called_once_with(['sudo', 'pacman', '-Syu', '--needed', 'nmap'])

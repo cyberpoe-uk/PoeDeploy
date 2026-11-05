@@ -16,6 +16,15 @@ RETIRED = 'pendash'
 SIGNATURES = ('MY DASHBOARD', 'START WEB CTF', 'BlackArch home screen', 'PenDash')
 
 
+def stop_legacy_surface(root):
+    """Stop an old PoeDash Eww surface only during an installation upgrade."""
+    if not (root / 'eww.yuck').is_file(): return
+    if shutil.which('eww'):
+        subprocess.run(['eww', '--config', str(root), 'kill'], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+    stop_workers([root], exclude={'dashboard-control.py', 'update.sh', 'poedash.py', 'retire-dashboard.py'})
+
+
 def recognised(root):
     identity = root / 'dashboard-id'
     if identity.is_file() and identity.read_text().strip().lower() == RETIRED:
@@ -69,7 +78,7 @@ def rewrite_waybar(text, root, old_roots):
     return text
 
 
-def stop_workers(roots):
+def stop_workers(roots, exclude=()):
     prefixes = [str(p).rstrip('/') + '/' for root in roots for p in (root, root.resolve())]
     def running():
         matches = []
@@ -80,6 +89,7 @@ def stop_workers(roots):
                 argv = proc.joinpath('cmdline').read_bytes().decode().strip('\0').split('\0')
                 executable = Path(argv[0]).name
                 scripts = argv[:1] if any(argv[0].startswith(p) for p in prefixes) else argv[1:2]
+                if any(Path(arg).name in exclude for arg in scripts): continue
                 interpreter = executable in ('sh','bash','eww') or executable.startswith('python')
                 owned_script = any(arg.startswith(prefix) and arg.endswith(('.py','.sh')) for arg in scripts for prefix in prefixes)
                 owned_eww = executable == 'eww' and any(arg.rstrip('/')+'/' in prefixes for arg in argv[1:])
@@ -205,7 +215,7 @@ def retire(config_home, backup, new_root):
             if text != original: write(path, text)
     module = config_home / 'quickshell/StatusbarApp/DashboardModule.qml'
     if module.is_file() and owned(module.read_text()):
-        source = Path(__file__).with_name('DashboardModule.qml').read_text()
+        source = (Path(__file__).parent / 'assets/scripts/DashboardModule.qml').read_text()
         text = source.replace('"@@DASHBOARD_ROOT@@"', json.dumps(str(new_root)))
         text = text.replace('"@@DASHBOARD_NAME@@"', json.dumps('PoeDash'))
         if text != module.read_text(): write(module, text)

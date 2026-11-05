@@ -41,7 +41,7 @@ poedash_bootstrap() (
     mkdir "$poedash_tmp/source"
     tar --extract --gzip --file "$poedash_tmp/poedash.tar.gz" \
         --directory "$poedash_tmp/source" --strip-components=1 --no-same-owner
-    for required in apps/poedash/install.sh apps/poedash/poedash.py apps/poedash/assets/settings.example.json; do
+    for required in apps/poedash/install.sh apps/poedash/poedash.py apps/poedash/migration.py apps/poedash/assets/settings.example.json; do
         [[ -f "$poedash_tmp/source/$required" ]] || {
             echo "PoeDash: downloaded archive is missing $required." >&2
             exit 1
@@ -66,7 +66,7 @@ poedash_bootstrap() (
     else
         echo 'PoeDash: starting the installer; package installation may request sudo.'
     fi
-    # curl | bash consumes stdin. Restore the terminal for pacman/AUR prompts.
+    # curl | bash consumes stdin. Restore the terminal for package installation prompts.
     if [[ ! -t 0 ]] && { true </dev/tty; } 2>/dev/null; then
         bash "$poedash_tmp/source/apps/poedash/install.sh" "$@" </dev/tty
     else

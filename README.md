@@ -19,7 +19,7 @@ review and change the plan before installation starts.
 
 Use an installed Arch Linux system and run as your normal desktop user. PoeDeploy
 asks for sudo only for operations that need it. Desktop features target Hyprland,
-Eww and ML4W. Hardware-specific components are conditional, not universal fixes.
+GTK and ML4W. Hardware-specific components are conditional, not universal fixes.
 This script does not partition disks or replace an Arch installation guide.
 
 ```bash
@@ -188,8 +188,7 @@ continuous zoom and optional cards.
 
 PoeDash is the single dashboard bundled with PoeDeploy. It places your hostname
 above a themed desktop overview on workspace 1, with application windows above
-it. Standalone GTK and Eww-hosted modes share the same card/editor code and
-GTK Layer Shell integration. The dashboard integrates with supported ML4W QuickShell/Waybar controls.
+it. The dashboard runs directly with GTK 3 and GTK Layer Shell. The dashboard integrates with supported ML4W QuickShell/Waybar controls.
 
 <p align="center">
   <img src="assets/screenshots/poedash-live.png" alt="PoeDash running on the development PC" width="1100">
@@ -222,11 +221,13 @@ separate layouts for each display.
 changes. Adding a card shares height across its column instead of extending
 the board vertically. CPU/RAM/temperature, traffic
 and power graphs keep up to an hour of local history, with matching colours on
-Performance and Connectivity readings. Choose a 5, 15, 30 or 60 minute graph
+Performance and Connectivity readings. Recent Apps text and icon sizes can be
+adjusted separately in **Edit → Appearance**, independently of dashboard zoom.
+Choose a 5, 15, 30 or 60 minute graph
 range in Appearance. Hover over a card's refresh button for
 its update time, errors or pauses. The health strip opens actionable details.
 
-Calendar lets you select a day’s events; today shows the next two weeks.
+Calendar lets you select a day’s events. today shows the next two weeks.
 Returning to the dashboard workspace resets the selection to today. Player
 scales album artwork to the card space and keeps playback controls at the bottom.
 Notes, Tasks, Weather, RSS, Containers, NAS and Remote Machine cards are available
@@ -239,9 +240,9 @@ Mounted Shares can monitor selected mounts. VPN health monitoring is opt-in.
 Failed services open their status and recent journal entries from Health or the
 System card.
 
-Use `poedash backend gtk` or `poedash backend eww` to select a surface; both
-use the same saved profiles, settings and interactive features. Save pending
-edits before switching.
+PoeDash uses one native GTK interface. It does not require Eww, an Eww host
+module or a backend-selection command. Updates preserve existing dashboard
+profiles and data while removing obsolete renderer files.
 
 See the [PoeDash guide](apps/poedash/README.md) for editing, integration setup,
 settings recovery and real-pointer GUI validation. The image above shows the
@@ -379,7 +380,7 @@ poedash uninstall
 
 User configuration is under `~/.config/poedash`, with backups under
 `~/.local/state/poedash/backups`. Profiles, layouts, integrations, notes and tasks
-are stored in `dashboard.json`; local graph history is in `state/history.sqlite3`.
+are stored in `dashboard.json`. local graph history is in `state/history.sqlite3`.
 Invalid dashboard configuration is backed up before defaults are recovered.
 [Dashboard guide](apps/README.md).
 
@@ -444,7 +445,7 @@ bash -n poedeploy-latest
 
 Installer stages are defined in `poedeploy.sh`, with modular helpers under
 `installer/` and terminal rendering/navigation under `ui/`. PoeDash lives under
-`apps/poedash/`, with shared desktop, layout and calendar helpers in `apps/shared/`.
+`apps/poedash/`, with shared desktop, workspace and calendar helpers in `apps/shared/`.
 Contributions should keep sections independent, preserve user configuration and
 include meaningful checks for changed behavior.
 

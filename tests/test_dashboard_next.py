@@ -1,9 +1,7 @@
 """Editable desktop model, persistence, history and collector contracts."""
 from copy import deepcopy
-import importlib.util
 import json
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 import threading
@@ -38,6 +36,17 @@ class Configuration(unittest.TestCase):
             self.assertEqual(json.loads(backups[0].read_text()),{'version':99})
             store.save(); model.validate(json.loads(path.read_text()))
 
+    def test_recent_app_defaults_upgrade_existing_profiles_without_losing_data(self):
+        data=model.defaults(); data['notes']='keep my note'
+        for profile in data['profiles'].values():
+            profile['appearance'].pop('recent_text_size')
+            profile['appearance'].pop('recent_icon_size')
+        model.validate(data)
+        self.assertEqual(data['notes'],'keep my note')
+        for profile in data['profiles'].values():
+            self.assertEqual(profile['appearance']['recent_text_size'],14)
+            self.assertEqual(profile['appearance']['recent_icon_size'],40)
+
     def test_validation_rejects_bad_intervals_coordinates_and_layouts(self):
         for mutate in [
             lambda d:d['profiles']['Daily']['refresh'].update(cpu=0),
@@ -46,6 +55,9 @@ class Configuration(unittest.TestCase):
             lambda d:d['profiles']['Daily']['appearance'].update(opacity=float('nan')),
             lambda d:d['profiles']['Daily']['appearance'].update(scale=0),
             lambda d:d['profiles']['Daily']['appearance'].update(scale=3),
+            lambda d:d['profiles']['Daily']['appearance'].update(recent_text_size=8),
+            lambda d:d['profiles']['Daily']['appearance'].update(recent_icon_size=81),
+            lambda d:d['profiles']['Daily']['appearance'].update(recent_icon_size=True),
             lambda d:d['profiles']['Daily']['layouts'].update(display={'arch':[.9,0,.5,.2]}),
             lambda d:d['integrations']['remote'].update(url='file:///etc/passwd'),
             lambda d:d['integrations']['weather'].update(latitude='200'),

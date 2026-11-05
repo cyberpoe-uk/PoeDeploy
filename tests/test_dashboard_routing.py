@@ -2,7 +2,6 @@
 import importlib.util
 import os
 from pathlib import Path
-import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -97,7 +96,7 @@ install_bundled_dashboard_application 'PoeDash update' poedash --skip-deps --non
 ensure_command_dependencies() { exit 91; }
 install_yay() { exit 92; }
 command() {
-    case "$*" in '-v eww'|'-v paru'|'-v yay') return 1 ;; esac
+    case "$*" in '-v paru'|'-v yay') return 1 ;; esac
     builtin command "$@"
 }
 ui_run_interactive() { :; }

@@ -1,9 +1,15 @@
+local function dashboard_disabled()
+    local f = io.open(@@DISABLED@@, "r")
+    if f then f:close() return true end
+    return false
+end
+if not dashboard_disabled() then
 -- PoeDash startup and reserved home workspace (Hyprland Lua).
 hl.on("hyprland.start", function()
     hl.exec_cmd(@@START@@)
 end)
 
--- Workspace 1 belongs to the Eww layer surface, not application windows.
+-- Workspace 1 belongs to the GTK layer surface, not application windows.
 hl.unbind("SUPER + SHIFT + 1")
 hl.unbind("SUPER + SHIFT + ampersand") -- French keyboard equivalent
 
@@ -11,6 +17,7 @@ local previous_workspace = {}
 local pending_return = {}
 
 local function protect_home(window, follow_new_window)
+    if dashboard_disabled() then return end
     if not window or not window.workspace then return end
     local address = window.address
     if not address then return end
@@ -25,7 +32,7 @@ local function protect_home(window, follow_new_window)
     pending_return[address] = hl.timer(function()
         pending_return[address] = nil
         local current = hl.get_window("address:" .. address)
-        if current and current.workspace and current.workspace.id == 1 then
+        if not dashboard_disabled() and current and current.workspace and current.workspace.id == 1 then
             hl.dispatch(hl.dsp.window.move({
                 window = current,
                 workspace = destination,
@@ -52,4 +59,6 @@ end)
 -- Seed history after reload and clear any application windows already on home.
 for _, window in ipairs(hl.get_windows()) do
     protect_home(window, false)
+end
+
 end

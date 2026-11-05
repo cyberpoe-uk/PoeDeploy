@@ -6,7 +6,6 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import datetime
 import fcntl
-import importlib.util
 import json
 import math
 import os
@@ -25,9 +24,9 @@ gi.require_version('Gdk', '3.0')
 gi.require_version('GtkLayerShell', '0.1')
 from gi.repository import Gtk, Gdk, GLib, GLibUnix, GdkPixbuf, Pango, GtkLayerShell
 
-from dashboard_model import (CARDS, BASE_CARDS, REFRESH, SOURCES, SOURCE_TITLES,
+from dashboard_model import (CARDS, REFRESH, SOURCES, SOURCE_TITLES,
     DEFAULT_APPEARANCE, Settings, Transaction, History, atomic_json, read_json,
-    default_layout, valid_move, swap_target, resolve_layout, insert_card, fit_layout_height, spaced, central_drop_target, measure_gaps, transform, validate)
+    default_layout, valid_move, resolve_layout, insert_card, fit_layout_height, spaced, central_drop_target, measure_gaps, transform, validate)
 from dashboard_collect import Engine, health_issues, search_weather_locations
 from service_health import failed_units, service_details
 from weather_visual import condition as weather_condition, icon_svg as weather_icon_svg
@@ -734,9 +733,8 @@ class Card(Gtk.EventBox):
 
 
 class Dashboard:
-    def __init__(self, root, preview=False, smoke=False, size=(1440,960), host=None):
+    def __init__(self, root, preview=False, smoke=False, size=(1440,960)):
         self.root=Path(root)
-        self.host=host
         self.settings=Settings(root)
         self.transaction=None
         self.editing=False
@@ -764,17 +762,14 @@ class Dashboard:
         self.theme_stamp=None
         self.theme={}
         self.history=History(self.root/'state/history.sqlite3')
-        self.window=host.get_toplevel() if host is not None else Gtk.OffscreenWindow() if smoke else Gtk.Window(title='PoeDash')
-        if host is None:
-            self.window.set_app_paintable(True)
-            visual=self.window.get_screen().get_rgba_visual()
-            if visual:self.window.set_visual(visual)
-        (host if host is not None else self.window).connect('destroy',lambda *_:self.quit())
+        self.window=Gtk.OffscreenWindow() if smoke else Gtk.Window(title='PoeDash')
+        self.window.set_app_paintable(True)
+        visual=self.window.get_screen().get_rgba_visual()
+        if visual:self.window.set_visual(visual)
+        self.window.connect('destroy',lambda *_:self.quit())
         self.window.connect('key-press-event',self.key_press)
         self.choose_monitor()
-        if host is not None:
-            if GtkLayerShell.is_supported():GtkLayerShell.set_keyboard_mode(self.window,GtkLayerShell.KeyboardMode.ON_DEMAND)
-        elif not preview and GtkLayerShell.is_supported():
+        if not preview and GtkLayerShell.is_supported():
             GtkLayerShell.init_for_window(self.window)
             GtkLayerShell.set_namespace(self.window,'poedash')
             GtkLayerShell.set_layer(self.window,GtkLayerShell.Layer.BOTTOM)
@@ -790,7 +785,7 @@ class Dashboard:
             if smoke: self.window.set_size_request(*size)
         self.provider=Gtk.CssProvider()
         Gtk.StyleContext.add_provider_for_screen(self.window.get_screen(),self.provider,Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-        self.overlay=Gtk.Overlay(); (host if host is not None else self.window).add(self.overlay)
+        self.overlay=Gtk.Overlay(); self.window.add(self.overlay)
         self.surface=box(True,10); self.surface.set_border_width(16)
         self.surface.get_style_context().add_class('dashboard')
         self.overlay.add(self.surface)
@@ -798,7 +793,7 @@ class Dashboard:
         self.header.get_style_context().add_class('dashboard-header')
         titlebox=box(True,2)
         self.hostname=label(socket.gethostname(),'hostname'); titlebox.pack_start(self.hostname,False,False,0)
-        titlebox.pack_start(label('POEDASH','muted'),False,False,0)
+        titlebox.pack_start(label(read_json(self.root/'settings.json',{}).get('name','PoeDash'),'muted'),False,False,0)
         self.header.pack_start(titlebox,True,True,0)
         self.header_controls=box(False,8)
         self.header_controls.set_valign(Gtk.Align.CENTER)
@@ -873,8 +868,7 @@ class Dashboard:
         self.engine.start()
         self.spawn_listener('desktop.py',['listen'],self.receive_apps)
         if not preview and not smoke: self.spawn_listener('workspace.py',['--listen'],self.receive_workspace)
-        self.spawn_listener('visualizer.py',['--native'],self.receive_wave)
-        (self.root/'state/surface-backend').write_text('eww' if self.host is not None else 'gtk')
+        self.spawn_listener('visualizer.py',[],self.receive_wave)
         self.ipc_path=self.root/'state/native.sock'
         self.start_ipc()
         self.window.show_all()
@@ -957,6 +951,8 @@ class Dashboard:
         appearance=self.profile['appearance']
         zoom=appearance.get('scale',1)
         font=round(appearance['font_size']*zoom)
+        recent_text=appearance['recent_text_size']
+        recent_icon=appearance['recent_icon_size']
         text=''
         try: text=(self.root/'colors.scss').read_text()
         except OSError: pass
@@ -982,6 +978,8 @@ class Dashboard:
         .media-title {{ font-size: {round((appearance['font_size']+5)*zoom)}px; font-weight: bold; }}
         .muted, .freshness {{ color: {colors['muted']}; }}
         .freshness {{ font-size: {max(8,round((appearance['font_size']-3)*zoom))}px; }}
+        .rail .app-name {{ font-size: {round(recent_text*zoom)}px; }}
+        .rail .freshness {{ font-size: {max(8,round((recent_text-3)*zoom))}px; }}
         .calendar-day {{ min-height: {round(24*zoom)}px; padding: {max(1,round(2*zoom))}px 0; }}
         button.calendar-day {{ background: transparent; border-color: transparent; box-shadow: none; text-shadow: none; }}
         button.calendar-day:hover {{ background: {rgba('accent',.10)}; border-color: transparent; }}
@@ -1016,7 +1014,8 @@ class Dashboard:
         self.provider.load_from_data(css.encode())
         self.surface.set_spacing(round(appearance['spacing']*zoom))
         self.main.set_spacing(round(appearance['spacing']*zoom)) if hasattr(self,'main') else None
-        if hasattr(self,'rail'): self.rail.set_size_request(round(94*zoom),-1)
+        if hasattr(self,'rail'):
+            self.rail.set_size_request(round(max(94,recent_icon+36,recent_text*4.4+28)*zoom),-1)
         if hasattr(self,'zoom_label'): self.zoom_label.set_text(f'{round(zoom*100)}%')
         self.theme=colors
         if getattr(self,'app_lists',None): self.receive_apps(self.app_lists)
@@ -1108,7 +1107,6 @@ class Dashboard:
             self.layout=plan
             for key,rect in plan.items():self.place_card(key,rect)
             self.guide_layer.queue_draw()
-            atomic_json(self.root/'state/wave-size.json',{'width':max(80,int(width*.3)-30),'height':36})
 
     def place_card(self,key,rect):
         if key not in self.cards: return
@@ -1323,9 +1321,12 @@ class Dashboard:
         appearance=self.profile['appearance']
         parent.pack_start(label('Dashboard zoom: use − / + beside the profile selector; ↶ resets it to 100%. Zoom is saved per profile.',wrap=True),False,False,0)
         for title,key,low,high,step in [('Background opacity','opacity',.15,1,.05),('Font size','font_size',9,24,1),
+                                       ('Recent Apps text size','recent_text_size',9,24,1),
+                                       ('Recent Apps icon size','recent_icon_size',16,80,1),
                                        ('Card spacing','spacing',4,24,1),('Snap sensitivity','grid_size',4,40,1)]:
             line=box(False,8); line.pack_start(label(title),True,True,0)
             spin=Gtk.SpinButton.new_with_range(low,high,step); spin.set_digits(2 if key=='opacity' else 0); spin.set_value(appearance[key])
+            spin.get_accessible().set_name(title)
             def changed(widget,k=key):
                 appearance[k]=widget.get_value() if k=='opacity' else widget.get_value_as_int()
                 self.apply_appearance()
@@ -1742,7 +1743,7 @@ class Dashboard:
             if changed.intersection(SOURCES.get(key,())) or (key=='system' and 'health' in changed): card.render()
             card.update_freshness()
         self.update_health()
-        self.diagnostic_payload=json.dumps({'backend':'eww' if self.host is not None else 'gtk','profile':self.data['active_profile'],'visible':self.visible,'paused':self.paused,'canvas':self.canvas_size,'cards':list(self.cards),'zoom':self.profile['appearance'].get('scale',1),'samples':{key:{'updated':value.get('updated',0),'error':value.get('error','')} for key,value in self.samples.items()}})
+        self.diagnostic_payload=json.dumps({'backend':'gtk','profile':self.data['active_profile'],'visible':self.visible,'paused':self.paused,'canvas':self.canvas_size,'cards':list(self.cards),'zoom':self.profile['appearance'].get('scale',1),'samples':{key:{'updated':value.get('updated',0),'error':value.get('error','')} for key,value in self.samples.items()}})
         return False
 
     def update_health(self):
@@ -1888,9 +1889,9 @@ class Dashboard:
             for app in items:
                 content=box(True,4)
                 image=Gtk.Image.new_from_icon_name(app.get('icon','application-x-executable'),Gtk.IconSize.DND)
-                image.set_pixel_size(round(40*self.profile['appearance'].get('scale',1)))
+                image.set_pixel_size(round(self.profile['appearance']['recent_icon_size']*self.profile['appearance'].get('scale',1)))
                 content.pack_start(image,False,False,0)
-                text=label(app.get('name','App')); text.set_max_width_chars(9); text.set_xalign(.5)
+                text=label(app.get('name','App'),'app-name'); text.set_max_width_chars(9); text.set_xalign(.5)
                 content.pack_start(text,False,False,0)
                 action=Gtk.Button(); action.add(content)
                 action.set_tooltip_text(app.get('name','')+' · Right click to '+('unpin' if category=='pinned' else 'pin'))
@@ -2061,10 +2062,8 @@ class Dashboard:
                 except ProcessLookupError: pass
         if hasattr(self,'server'): self.server.close(); self.ipc_path.unlink(missing_ok=True)
         self.history.close()
-        if self.host is None:Gtk.main_quit()
-        else:
-            Gtk.StyleContext.remove_provider_for_screen(self.window.get_screen(),self.provider)
-            if hasattr(self,'host_lock'):self.host_lock.close()
+        Gtk.StyleContext.remove_provider_for_screen(self.window.get_screen(),self.provider)
+        Gtk.main_quit()
         return False
 
 
@@ -2091,6 +2090,7 @@ def main():
     parser.add_argument('--control',choices=['quit','status','reload','diagnostics'])
     args=parser.parse_args()
     if args.check:
+        import cairo
         print('GTK 3 and GTK Layer Shell are available'); return 0
     if args.control:
         result=ipc(args.root,args.control)

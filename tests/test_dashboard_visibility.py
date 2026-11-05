@@ -6,7 +6,6 @@ import os
 import fcntl
 import signal
 from pathlib import Path
-import json
 import subprocess
 import tempfile
 import unittest
@@ -112,85 +111,42 @@ class ObserverRecovery(unittest.TestCase):
 
 
 class SurfaceVisibility(unittest.TestCase):
-    def test_eww_autostart_does_not_keep_the_startup_lock(self):
-        with tempfile.TemporaryDirectory() as tmp:
+    def test_native_startup_releases_lock_and_reloads_only_its_own_surface(self):
+        with tempfile.TemporaryDirectory(prefix='poedash startup ') as tmp:
             home = Path(tmp)
-            root = home / 'dashboard'
+            root = home / 'dashboard with spaces'
             (root / 'scripts').mkdir(parents=True)
             script = root / 'scripts/start.sh'
             script.write_text((ROOT / 'apps/poedash/assets/scripts/start.sh').read_text())
             (root / 'poedash.py').write_text('')
-            (root / 'surface-backend').write_text('eww')
-            (root / 'scripts/dashboard_native.py').write_text('import sys; raise SystemExit(0)\n')
-            (root / 'scripts/eww-host.py').write_text('print(\"/unused/fixture-host.so\")\n')
-            binaries = home / 'bin'
-            binaries.mkdir()
-            fake_eww = binaries / 'eww'
-            fake_eww.write_text('''#!/usr/bin/env python3
-import os, subprocess, sys
-if sys.argv[-2:] == ['open', 'dashboard']:
-    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'],
-                             close_fds=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    with open(os.environ['DAEMON_PID'], 'w') as stream:
-        stream.write(str(child.pid))
+            (root / 'scripts/dashboard_native.py').write_text('''import os, sys, time
+from pathlib import Path
+root = Path(__file__).resolve().parents[1]
+if '--check' in sys.argv: raise SystemExit(0)
+if '--control' in sys.argv:
+    command = sys.argv[sys.argv.index('--control')+1]
+    if command == 'status': raise SystemExit(0 if (root/'ready').exists() else 1)
+    if command == 'reload': (root/'reloaded').touch()
+    raise SystemExit(0)
+(root/'pid').write_text(str(os.getpid()))
+(root/'ready').touch()
+time.sleep(30)
 ''')
-            fake_eww.chmod(0o755)
+            binaries = home / 'bin'; binaries.mkdir()
             (binaries / 'sleep').write_text('#!/bin/sh\nexit 0\n')
             (binaries / 'sleep').chmod(0o755)
-            pid_path = home / 'daemon.pid'
             env = dict(os.environ, HOME=str(home), XDG_CACHE_HOME=str(home / '.cache'),
-                       DAEMON_PID=str(pid_path), PATH=str(binaries) + os.pathsep + os.environ['PATH'])
+                       PATH=str(binaries) + os.pathsep + os.environ['PATH'])
             try:
                 subprocess.run(['bash', str(script)], env=env, check=True, timeout=10)
+                pid = (root / 'pid').read_text()
                 with (home / '.cache/poedash/start.lock').open() as lock:
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            finally:
-                if pid_path.exists():
-                    os.kill(int(pid_path.read_text()), signal.SIGTERM)
-
-    def test_refresh_recreates_only_its_own_dashboard_surface(self):
-        for relative in ('apps/poedash/assets',):
-            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as tmp:
-                home = Path(tmp)
-                root = home / 'config with spaces'
-                (root / 'scripts').mkdir(parents=True)
-                script = root / 'scripts/start.sh'
-                script.write_text((ROOT / relative / 'scripts/start.sh').read_text())
-                (root / 'poedash.py').write_text('')
-                (root / 'surface-backend').write_text('eww')
-                (root / 'scripts/dashboard_native.py').write_text('import sys; raise SystemExit(0)\n')
-                (root / 'scripts/eww-host.py').write_text('print(\"/unused/fixture-host.so\")\n')
-                binaries = home / 'bin'
-                binaries.mkdir()
-                log = home / 'commands.jsonl'
-                fake_eww = binaries / 'eww'
-                fake_eww.write_text('#!/usr/bin/env python3\nimport json, os, sys\n'
-                                    'with open(os.environ["COMMAND_LOG"], "a") as stream:\n'
-                                    '    stream.write(json.dumps(sys.argv[1:]) + "\\n")\n')
-                fake_eww.chmod(0o755)
-                (binaries / 'sleep').write_text('#!/bin/sh\nexit 0\n')
-                (binaries / 'sleep').chmod(0o755)
-                env = dict(os.environ, HOME=str(home), XDG_CACHE_HOME=str(home / '.cache'),
-                           XDG_RUNTIME_DIR=str(home), COMMAND_LOG=str(log),
-                           PATH=str(binaries) + os.pathsep + os.environ['PATH'])
                 subprocess.run(['bash', str(script)], env=env, check=True, timeout=10)
-                commands = [json.loads(line) for line in log.read_text().splitlines()]
-                self.assertTrue(all(command[:2] == ['--config', str(root)] for command in commands))
-                self.assertEqual([command[2:] for command in commands],
-                                 [['kill'], ['--force-wayland', 'daemon'], ['open', 'dashboard']])
-
-    def test_both_dashboards_hide_widgets_instead_of_making_them_transparent(self):
-        for relative in ('apps/poedash/assets/templates',):
-            with self.subTest(relative=relative):
-                root = ROOT / relative
-                yuck = (root / 'eww.yuck').read_text()
-                css = (root / 'eww.scss').read_text()
-                self.assertIn(':visible home_visible', yuck)
-                self.assertIn('workspace.py --listen', yuck)
-                self.assertIn(':stacking "bottom"', yuck)
-                self.assertNotIn('dashboard-away', yuck + css)
-                self.assertNotRegex(css, r'\.dashboard-(?:surface|panel)[^{]*\{[^}]*opacity:\s*0;')
+                self.assertTrue((root / 'reloaded').exists())
+                self.assertEqual((root / 'pid').read_text(), pid)
+            finally:
+                if (root / 'pid').exists(): os.kill(int((root / 'pid').read_text()), signal.SIGTERM)
 
 
-if __name__ == '__main__':
-    unittest.main()
+if __name__ == '__main__': unittest.main()

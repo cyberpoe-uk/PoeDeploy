@@ -16,7 +16,7 @@ EVENTS = {'workspace', 'workspacev2', 'focusedmon', 'focusedmonv2',
 
 
 def visible(monitors, selector=0):
-    """Eww selects monitors by array index or connector name, not numeric ID."""
+    """Select monitors by GTK array index or connector name, not numeric ID."""
     if not isinstance(monitors, list) or not monitors:
         return None
     if type(selector) is int:

@@ -4,6 +4,9 @@
 # Temporary files
 *.tmp
 *.bak
+*.orig
+*.rej
+*.before-*
 
 # Editor files
 *.swp

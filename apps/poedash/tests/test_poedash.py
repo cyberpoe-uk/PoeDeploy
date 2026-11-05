@@ -45,11 +45,12 @@ class Installation(unittest.TestCase):
         self.install()
         cfg = json.loads((self.root / 'settings.json').read_text())
         cfg['name'] = 'My Workstation'
+        cfg.pop('calendar')  # Earlier installations stored this in layout.json.
         (self.root / 'settings.json').write_text(json.dumps(cfg))
         (self.root / 'colors.scss').write_text('// custom palette')
         (self.root / 'obsolete-interface-file').write_text('remove me')
         (self.root / 'disabled').touch()
-        (self.root / 'layout.json').write_text('{"density":"comfortable"}')
+        (self.root / 'layout.json').write_text('{"density":"comfortable","calendar":"google"}')
         dashboard = '{"version":1,"notes":"keep my private note"}'
         (self.root / 'dashboard.json').write_text(dashboard)
         (self.root / 'state').mkdir(exist_ok=True)
@@ -58,15 +59,15 @@ class Installation(unittest.TestCase):
         self.install()
         self.assertEqual(self.hypr.read_text().count(poedash.BEGIN), 1)
         self.assertEqual(poedash.settings(self.root)['name'], 'My Workstation')
-        self.assertIn('My Workstation', (self.root / 'eww.yuck').read_text())
         self.assertEqual((self.root / 'colors.scss').read_text(), '// custom palette')
         self.assertFalse((self.root / 'obsolete-interface-file').exists())
         self.assertTrue((self.root / 'disabled').exists())
-        self.assertEqual(json.loads((self.root / 'layout.json').read_text())['density'], 'comfortable')
+        self.assertFalse((self.root / 'layout.json').exists())
+        self.assertEqual(poedash.settings(self.root)['calendar'], 'google')
         self.assertEqual((self.root / 'dashboard.json').read_text(), dashboard)
         self.assertEqual((self.root / 'dashboard.json').stat().st_mode & 0o777, 0o600)
         self.assertEqual((self.root / 'state/history.fixture').read_text(), 'saved history')
-        self.assertTrue((self.root / 'scripts/layout.py').stat().st_mode & 0o111)
+        self.assertTrue((self.root / 'scripts/dashboard_native.py').is_file())
         self.assertTrue((self.root / 'scripts/workspace.py').stat().st_mode & 0o111)
         self.assertEqual((self.root / 'dashboard-id').read_text(), 'poedash\n')
         self.assertEqual((self.home / '.config/poedeploy/dashboard').read_text(), 'poedash\n')
@@ -89,6 +90,35 @@ class Installation(unittest.TestCase):
         self.install()
         self.assertEqual(before, sorted(str(p) for p in self.home.rglob('*')))
 
+    def test_dependency_installation_uses_only_native_runtime_packages(self):
+        with patch.object(poedash.shutil, 'which', return_value='/usr/bin/pacman'), \
+                patch.object(poedash.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1)), \
+                patch.object(poedash, 'run') as install:
+            poedash.dependencies()
+        packages=install.call_args.args[0]
+        self.assertEqual(packages[:4],['sudo','pacman','-S','--needed'])
+        for needed in ('python-gobject','python-cairo','gtk-layer-shell','gtk3'):
+            self.assertIn(needed,packages)
+        self.assertTrue(set(packages).isdisjoint({'eww','gcc','pkgconf','socat'}))
+
+    def test_doctor_succeeds_without_eww_or_a_host_compiler(self):
+        self.install()
+        def available(command):
+            return None if command in ('eww','cc','pkg-config') else '/usr/bin/'+command
+        def execute(argv,**kwargs):
+            payload=json.dumps({'version':'0.57.1'}) if argv[0]=='hyprctl' else ''
+            return subprocess.CompletedProcess(argv,0,payload,'')
+        with patch.object(poedash.shutil,'which',side_effect=available), patch.object(poedash,'run',side_effect=execute):
+            self.assertEqual(poedash.doctor(self.root),0)
+
+    def test_theme_update_does_not_start_another_renderer_when_dashboard_is_closed(self):
+        self.install()
+        wallpaper=self.home/'wallpaper.png'; wallpaper.touch()
+        with patch.object(poedash,'run') as generate, patch.object(poedash,'native_control',return_value=False):
+            poedash.theme(self.root,wallpaper)
+        generate.assert_called_once()
+        self.assertEqual(generate.call_args.args[0][0],'matugen')
+
     def test_upgrade_excludes_running_native_socket_from_backup(self):
         self.install()
         (self.root / 'state').mkdir(exist_ok=True)
@@ -106,14 +136,23 @@ class Installation(unittest.TestCase):
             self.install()
         launch.assert_called_once_with(self.root)
 
-    def test_eww_backend_choice_and_shared_host_survive_upgrade(self):
+    def test_upgrade_removes_obsolete_renderer_without_losing_user_state(self):
         self.install()
         (self.root/'surface-backend').write_text('eww\n')
-        self.install()
-        self.assertEqual((self.root/'surface-backend').read_text(),'eww\n')
-        self.assertIn('poedash-shared-host',(self.root/'eww.yuck').read_text())
-        for name in ('eww-host.py','eww_embed.py','eww-host-module.c'):
-            self.assertTrue((self.root/'scripts'/name).is_file())
+        (self.root/'eww.yuck').write_text('old renderer')
+        (self.root/'scripts/refresh.py').write_text('old scheduler')
+        (self.root/'state').mkdir(exist_ok=True)
+        (self.root/'state/surface-backend').write_text('eww')
+        (self.root/'state/eww-host').mkdir()
+        (self.root/'state/eww-host/module.so').write_bytes(b'old module')
+        (self.root/'state/user-data.json').write_text('{"keep":true}')
+        with patch.object(poedash, 'retire_legacy_surface'):
+            self.install()
+        for filename in ('surface-backend','eww.yuck','eww.scss','scripts/refresh.py',
+                         'scripts/eww-host.py','scripts/eww_embed.py','scripts/layout.py',
+                         'state/surface-backend','state/eww-host'):
+            self.assertFalse((self.root/filename).exists(), filename)
+        self.assertEqual((self.root/'state/user-data.json').read_text(),'{"keep":true}')
 
     def test_startup_uses_installed_directory(self):
         self.install()
@@ -140,13 +179,14 @@ class Installation(unittest.TestCase):
         legacy.mkdir(parents=True)
         (legacy / 'eww.yuck').write_text('(label :text "MY DASHBOARD")')
         (legacy / 'colors.scss').write_text('// laptop palette')
-        (legacy / 'layout.json').write_text('{"density":"compact"}')
+        (legacy / 'layout.json').write_text('{"density":"compact","calendar":"auto"}')
         (legacy / 'disabled').touch()
         (legacy / 'state').mkdir()
         (legacy / 'state/custom.json').write_text('{"keep":true}')
         self.install()
         self.assertEqual((self.root / 'colors.scss').read_text(), '// laptop palette')
-        self.assertEqual(json.loads((self.root / 'layout.json').read_text())['density'], 'compact')
+        self.assertFalse((self.root / 'layout.json').exists())
+        self.assertEqual(poedash.settings(self.root)['calendar'], 'auto')
         self.assertTrue((self.root / 'disabled').exists())
         self.assertTrue((self.root / 'state/custom.json').exists())
         self.install()
@@ -177,36 +217,18 @@ class Installation(unittest.TestCase):
         self.install()
         cfg = poedash.settings(self.root)
         self.assertEqual(cfg['name'], 'PoeDash')
-        self.assertEqual(cfg['layout']['system_width'], 620)
-        self.assertEqual(cfg['layout']['network_width'], 520)
-        self.assertEqual(cfg['layout']['lower_height'], 250)
-        yuck = (self.root / 'eww.yuck').read_text()
-        for unwanted in ('QUICK LAUNCH', 'CTF FIREFOX', 'WIRESHARK', 'START WEB CTF'):
-            self.assertNotIn(unwanted, yuck)
+        self.assertEqual(set(cfg), {'name', 'monitor', 'calendar'})
 
-    def test_responsive_layout_preserves_settings_and_readable_text(self):
-        self.install()
-        cfg = poedash.settings(self.root)
-        cfg['layout']['system_width'] = 600
-        (self.root / 'settings.json').write_text(json.dumps(cfg))
-        with patch.object(poedash, 'monitor_info', return_value={'name': 'DP-2', 'width': 2560, 'height': 1440, 'scale': 2}):
-            poedash.render(self.root)
-        yuck = (self.root / 'eww.yuck').read_text()
-        self.assertIn(':width {layout.card_width}', yuck)
-        self.assertIn(':monitor 0', yuck)
-        self.assertIn('.comfortable', (self.root / 'eww.scss').read_text())
-        self.assertEqual(poedash.settings(self.root)['layout']['system_width'], 600)
-        self.assertNotIn('/home/', yuck)
-
-    def test_named_monitor_supports_gtk_model_names(self):
+    def test_render_preserves_named_monitor_and_user_settings(self):
         self.install()
         cfg = poedash.settings(self.root)
         cfg['monitor'] = 'eDP-1'
         (self.root / 'settings.json').write_text(json.dumps(cfg))
-        with patch.object(poedash, 'monitor_info', return_value={'name': 'eDP-1', 'model': '0x084D', '_index': 0, 'width': 1920, 'height': 1080, 'scale': 1}):
-            poedash.render(self.root)
-        selector = json.dumps(json.dumps(['eDP-1', '0x084D', 0]))
-        self.assertIn(':monitor ' + selector, (self.root / 'eww.yuck').read_text())
+        before = (self.root / 'settings.json').read_text()
+        poedash.render(self.root)
+        self.assertEqual((self.root / 'settings.json').read_text(), before)
+        self.assertIn(str(self.root / 'disabled'), (self.root / 'hyprland.lua').read_text())
+        self.assertNotIn('eww', (self.root / 'hyprland.lua').read_text().lower())
 
     def test_lua_syntax_and_cli_path_with_spaces(self):
         self.install()
@@ -219,20 +241,9 @@ class Installation(unittest.TestCase):
         self.args.name = 'Studio PC'
         self.install()
         self.assertEqual(poedash.settings(self.root)['name'], 'Studio PC')
-        yuck = (self.root / 'eww.yuck').read_text()
-        for feature in ('TOP PROCESSES', 'Consumption', 'SMB / NFS SHARES',
-                        'SPECIFICATIONS', 'media-control.sh open',
-                        'Tailscale IP', ':wrap true', 'media.art'):
-            self.assertIn(feature, yuck)
-        self.assertIn(':visible {power.present}', yuck)
-        self.assertIn(':visible home_visible', yuck)
-        self.assertNotIn('dashboard-away', yuck)
-        self.assertIn('deflisten home_visible', yuck)
-        self.assertIn(':text {layout.hostname}', yuck)
         self.assertIn('desktop.py', (self.root / 'scripts/media-control.sh').read_text())
         self.assertTrue((self.root / 'scripts/desktop.py').stat().st_mode & 0o111)
-        self.assertIn('updates > 50 ? "updates critical"', yuck)
-        for script in ('system-info.py', 'processes.py', 'shares.py', 'power.py', 'media.py', 'thunderbird-calendar.py'):
+        for script in ('system-info.py', 'processes.py', 'power.py', 'media.py', 'thunderbird-calendar.py'):
             result = subprocess.run([str(self.root / 'scripts' / script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             json.loads(result.stdout)

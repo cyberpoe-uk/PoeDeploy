@@ -84,34 +84,6 @@ INSTALLER
             with self.subTest(script=script):
                 self.assertEqual(self.run_script(script).returncode, 42)
 
-    def test_pre_progress_download_keeps_the_installed_repair(self):
-        installed = self.root / 'installed'
-        scripts = installed / 'scripts'
-        scripts.mkdir(parents=True)
-        names = ('dashboard-control.py', 'DashboardModule.qml', 'start.sh', 'update.sh',
-                 'dashboard_native.py', 'dashboard_collect.py', 'service_health.py')
-        for name in names:
-            (scripts / name).write_bytes((ROOT / 'apps/poedash/assets/scripts' / name).read_bytes())
-        (installed / 'poedash.py').write_bytes((ROOT / 'apps/poedash/poedash.py').read_bytes())
-        self.env['INSTALLED_ROOT'] = str(installed)
-        self.command('git', '''
-destination="${@: -1}"
-mkdir -p "$destination/apps/poedash/assets/scripts"
-printf 'old controls\\n' > "$destination/apps/poedash/assets/scripts/dashboard-control.py"
-cat > "$destination/poedeploy.sh" <<'INSTALLER'
-#!/usr/bin/env bash
-set -euo pipefail
-for script in dashboard-control.py DashboardModule.qml start.sh update.sh dashboard_native.py dashboard_collect.py service_health.py; do
-    cmp "$INSTALLED_ROOT/scripts/$script" "$(dirname "$0")/apps/poedash/assets/scripts/$script"
-done
-cmp "$INSTALLED_ROOT/poedash.py" "$(dirname "$0")/apps/poedash/poedash.py"
-INSTALLER
-''')
-        result = self.run_script(scripts / 'update.sh', str(installed))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('POEDASH_UPDATE_STAGE=download', result.stdout)
-        self.assertIn('POEDASH_UPDATE_STAGE=install', result.stdout)
-
 
 @unittest.skipIf(os.geteuid() == 0, 'Public installers intentionally refuse root')
 class DashboardBootstraps(FixtureCommands):
@@ -134,6 +106,7 @@ exit 97
         files = {'install.sh': '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$RECORD"\nexit "${INSTALL_EXIT:-0}"\n'}
         if valid:
             files[slug + '.py'] = ''
+            files['migration.py'] = ''
             files['assets/settings.example.json'] = ''
         with tarfile.open(self.archive, 'w:gz') as archive:
             for name, content in files.items():
