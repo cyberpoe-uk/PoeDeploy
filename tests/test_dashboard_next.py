@@ -118,7 +118,7 @@ class Layout(unittest.TestCase):
 
     def test_snap_generates_alignment_guides(self):
         rect=[.1,.1,.2,.2]
-        result,guides=model.transform(rect,98,0,'',1000,1000,12,[[.2,.4,.2,.2]])
+        result,guides=model.transform(rect,98,0,'',1000,1000,12,[[.2,.3,.2,.2]])
         self.assertAlmostEqual(result[0],.2)
         self.assertIn(('x',200),guides)
 
@@ -232,3 +232,185 @@ class Scheduling(unittest.TestCase):
                 self.assertEqual(calls.count('cpu'),2)
                 engine.close()
             self.assertFalse(engine.thread.is_alive())
+
+
+class WeatherLocationSearch(unittest.TestCase):
+    def test_results_distinguish_places_and_keep_coordinates(self):
+        payload={'results':[{'name':'Cambridge','admin1':'England','country':'United Kingdom','latitude':52.2,'longitude':.12},
+                            {'name':'Cambridge','admin1':'Massachusetts','country':'United States','latitude':42.37,'longitude':-71.1}]}
+        with patch.object(collect,'fetch',return_value=payload) as fetch:
+            values=collect.search_weather_locations('Cambridge')
+        self.assertEqual(len(values),2)
+        self.assertIn('United Kingdom',values[0]['location'])
+        self.assertIn('Massachusetts',values[1]['location'])
+        self.assertEqual(values[1]['longitude'],'-71.1')
+        self.assertIn('name=Cambridge',fetch.call_args.args[0])
+
+    def test_empty_and_malformed_results_do_not_select_a_place(self):
+        with patch.object(collect,'fetch',return_value={}):self.assertEqual(collect.search_weather_locations('Unknown'),[])
+        with patch.object(collect,'fetch',return_value={'results':[{'name':'Bad','latitude':float('nan'),'longitude':0},{'name':'Missing'}]}):
+            self.assertEqual(collect.search_weather_locations('Unknown'),[])
+        with patch.object(collect,'fetch') as fetch:
+            with self.assertRaises(ValueError):collect.search_weather_locations('A')
+            fetch.assert_not_called()
+
+    def test_saved_place_name_is_optional_for_existing_coordinates(self):
+        data=model.defaults();data['integrations']['weather']={'latitude':'52.2','longitude':'.12'}
+        model.validate(data)
+        data['integrations']['weather']['location']='Cambridge, England, United Kingdom'
+        model.validate(data)
+
+
+class AdaptiveLayout(unittest.TestCase):
+    def assert_valid(self,plan):
+        self.assertIsNotNone(plan)
+        for key,rect in plan.items():self.assertTrue(model.valid_move(key,rect,plan),(key,rect,plan))
+
+    def test_move_exchanges_unequal_slots_and_fits_both_cards(self):
+        layout={'a':[0,0,.2,.3],'b':[.4,0,.5,.6]};before=deepcopy(layout)
+        result=model.resolve_layout('a',[.45,.15,.2,.3],layout,'',1000,1000)
+        self.assert_valid(result)
+        self.assertEqual(result['a'],layout['b']);self.assertEqual(result['b'],layout['a'])
+        self.assertEqual(layout,before)
+
+    def test_resize_shrinks_horizontal_and_vertical_neighbours(self):
+        layout={'a':[0,0,.3,.4],'b':[.31,0,.3,.4]}
+        result=model.resolve_layout('a',[0,0,.4,.4],layout,'e',1000,1000)
+        self.assert_valid(result);self.assertAlmostEqual(result['b'][0],.41);self.assertAlmostEqual(result['b'][2],.2)
+        layout={'a':[0,0,.4,.3],'b':[0,.31,.4,.3]}
+        result=model.resolve_layout('a',[0,0,.4,.45],layout,'s',1000,1000)
+        self.assert_valid(result);self.assertAlmostEqual(result['b'][1],.46);self.assertAlmostEqual(result['b'][3],.15)
+
+    def test_west_and_north_resize_keep_far_edges_fixed(self):
+        layout={'a':[0,0,.3,.4],'b':[.31,0,.3,.4]}
+        result=model.resolve_layout('b',[.2,0,.41,.4],layout,'w',1000,1000)
+        self.assert_valid(result);self.assertAlmostEqual(result['a'][2],.19)
+        layout={'a':[0,0,.4,.3],'b':[0,.31,.4,.3]}
+        result=model.resolve_layout('b',[0,.2,.4,.41],layout,'n',1000,1000)
+        self.assert_valid(result);self.assertAlmostEqual(result['a'][3],.19)
+
+    def test_resize_stops_before_crushing_neighbour_and_preserves_unrelated_cards(self):
+        layout={'a':[0,0,.3,.4],'b':[.31,0,.3,.4],'c':[.62,0,.38,.4]}
+        result=model.resolve_layout('a',[0,0,.85,.4],layout,'e',1000,1000)
+        self.assert_valid(result)
+        self.assertGreaterEqual(result['b'][2],.18-1e-7)
+        self.assertLessEqual(result['a'][2],.421)
+        self.assertEqual(result['c'],layout['c'])
+
+    def test_corner_resize_can_adjust_multiple_cards(self):
+        layout={'a':[0,0,.3,.3],'b':[.31,0,.3,.3],'c':[0,.31,.3,.3],'d':[.31,.31,.3,.3]}
+        result=model.resolve_layout('a',[0,0,.4,.4],layout,'se',1000,1000)
+        self.assert_valid(result)
+        self.assertNotEqual(result['b'],layout['b']);self.assertNotEqual(result['c'],layout['c'])
+
+    def test_empty_space_and_invalid_bounds(self):
+        layout={'a':[0,0,.3,.3]}
+        self.assertEqual(model.resolve_layout('a',[.5,.5,.3,.3],layout,'',1000,1000)['a'],[.5,.5,.3,.3])
+        self.assertIsNone(model.resolve_layout('a',[.9,.9,.3,.3],layout,'',1000,1000))
+
+
+class StableLayoutsAndGaps(unittest.TestCase):
+    def test_insert_into_free_space_keeps_existing_rectangles(self):
+        layout={'arch':[0,0,.3,.4],'system':[.31,0,.3,.4]}
+        result,height=model.insert_card('weather',layout,1000,800,10)
+        self.assertEqual(height,800)
+        for key in layout:self.assertEqual(result[key],layout[key])
+        self.assertTrue(all(model.spaced(result['weather'],r,1000,height,10) for k,r in result.items() if k!='weather'))
+
+    def test_full_canvas_shares_column_height_without_scrolling(self):
+        layout={'arch':[0,0,1,1]}
+        result,height=model.insert_card('weather',layout,600,400,14)
+        self.assertEqual(height,400)
+        self.assertGreaterEqual(result['arch'][3]*height,100)
+        self.assertGreaterEqual(result['weather'][3]*height,100)
+        self.assertAlmostEqual((result['weather'][1]-result['arch'][3])*height,14)
+
+    def test_swapping_requires_release_and_central_target(self):
+        layout={'a':[0,0,.3,.3],'b':[.4,0,.4,.5]};rect=[.45,.05,.3,.3]
+        self.assertIsNone(model.resolve_layout('a',rect,layout,'',1000,1000,allow_swap=False))
+        self.assertIsNotNone(model.resolve_layout('a',rect,layout,'',1000,1000,drop_point=(.6,.25)))
+        self.assertIsNone(model.resolve_layout('a',rect,layout,'',1000,1000,drop_point=(.41,.25)))
+        self.assertIsNone(model.resolve_layout('a',rect,layout,'',1000,1000,drop_point=(.6,.49)))
+
+    def test_free_slot_wins_over_a_nearby_card(self):
+        layout={'a':[0,0,.2,.2],'b':[.5,.1,.3,.3]}
+        rect=[.29,.1,.2,.2]
+        result=model.resolve_layout('a',rect,layout,'',1000,1000,10)
+        self.assertEqual(result['a'],rect);self.assertEqual(result['b'],layout['b'])
+
+    def test_snap_uses_configured_gap_and_no_distant_grid_rounding(self):
+        rect=[.1,.1,.2,.2];other=[.4,.1,.2,.2]
+        result,guides=model.transform(rect,87,0,'',1000,1000,12,[other],10)
+        self.assertAlmostEqual((other[0]-result[0]-result[2])*1000,10)
+        result,_=model.transform(rect,37,19,'',1000,1000,12,[[.6,.7,.2,.2]],10)
+        self.assertAlmostEqual(result[0],.137);self.assertAlmostEqual(result[1],.119)
+
+    def test_resize_preserves_gap_before_cards_physically_overlap(self):
+        layout={'a':[0,0,.3,.4],'b':[.31,0,.3,.4]}
+        result=model.resolve_layout('a',[0,0,.305,.4],layout,'e',1000,1000,10)
+        self.assertAlmostEqual((result['b'][0]-result['a'][2])*1000,10)
+
+    def test_gap_measurements_report_exact_spacing(self):
+        layout={'a':[0,0,.3,.3],'b':[.31,0,.3,.3],'c':[0,.32,.3,.3]}
+        gaps=model.measure_gaps('a',layout['a'],layout,1000,1000)
+        self.assertEqual(sorted(round(g[-1]) for g in gaps),[10,20])
+
+
+class FitCardsWithinScreen(unittest.TestCase):
+    def test_full_column_shares_reduction_with_cards_above(self):
+        layout={'arch':[0,0,1,.3],'system':[0,.3125,1,.6875]}
+        result,height=model.insert_card('weather',layout,600,800,10)
+        self.assertEqual(height,800)
+        self.assertLess(result['arch'][3],layout['arch'][3])
+        self.assertLess(result['system'][3],layout['system'][3])
+        reduction1=(layout['arch'][3]-result['arch'][3])*height
+        reduction2=(layout['system'][3]-result['system'][3])*height
+        self.assertAlmostEqual(reduction1,reduction2)
+        self.assertTrue(model.spaced(result['system'],result['weather'],600,800,10))
+
+    def test_column_shares_height_reduction_equally_when_bottom_is_too_short(self):
+        layout={k:[0,i*230/700,1,220/700] for i,k in enumerate(('arch','system','power'))}
+        result,height=model.insert_card('weather',layout,600,700,10)
+        self.assertEqual(height,700)
+        heights=[result[k][3]*height for k in layout]
+        self.assertTrue(all(abs(h-heights[0])<.01 for h in heights))
+        for key,rect in result.items():self.assertTrue(model.valid_move(key,rect,result))
+        self.assertAlmostEqual((result['weather'][1]+result['weather'][3])*height,700)
+
+    def test_no_room_does_not_extend_canvas_or_change_layout(self):
+        layout={'arch':[0,0,1,1]};original=deepcopy(layout)
+        result,height=model.insert_card('weather',layout,600,200,10)
+        self.assertIsNone(result);self.assertEqual(height,200);self.assertEqual(layout,original)
+
+    def test_fit_to_screen_preserves_columns_and_usable_sizes(self):
+        layout={'arch':[0,0,.49,.4],'system':[0,.41,.49,.59],'player':[.51,0,.49,1]}
+        result,height=model.fit_layout_height(layout,1000,1000,600,10)
+        self.assertIsNotNone(result);self.assertEqual(height,600)
+        for key,rect in result.items():
+            self.assertEqual(rect[0],layout[key][0]);self.assertEqual(rect[2],layout[key][2])
+            self.assertGreaterEqual(rect[3]*height,100)
+            self.assertTrue(model.valid_move(key,rect,result))
+        self.assertTrue(model.spaced(result['arch'],result['system'],1000,height,10))
+
+    def test_fit_refuses_to_crush_cards_below_minimum_height(self):
+        layout={k:[0,i*110/330,1,100/330] for i,k in enumerate(('arch','system','power'))}
+        result,height=model.fit_layout_height(layout,600,330,250,10)
+        self.assertIsNone(result);self.assertEqual(height,250)
+
+
+class FixedCanvasRegression(unittest.TestCase):
+    def test_refitting_an_already_valid_layout_is_exactly_stable(self):
+        layout={'arch':[0,0,.4,.3],'system':[0,.31,.4,.3]}
+        result,height=model.fit_layout_height(layout,1000,1000,1000,10)
+        self.assertEqual(result,layout)
+        self.assertEqual(model.fit_layout_height(result,1000,height,height,10)[0],layout)
+
+    def test_adding_card_preserves_other_columns(self):
+        layout={'arch':[0,0,.49,.49],'system':[0,.51,.49,.49],
+                'performance':[.51,0,.49,.49],'processes':[.51,.51,.49,.49]}
+        result,height=model.insert_card('weather',layout,1000,600,10)
+        self.assertEqual(height,600)
+        changed=[key for key in layout if result[key]!=layout[key]]
+        self.assertEqual(len(changed),2)
+        self.assertEqual(len({layout[key][0] for key in changed}),1)
+        for key,rect in result.items():self.assertTrue(model.valid_move(key,rect,result))

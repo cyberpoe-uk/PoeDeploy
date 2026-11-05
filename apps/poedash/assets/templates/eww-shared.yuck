@@ -1,0 +1,10 @@
+;; Eww owns the window. The host module supplies the shared PoeDash card/editor tree.
+(defwidget dashboard-content []
+  (box :class "poedash-shared-host" :hexpand true :vexpand true :space-evenly false))
+(defwindow dashboard
+  :monitor 0
+  :geometry (geometry :x "0px" :y "0px" :width "100%" :height "100%" :anchor "center")
+  :stacking "bottom"
+  :exclusive false
+  :focusable false
+  (dashboard-content))

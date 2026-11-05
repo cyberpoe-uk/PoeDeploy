@@ -188,8 +188,8 @@ continuous zoom and optional cards.
 
 PoeDash is the single dashboard bundled with PoeDeploy. It places your hostname
 above a themed desktop overview on workspace 1, with application windows above
-it. The editable surface uses GTK and GTK Layer Shell, with Eww as a fallback,
-and integrates with supported ML4W QuickShell/Waybar controls.
+it. Standalone GTK and Eww-hosted modes share the same card/editor code and
+GTK Layer Shell integration. The dashboard integrates with supported ML4W QuickShell/Waybar controls.
 
 <p align="center">
   <img src="assets/screenshots/poedash-live.png" alt="PoeDash running on the development PC" width="1100">
@@ -218,24 +218,30 @@ visible Save/Cancel controls. Daily, Monitoring and Minimal profiles remember
 separate layouts for each display.
 
 **− / percentage / + / reset** replaces Compact/Comfortable with continuous
-50–200% zoom. Cards reflow within the screen width and scroll vertically as
-needed, including after live resolution changes. CPU/RAM/temperature, traffic
+50–200% zoom. Cards fit within the visible dashboard, including after live resolution
+changes. Adding a card shares height across its column instead of extending
+the board vertically. CPU/RAM/temperature, traffic
 and power graphs keep up to an hour of local history, with matching colours on
 Performance and Connectivity readings. Choose a 5, 15, 30 or 60 minute graph
 range in Appearance. Hover over a card's refresh button for
 its update time, errors or pauses. The health strip opens actionable details.
 
-Calendar centers the month above a full-width grid and highlights today. Player
+Calendar lets you select a day’s events; today shows the next two weeks.
+Returning to the dashboard workspace resets the selection to today. Player
 scales album artwork to the card space and keeps playback controls at the bottom.
 Notes, Tasks, Weather, RSS, Containers, NAS and Remote Machine cards are available
-in the card library. Configure them in **Edit → Cards**: Weather uses coordinates
-and Open-Meteo, RSS takes feed URLs, Containers uses existing local Docker access,
+in the card library. Configure them in **Edit → Cards**: Weather searches towns/cities with Open-Meteo geocoding and shows local SVG
+condition artwork, RSS takes feed URLs, Containers uses existing local Docker access,
 and NAS/Remote Machine read a configured JSON endpoint with an optional bearer
 token. Notes and Tasks save locally.
 
 Mounted Shares can monitor selected mounts. VPN health monitoring is opt-in.
 Failed services open their status and recent journal entries from Health or the
 System card.
+
+Use `poedash backend gtk` or `poedash backend eww` to select a surface; both
+use the same saved profiles, settings and interactive features. Save pending
+edits before switching.
 
 See the [PoeDash guide](apps/poedash/README.md) for editing, integration setup,
 settings recovery and real-pointer GUI validation. The image above shows the

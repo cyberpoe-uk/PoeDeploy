@@ -120,6 +120,9 @@ class SurfaceVisibility(unittest.TestCase):
             script = root / 'scripts/start.sh'
             script.write_text((ROOT / 'apps/poedash/assets/scripts/start.sh').read_text())
             (root / 'poedash.py').write_text('')
+            (root / 'surface-backend').write_text('eww')
+            (root / 'scripts/dashboard_native.py').write_text('import sys; raise SystemExit(0)\n')
+            (root / 'scripts/eww-host.py').write_text('print(\"/unused/fixture-host.so\")\n')
             binaries = home / 'bin'
             binaries.mkdir()
             fake_eww = binaries / 'eww'
@@ -154,6 +157,9 @@ if sys.argv[-2:] == ['open', 'dashboard']:
                 script = root / 'scripts/start.sh'
                 script.write_text((ROOT / relative / 'scripts/start.sh').read_text())
                 (root / 'poedash.py').write_text('')
+                (root / 'surface-backend').write_text('eww')
+                (root / 'scripts/dashboard_native.py').write_text('import sys; raise SystemExit(0)\n')
+                (root / 'scripts/eww-host.py').write_text('print(\"/unused/fixture-host.so\")\n')
                 binaries = home / 'bin'
                 binaries.mkdir()
                 log = home / 'commands.jsonl'
@@ -171,8 +177,7 @@ if sys.argv[-2:] == ['open', 'dashboard']:
                 commands = [json.loads(line) for line in log.read_text().splitlines()]
                 self.assertTrue(all(command[:2] == ['--config', str(root)] for command in commands))
                 self.assertEqual([command[2:] for command in commands],
-                                 [['ping'], ['reload'], ['close', 'dashboard'],
-                                  ['active-windows'], ['open', 'dashboard']])
+                                 [['kill'], ['--force-wayland', 'daemon'], ['open', 'dashboard']])
 
     def test_both_dashboards_hide_widgets_instead_of_making_them_transparent(self):
         for relative in ('apps/poedash/assets/templates',):

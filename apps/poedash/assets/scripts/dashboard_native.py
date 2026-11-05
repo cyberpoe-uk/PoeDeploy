@@ -2,6 +2,7 @@
 """PoeDash's editable GTK/Wayland desktop surface."""
 import argparse
 import calendar
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import datetime
 import fcntl
@@ -26,9 +27,10 @@ from gi.repository import Gtk, Gdk, GLib, GLibUnix, GdkPixbuf, Pango, GtkLayerSh
 
 from dashboard_model import (CARDS, BASE_CARDS, REFRESH, SOURCES, SOURCE_TITLES,
     DEFAULT_APPEARANCE, Settings, Transaction, History, atomic_json, read_json,
-    default_layout, valid_move, swap_target, transform, validate)
-from dashboard_collect import Engine, health_issues
+    default_layout, valid_move, swap_target, resolve_layout, insert_card, fit_layout_height, spaced, central_drop_target, measure_gaps, transform, validate)
+from dashboard_collect import Engine, health_issues, search_weather_locations
 from service_health import failed_units, service_details
+from weather_visual import condition as weather_condition, icon_svg as weather_icon_svg
 
 ROOT = Path(__file__).resolve().parent.parent
 GRAPH_COLORS = ((.80,.69,.98),(.45,.82,.74),(.95,.69,.45))
@@ -99,6 +101,15 @@ def rate(value):
     return f'{number:.1f} TiB/s'
 
 
+def weather_icon(code,is_day=True,size=80):
+    loader=GdkPixbuf.PixbufLoader.new_with_type('svg')
+    loader.set_size(size,round(size*.75))
+    loader.write(weather_icon_svg(code,is_day).encode()); loader.close()
+    image=Gtk.Image.new_from_pixbuf(loader.get_pixbuf())
+    image.get_accessible().set_name(weather_condition(code,is_day)[1])
+    return image
+
+
 class Artwork(Gtk.DrawingArea):
     def __init__(self, path, scale=1):
         super().__init__()
@@ -117,6 +128,49 @@ class Artwork(Gtk.DrawingArea):
         cr.scale(scale,scale)
         Gdk.cairo_set_source_pixbuf(cr,self.pixbuf,0,0)
         cr.paint(); cr.restore()
+        return False
+
+
+class Waveform(Gtk.DrawingArea):
+    """Draw audio levels directly; avoid per-frame SVG decoding and image layout."""
+    def __init__(self):
+        super().__init__()
+        self.payload = {}
+        self.set_size_request(-1, 36)
+        self.connect('draw', self.draw_wave)
+        self.get_accessible().set_name('Audio waveform')
+
+    def set_frame(self, payload):
+        self.payload = payload
+        self.queue_draw()
+
+    def draw_wave(self, widget, cr):
+        values = self.payload.get('values', [])
+        if not values: return False
+        width, height = self.get_allocated_width(), self.get_allocated_height()
+        cr.save()
+        cr.scale(width / 320, height / 32)
+        cr.set_source_rgba(.65, .62, .72, .18)
+        cr.move_to(0, 30); cr.line_to(320, 30); cr.stroke()
+        played = min(320, max(0, self.payload.get('progress', 100) * 3.2))
+        cr.rectangle(0, 0, played, 32); cr.clip()
+        import cairo
+        palette = ((.984,.573,.235),(.937,.267,.267),(.659,.333,.969),(.231,.510,.965))
+        for layer, (offset, gain, opacity) in enumerate(((0,.28,.65),(7,.22,.7),(15,.15,.85))):
+            gradient = cairo.LinearGradient(0, 0, max(1, played), 0)
+            for i, color in enumerate(palette): gradient.add_color_stop_rgba(i/3, *color, opacity)
+            points = [(0,30)] + [(i*320/max(1,len(values)-1),30-max(0,min(100,values[(i+offset)%len(values)]))*gain) for i in range(len(values))] + [(320,30)]
+            cr.move_to(*points[0])
+            # Convert the SVG quadratic ridges to Cairo cubic curves.
+            start = points[0]
+            for i in range(1,len(points)-1):
+                control = points[i]; after = points[i+1]
+                end = ((control[0]+after[0])/2,(control[1]+after[1])/2)
+                cr.curve_to(start[0]+2/3*(control[0]-start[0]),start[1]+2/3*(control[1]-start[1]),end[0]+2/3*(control[0]-end[0]),end[1]+2/3*(control[1]-end[1]),*end)
+                start = end
+            cr.line_to(320,30); cr.line_to(0,30); cr.close_path()
+            cr.set_source(gradient); cr.fill()
+        cr.restore()
         return False
 
 
@@ -214,7 +268,9 @@ class Card(Gtk.EventBox):
     def press(self, widget, event):
         if event.button != 1: return False
         self.app.selected = self.key
-        self.app.status.set_text('Drag to move · edges/corners resize · invalid overlaps return to their previous position')
+        self.app.status.set_text('Drop inside a card’s highlighted centre to swap · keep the measured gaps')
+        self.app.preview_layout=None
+        self.drag_offset=(event.x,event.y)
         self.drag = (event.x_root, event.y_root, deepcopy(self.app.layout[self.key]), self.edge(event.x,event.y))
         self.cover.grab_add()
         self.queue_draw()
@@ -227,14 +283,26 @@ class Card(Gtk.EventBox):
             width, height = self.app.canvas_size
             appearance = self.app.profile['appearance']
             others = [r for key,r in self.app.layout.items() if key != self.key]
+            gap=appearance['spacing']*appearance.get('scale',1)
             rect, guides = transform(original, event.x_root-x, event.y_root-y, edge, width, height,
-                                     appearance['grid_size'] if appearance['snap'] else 0, others)
-            self.app.preview = (self.key, rect, valid_move(self.key,rect,self.app.layout))
-            self.app.guides = guides
-            if not self.app.preview[2] and not edge:
-                target=swap_target(self.key,rect,self.app.layout)
-                if target: self.app.status.set_text('Release to swap with '+CARDS[target][0])
-            self.app.place_card(self.key, rect)
+                                     appearance['grid_size'] if appearance['snap'] else 0, others,gap)
+            self.drag_proposed=rect
+            offset=getattr(self,'drag_offset',(original[2]*width/2,original[3]*height/2))
+            self.app.drop_point=(original[0]+(offset[0]+event.x_root-x)/width,original[1]+(offset[1]+event.y_root-y)/height)
+            plan=resolve_layout(self.key,rect,self.app.layout,edge,width,height,gap,allow_swap=False)
+            hint=central_drop_target(self.key,rect,self.app.layout,self.app.drop_point) if not edge and plan is None else None
+            self.app.swap_hint=hint
+            self.app.preview_layout=plan
+            self.app.preview=(self.key,plan[self.key] if plan else rect,plan is not None or hint is not None)
+            self.app.guides=guides
+            self.app.gap_guides=measure_gaps(self.key,plan[self.key] if plan else rect,plan or self.app.layout,width,height,max(120,gap*4))
+            for key,position in (plan or self.app.layout).items(): self.app.place_card(key,position)
+            if plan is None:
+                self.app.place_card(self.key,rect)
+                self.app.status.set_text('Release inside the highlighted centre to swap' if hint else 'Keep the configured gap · release here to restore the card')
+            else:
+                count=sum(plan[key]!=self.app.layout[key] for key in plan if key!=self.key)
+                self.app.status.set_text(('Release to adjust '+str(count)+' neighbouring card(s)') if count else 'Release to place card')
             self.queue_draw()
             self.app.guide_layer.queue_draw()
         else:
@@ -247,23 +315,26 @@ class Card(Gtk.EventBox):
     def release(self, widget, event):
         if not self.drag: return False
         self.cover.grab_remove()
-        preview = self.app.preview
-        if preview and preview[2]:
+        plan=getattr(self.app,'preview_layout',None)
+        if not self.drag[3] and hasattr(self,'drag_proposed'):
+            appearance=self.app.profile['appearance']
+            if event is not None and hasattr(event,'x_root'):
+                x,y,original,_=self.drag;width,height=self.app.canvas_size
+                offset=getattr(self,'drag_offset',(original[2]*width/2,original[3]*height/2))
+                self.app.drop_point=(original[0]+(offset[0]+event.x_root-x)/width,original[1]+(offset[1]+event.y_root-y)/height)
+            plan=resolve_layout(self.key,self.drag_proposed,self.app.layout,'',*self.app.canvas_size,
+                                appearance['spacing']*appearance.get('scale',1),allow_swap=True,drop_point=getattr(self.app,'drop_point',None))
+        if plan is not None:
             self.app.transaction.checkpoint()
-            self.app.layout[self.key] = preview[1]
+            self.app.layout=deepcopy(plan)
             self.app.store_layout()
             self.app.status.set_text('Layout changed · Save to keep it, or Cancel to restore')
         else:
-            target=swap_target(self.key,preview[1],self.app.layout) if preview and not self.drag[3] else None
-            if target:
-                self.app.transaction.checkpoint()
-                self.app.layout[self.key],self.app.layout[target]=self.app.layout[target],self.app.layout[self.key]
-                self.app.store_layout()
-                self.app.place_card(self.key,self.app.layout[self.key]); self.app.place_card(target,self.app.layout[target])
-                self.app.status.set_text('Swapped cards · Save to keep this layout')
-            else:
-                self.app.place_card(self.key,self.drag[2])
-                self.app.status.set_text('That position overlaps another card; move returned to its previous position')
+            self.app.status.set_text('Position restored · cards keep their usable minimum size')
+        for key,rect in self.app.layout.items(): self.app.place_card(key,rect)
+        self.app.preview_layout=None
+        self.app.swap_hint=None;self.app.gap_guides=[]
+        if hasattr(self,'drag_proposed'): del self.drag_proposed
         self.drag = self.app.preview = None
         self.app.guides = []
         self.app.guide_layer.queue_draw()
@@ -440,6 +511,7 @@ class Card(Gtk.EventBox):
         elif key == 'calendar':
             today=datetime.date.today()
             self.calendar_date=today
+            selected=self.app.calendar_selection or today
             month_title=label(today.strftime('%B %Y'),'heading')
             month_title.set_xalign(.5)
             self.body.pack_start(month_title,False,False,0)
@@ -454,19 +526,22 @@ class Card(Gtk.EventBox):
                 month.attach(weekday,column,0,1,1)
             for week,days in enumerate(calendar.Calendar(firstweekday=calendar.MONDAY).monthdayscalendar(today.year,today.month),1):
                 for column,day in enumerate(days):
-                    cell=label(str(day) if day else '','calendar-day')
-                    cell.set_xalign(.5); cell.set_hexpand(True)
-                    if day:
-                        description=today.replace(day=day).strftime('%A %d %B %Y')
-                        if day==today.day:
+                    date=today.replace(day=day) if day else None
+                    cell=button(str(day),lambda date=date:self.app.select_calendar_date(date)) if day else label('')
+                    cell.get_style_context().add_class('calendar-day')
+                    cell.set_hexpand(True)
+                    if date:
+                        description=date.strftime('%A %d %B %Y')
+                        if date==today:
                             cell.get_style_context().add_class('calendar-today')
                             description='Today · '+description
+                        if date==selected: cell.get_style_context().add_class('calendar-selected')
                         cell.set_tooltip_text(description)
                         cell.get_accessible().set_name(description)
                     month.attach(cell,column,week,1,1)
             self.body.pack_start(month,False,False,0)
-            data=self.value('calendar',{})
-            self.text('UPCOMING','freshness',False)
+            data=self.app.calendar_day_data if self.app.calendar_selection else self.value('calendar',{})
+            self.text(selected.strftime('%a %d %b %Y') if self.app.calendar_selection else 'UPCOMING · NEXT 14 DAYS','freshness',False)
             self.text(data.get('status','Reading Thunderbird calendars'),'muted')
             for event in data.get('events',[]):
                 self.text(event.get('when',''),'freshness',False)
@@ -483,7 +558,7 @@ class Card(Gtk.EventBox):
                 except GLib.Error: pass
             self.text(data.get('title','Nothing playing'),'media-title')
             self.text(data.get('artist') or data.get('player',''),'muted')
-            self.wave_image=Gtk.Image(); self.player_controls.pack_start(self.wave_image,False,False,0)
+            self.wave_image=Waveform(); self.player_controls.pack_start(self.wave_image,False,False,0)
             self.update_wave()
             seek=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,0,100,1)
             seek.set_draw_value(False); seek.set_value(float(data.get('progress',0)))
@@ -519,12 +594,40 @@ class Card(Gtk.EventBox):
             data=self.value(key,{})
             if not data.get('configured'): self.configure_hint()
             else:
+                location=self.app.data['integrations']['weather'].get('location','')
+                if location: self.text(location,'muted')
                 current=data.get('current',{})
-                self.text(str(current.get('temperature_2m','—'))+' °C','media-title',False)
-                for name,field,unit in [('Feels like','apparent_temperature','°C'),('Humidity','relative_humidity_2m','%'),('Wind','wind_speed_10m','km/h')]: row(self.body,name,str(current.get(field,'—'))+' '+unit)
+                code=current.get('weather_code');day=bool(current.get('is_day',1))
+                kind,description,_=weather_condition(code,day)
+                zoom=self.app.profile['appearance'].get('scale',1)
+                hero=box(False,8);hero.get_style_context().add_class('weather-hero')
+                hero.get_style_context().add_class('weather-'+kind)
+                if not day: hero.get_style_context().add_class('weather-night')
+                hero.pack_start(weather_icon(code,day,round(100*zoom)),False,False,0)
+                summary=box(True,2)
+                temperature=label(str(current.get('temperature_2m','—'))+'°','weather-temperature')
+                summary.pack_start(temperature,False,False,0)
+                summary.pack_start(label(description,'muted',True),False,False,0)
+                summary.pack_start(label('Feels like '+str(current.get('apparent_temperature','—'))+' °C','freshness'),False,False,0)
+                hero.pack_start(summary,True,True,0);self.body.pack_start(hero,False,False,0)
+                for name,field,unit in [('Humidity','relative_humidity_2m','%'),('Wind','wind_speed_10m','km/h')]: row(self.body,name,str(current.get(field,'—'))+' '+unit)
                 daily=data.get('daily',{})
-                for i,day in enumerate(daily.get('time',[])):
-                    row(self.body,day,f"{daily.get('temperature_2m_min',[None]*3)[i]}–{daily.get('temperature_2m_max',[None]*3)[i]} °C")
+                forecast=box(False,6);forecast.set_homogeneous(True)
+                def value(field,index):
+                    values=daily.get(field,[])
+                    return values[index] if index<len(values) and values[index] is not None else '—'
+                for i,date in enumerate(daily.get('time',[])[:3]):
+                    tile=box(True,3);tile.get_style_context().add_class('weather-forecast')
+                    try:
+                        parsed=datetime.date.fromisoformat(date)
+                        title='Today' if parsed==datetime.date.today() else parsed.strftime('%a')
+                    except (TypeError,ValueError):title=str(date)
+                    title_label=label(title,'freshness');title_label.set_xalign(.5);tile.pack_start(title_label,False,False,0)
+                    tile.pack_start(weather_icon(value('weather_code',i),True,round(42*zoom)),False,False,0)
+                    for text,style in [(str(value('temperature_2m_max',i))+'°','weather-high'),(str(value('temperature_2m_min',i))+'°','freshness'),(str(value('precipitation_probability_max',i))+'% precip.','freshness')]:
+                        item=label(text,style);item.set_xalign(.5);tile.pack_start(item,False,False,0)
+                    forecast.pack_start(tile,True,True,0)
+                self.body.pack_start(forecast,False,False,0)
                 self.body.pack_start(button('Weather data: Open-Meteo',lambda: self.app.open_url('https://open-meteo.com/')),False,False,0)
         elif key == 'feeds':
             data=self.value(key,{})
@@ -573,12 +676,7 @@ class Card(Gtk.EventBox):
 
     def update_wave(self):
         if not hasattr(self,'wave_image'): return
-        path=self.app.wave.get('path','')
-        if path and Path(path).is_file():
-            try:
-                width=max(80,self.get_allocated_width()-30)
-                self.wave_image.set_from_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_scale(path,width,36,False))
-            except GLib.Error: pass
+        self.wave_image.set_frame(self.app.wave)
 
     def update_freshness(self):
         sources=SOURCES.get(self.key,())
@@ -607,8 +705,9 @@ class Card(Gtk.EventBox):
 
 
 class Dashboard:
-    def __init__(self, root, preview=False, smoke=False, size=(1440,960)):
+    def __init__(self, root, preview=False, smoke=False, size=(1440,960), host=None):
         self.root=Path(root)
+        self.host=host
         self.settings=Settings(root)
         self.transaction=None
         self.editing=False
@@ -619,6 +718,11 @@ class Dashboard:
         self.diagnostic_payload='{}'
         self.cards={}
         self.wave={}
+        self.calendar_selection=None
+        self.calendar_day_data={}
+        self.calendar_generation=0
+        self.calendar_future=None
+        self.calendar_pool=ThreadPoolExecutor(max_workers=1,thread_name_prefix='poedash-calendar')
         self.children=[]
         self.closing=False
         self.paused=False
@@ -631,14 +735,17 @@ class Dashboard:
         self.theme_stamp=None
         self.theme={}
         self.history=History(self.root/'state/history.sqlite3')
-        self.window=Gtk.OffscreenWindow() if smoke else Gtk.Window(title='PoeDash')
-        self.window.set_app_paintable(True)
-        visual=self.window.get_screen().get_rgba_visual()
-        if visual: self.window.set_visual(visual)
-        self.window.connect('destroy',lambda *_: self.quit())
+        self.window=host.get_toplevel() if host is not None else Gtk.OffscreenWindow() if smoke else Gtk.Window(title='PoeDash')
+        if host is None:
+            self.window.set_app_paintable(True)
+            visual=self.window.get_screen().get_rgba_visual()
+            if visual:self.window.set_visual(visual)
+        (host if host is not None else self.window).connect('destroy',lambda *_:self.quit())
         self.window.connect('key-press-event',self.key_press)
         self.choose_monitor()
-        if not preview and GtkLayerShell.is_supported():
+        if host is not None:
+            if GtkLayerShell.is_supported():GtkLayerShell.set_keyboard_mode(self.window,GtkLayerShell.KeyboardMode.ON_DEMAND)
+        elif not preview and GtkLayerShell.is_supported():
             GtkLayerShell.init_for_window(self.window)
             GtkLayerShell.set_namespace(self.window,'poedash')
             GtkLayerShell.set_layer(self.window,GtkLayerShell.Layer.BOTTOM)
@@ -652,7 +759,7 @@ class Dashboard:
             if smoke: self.window.set_size_request(*size)
         self.provider=Gtk.CssProvider()
         Gtk.StyleContext.add_provider_for_screen(self.window.get_screen(),self.provider,Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-        self.overlay=Gtk.Overlay(); self.window.add(self.overlay)
+        self.overlay=Gtk.Overlay(); (host if host is not None else self.window).add(self.overlay)
         self.surface=box(True,10); self.surface.set_border_width(16)
         self.surface.get_style_context().add_class('dashboard')
         self.overlay.add(self.surface)
@@ -735,7 +842,8 @@ class Dashboard:
         self.engine.start()
         self.spawn_listener('desktop.py',['listen'],self.receive_apps)
         if not preview and not smoke: self.spawn_listener('workspace.py',['--listen'],self.receive_workspace)
-        self.spawn_listener('visualizer.py',[],self.receive_wave)
+        self.spawn_listener('visualizer.py',['--native'],self.receive_wave)
+        (self.root/'state/surface-backend').write_text('eww' if self.host is not None else 'gtk')
         self.ipc_path=self.root/'state/native.sock'
         self.start_ipc()
         self.window.show_all()
@@ -844,7 +952,18 @@ class Dashboard:
         .muted, .freshness {{ color: {colors['muted']}; }}
         .freshness {{ font-size: {max(8,round((appearance['font_size']-3)*zoom))}px; }}
         .calendar-day {{ min-height: {round(24*zoom)}px; padding: {max(1,round(2*zoom))}px 0; }}
-        .calendar-today {{ color: {colors['background']}; background-color: {colors['accent']}; border-radius: {round(6*zoom)}px; font-weight: bold; }}
+        button.calendar-day {{ background: transparent; border-color: transparent; box-shadow: none; text-shadow: none; }}
+        button.calendar-day:hover {{ background: {rgba('accent',.10)}; border-color: transparent; }}
+        button.calendar-day.calendar-selected {{ box-shadow: inset 0 0 0 2px {colors['accent']}; border-radius: {round(6*zoom)}px; }}
+        button.calendar-day.calendar-today {{ color: {colors['background']}; background: {colors['accent']}; border-radius: {round(6*zoom)}px; font-weight: bold; }}
+        .weather-hero {{ border-radius: 10px; padding: {round(10*zoom)}px; background: linear-gradient(135deg,rgba(96,165,250,.16),rgba(96,165,250,.03)); }}
+        .weather-clear, .weather-partly {{ background: linear-gradient(135deg,rgba(251,191,36,.20),rgba(249,115,22,.04)); }}
+        .weather-night {{ background: linear-gradient(135deg,rgba(129,140,248,.22),rgba(30,41,59,.10)); }}
+        .weather-storm {{ background: linear-gradient(135deg,rgba(192,132,252,.22),rgba(96,165,250,.04)); }}
+        .weather-snow {{ background: linear-gradient(135deg,rgba(165,227,243,.20),rgba(96,165,250,.03)); }}
+        .weather-temperature {{ font-size: {round(34*zoom)}px; font-weight: bold; }}
+        .weather-high {{ color: #fbbf24; font-weight: bold; }}
+        .weather-forecast {{ border-radius: 8px; padding: {round(7*zoom)}px {round(3*zoom)}px; background: rgba(148,163,184,.07); }}
         .warning {{ color: #f3a580; }}
         .updates-current {{ color: #8dd5a0; font-weight: bold; }}
         .updates-pending {{ color: #e6a85c; font-weight: bold; }}
@@ -874,6 +993,21 @@ class Dashboard:
             for card in self.cards.values(): card.queue_draw()
 
     def build_cards(self):
+        saved=self.profile['layouts'].get(self.display_key)
+        if saved is not None and any(key not in saved for key in self.profile['visible']):
+            width,height=self.profile.get('layout_sizes',{}).get(self.display_key,self.canvas_size)
+            original_height=height
+            plan={key:deepcopy(saved[key]) for key in self.profile['visible'] if key in saved}
+            for key in self.profile['visible']:
+                if key not in plan:
+                    candidate,_=insert_card(key,plan,width,height,self.profile['appearance']['spacing']*self.profile['appearance'].get('scale',1))
+                    if candidate is None:
+                        plan=default_layout(self.profile['visible'],width,height,self.profile['appearance']['spacing'],self.data['active_profile']);break
+                    plan=candidate
+            if height!=original_height:
+                for rect in saved.values():rect[1]*=original_height/height;rect[3]*=original_height/height
+            saved.update(plan)
+            self.profile.setdefault('layout_sizes',{})[self.display_key]=[width,height]
         for child in self.fixed.get_children(): self.fixed.remove(child)
         self.cards={}
         self.layout={}
@@ -888,9 +1022,8 @@ class Dashboard:
         zoom=self.profile['appearance'].get('scale',1)
         logical_width,logical_height=width/zoom,height/zoom
         saved=self.profile['layouts'].get(self.display_key,{})
-        # Keep custom layouts while their cards remain readable. Narrow views
-        # reflow temporarily; zoom alone never replaces the saved arrangement.
-        if set(saved)==set(self.cards) and all(rect[2]*logical_width>=250 for rect in saved.values()): layout=deepcopy(saved)
+        # Existing user geometry always wins; add/hide does not reset other cards.
+        if set(self.cards).issubset(saved): layout={key:deepcopy(saved[key]) for key in self.cards}
         else:
             layout=default_layout(list(self.cards),logical_width,logical_height,self.profile['appearance']['spacing'],self.data['active_profile'])
             if logical_width>=850 and all(key in layout for key in ('performance','processes','shares')):
@@ -905,6 +1038,10 @@ class Dashboard:
                     extra=min(max(0,desired-share_rect[3]*height),max(0,process_rect[3]*height-140*zoom))
                     process_rect[3]-=extra/height
                     share_rect[1]-=extra/height; share_rect[3]+=extra/height
+        minima={key:card.content.get_preferred_height()[0]+2 for key,card in self.cards.items()}
+        reference_height=self.profile.get('layout_sizes',{}).get(self.display_key,[width,height])[1] if set(self.cards).issubset(saved) else height
+        fitted,_=fit_layout_height(layout,width,reference_height,height,self.profile['appearance']['spacing']*zoom,minima)
+        if fitted is not None:layout=fitted
         return layout
 
     def reflow(self):
@@ -928,34 +1065,19 @@ class Dashboard:
         return False
 
     def allocate(self,widget,allocation):
-        zoom=self.profile['appearance'].get('scale',1)
-        count=len(self.profile['visible'])
-        if allocation.width<2 or allocation.height<2: return
-        virtual_width=max(1,allocation.width-8)
-        logical_width=virtual_width/zoom
-        columns=3 if logical_width>=850 else 2 if logical_width>=550 else 1
-        if columns==3:
-            visible=self.profile['visible']
-            groups=[sum(c in visible for c in group) for group in (('arch','system','connectivity','session','power'),('performance','processes','shares'),('calendar','player'))]
-            for key in visible:
-                if key not in BASE_CARDS: groups[groups.index(min(groups))]+=1
-            max_rows=max(1,max(groups))
-        else: max_rows=max(1,math.ceil(count/columns))
-        minimum=round((max_rows*(self.profile['appearance']['font_size']*4+70)+max(0,max_rows-1)*self.profile['appearance']['spacing'])*zoom)
-        size=(max(1,virtual_width),max(allocation.height,round(allocation.height*zoom),minimum))
-        # Fixed-position children can exceed a requested size. Reserve enough
-        # height for their actual header/footer minima before placing any card.
-        for _ in range(3):
-            layout=self.layout_for_size(*size)
-            required=max([size[1]]+[math.ceil((self.cards[key].content.get_preferred_height()[0]+2)/rect[3]) for key,rect in layout.items()])
-            if required==size[1]: break
-            size=(size[0],required)
-        if size!=self.canvas_size:
+        if allocation.width<2 or allocation.height<2:return
+        width=max(1,allocation.width-8)
+        # Use the actual visible viewport, including at non-default zoom levels.
+        height=max(1,self.board_view.get_allocated_height()-4)
+        size=(width,height)
+        plan=self.layout_for_size(width,height)
+        if size!=self.canvas_size or plan!=self.layout:
             self.canvas_size=size
-            self.board.set_size_request(*size)
-            self.fixed.set_size_request(*size)
-            self.reflow()
-            atomic_json(self.root/'state/wave-size.json',{'width':max(80,int(size[0]*.3)-30),'height':36})
+            self.board.set_size_request(width,height);self.fixed.set_size_request(width,height)
+            self.layout=plan
+            for key,rect in plan.items():self.place_card(key,rect)
+            self.guide_layer.queue_draw()
+            atomic_json(self.root/'state/wave-size.json',{'width':max(80,int(width*.3)-30),'height':36})
 
     def place_card(self,key,rect):
         if key not in self.cards: return
@@ -966,22 +1088,36 @@ class Dashboard:
         self.fixed.move(card,round(x*width),round(y*height))
 
     def store_layout(self):
-        self.profile['layouts'][self.display_key]=deepcopy(self.layout)
+        saved=self.profile['layouts'].setdefault(self.display_key,{})
+        saved.update(deepcopy(self.layout))
+        self.profile.setdefault('layout_sizes',{})[self.display_key]=list(self.canvas_size)
 
     def draw_guides(self,widget,cr):
         if not self.editing: return False
         width,height=self.canvas_size
-        if self.profile['appearance']['snap']:
-            cr.set_source_rgba(.8,.72,1,.12)
-            step=self.profile['appearance']['grid_size']
-            for x in range(0,width,step):
-                for y in range(0,height,step): cr.rectangle(x,y,1,1)
-            cr.fill()
         cr.set_source_rgba(.45,.9,.75,.9); cr.set_line_width(1)
         for axis,pos in self.guides:
             cr.move_to(pos,0) if axis=='x' else cr.move_to(0,pos)
             cr.line_to(pos,height) if axis=='x' else cr.line_to(width,pos)
         cr.stroke()
+        zoom=self.profile['appearance'].get('scale',1)
+        gap=self.profile['appearance']['spacing']
+        cr.set_font_size(11)
+        for x1,y1,x2,y2,distance in getattr(self,'gap_guides',[]):
+            matched=abs(distance/zoom-gap)<=1
+            cr.set_source_rgba(*((.45,.9,.75,.95) if matched else (1,.75,.35,.95)))
+            cr.move_to(x1,y1);cr.line_to(x2,y2)
+            if abs(y1-y2)<1:
+                for x in (x1,x2):cr.move_to(x,y1-4);cr.line_to(x,y1+4)
+            else:
+                for y in (y1,y2):cr.move_to(x1-4,y);cr.line_to(x1+4,y)
+            cr.stroke()
+            cr.move_to((x1+x2)/2+5,(y1+y2)/2-5);cr.show_text(f'{distance/zoom:.0f} px')
+        hint=getattr(self,'swap_hint',None)
+        if hint in self.layout:
+            x,y,w,h=self.layout[hint];x=(x+.175*w)*width;y=(y+.175*h)*height;w*=.65*width;h*=.65*height
+            cr.set_source_rgba(1,.75,.35,.13);cr.rectangle(x,y,w,h);cr.fill_preserve()
+            cr.set_source_rgba(1,.75,.35,.9);cr.stroke()
         return False
 
     def begin(self):
@@ -994,7 +1130,7 @@ class Dashboard:
         content=self.drawer_page('Edit dashboard',editable=bool(self.transaction))
         content.pack_start(label('Choose what to change. Each editor has visible Save and Cancel controls.',wrap=True),False,False,0)
         self.edit_actions={}
-        for text,callback in [('Move & resize cards',self.edit_layout),('Refresh intervals',lambda:self.open_settings('Refresh intervals')),
+        for text,callback in [('Move & resize cards',self.edit_layout),('Fit cards to screen',self.fit_cards_to_screen),('Refresh intervals',lambda:self.open_settings('Refresh intervals')),
                               ('Appearance',lambda:self.open_settings('Appearance')),('Add / hide cards',lambda:self.open_settings('Cards')),
                               ('Profiles',lambda:self.open_settings('Profiles'))]:
             control=button(text,callback)
@@ -1037,6 +1173,7 @@ class Dashboard:
         if not self.transaction: return
         self.transaction.checkpoint()
         self.profile['layouts'].pop(self.display_key,None)
+        self.profile.get('layout_sizes',{}).pop(self.display_key,None)
         self.reflow(); self.store_layout(); self.update_edit_buttons()
 
     def snap_changed(self,widget):
@@ -1067,6 +1204,7 @@ class Dashboard:
 
     def finish_edit(self):
         self.editing=False; self.guides=[]; self.preview=None
+        self.swap_hint=None;self.gap_guides=[]
         self.toolbar.hide(); self.drawer.hide()
         self.populate_profiles(); self.apply_appearance(); self.build_cards()
         self.guide_layer.queue_draw()
@@ -1154,7 +1292,7 @@ class Dashboard:
         appearance=self.profile['appearance']
         parent.pack_start(label('Dashboard zoom: use − / + beside the profile selector; ↶ resets it to 100%. Zoom is saved per profile.',wrap=True),False,False,0)
         for title,key,low,high,step in [('Background opacity','opacity',.15,1,.05),('Font size','font_size',9,24,1),
-                                       ('Card spacing','spacing',4,24,1),('Snap grid','grid_size',4,40,1)]:
+                                       ('Card spacing','spacing',4,24,1),('Snap sensitivity','grid_size',4,40,1)]:
             line=box(False,8); line.pack_start(label(title),True,True,0)
             spin=Gtk.SpinButton.new_with_range(low,high,step); spin.set_digits(2 if key=='opacity' else 0); spin.set_value(appearance[key])
             def changed(widget,k=key):
@@ -1181,19 +1319,68 @@ class Dashboard:
         self.transaction.checkpoint(); self.profile['appearance']=deepcopy(DEFAULT_APPEARANCE)
         self.apply_appearance(); self.build_cards(); self.open_settings('Appearance')
 
+    def weather_location_settings(self,parent,cfg):
+        parent.pack_start(label('WEATHER LOCATION','heading'),False,False,0)
+        selected=label(cfg.get('location') or ('Existing saved location' if cfg.get('latitude','')!='' else 'No location selected'),'muted',True)
+        parent.pack_start(selected,False,False,0)
+        line=box(False,6)
+        entry=Gtk.Entry(); entry.set_placeholder_text('Town or city, e.g. Cambridge, United Kingdom')
+        line.pack_start(entry,True,True,0)
+        results=box(True,4)
+        status=label('Search, then choose a matching place. Save to keep your choice.','muted',True)
+        transaction=self.transaction; generation=self.drawer_generation
+        request_version=[0]
+        def choose(location):
+            cfg.update(location); selected.set_text(location['location'])
+            clear(results); status.set_text('Location selected. Save to apply.')
+        def search():
+            query=entry.get_text().strip()
+            if len(query)<2:
+                status.set_text('Enter at least two characters.'); return
+            request_version[0]+=1; request=request_version[0]
+            search_button.set_sensitive(False); clear(results); status.set_text('Searching…')
+            def lookup():
+                try: return search_weather_locations(query),''
+                except Exception: return [],'Search unavailable. Check your connection and try again.'
+            def deliver(value):
+                if self.closing or self.transaction is not transaction or self.drawer_generation!=generation or request_version[0]!=request: return False
+                search_button.set_sensitive(True)
+                if entry.get_text().strip()!=query:
+                    status.set_text('Search again for the edited name.'); return False
+                locations,error=value
+                status.set_text(error or ('Choose a place:' if locations else 'No matching places. Try a nearby city or add the country.'))
+                for location in locations:
+                    results.pack_start(button(location['location'],lambda location=location:choose(location)),False,False,0)
+                results.show_all(); return False
+            future=self.calendar_pool.submit(lookup)
+            future.add_done_callback(lambda result: None if result.cancelled() else GLib.idle_add(deliver,result.result()))
+        search_button=button('Search',search)
+        line.pack_end(search_button,False,False,0)
+        entry.connect('activate',lambda *_: search_button.clicked() if search_button.get_sensitive() else None)
+        parent.pack_start(line,False,False,0)
+        parent.pack_start(status,False,False,0)
+        parent.pack_start(results,False,False,0)
+        def remove():
+            request_version[0]+=1; search_button.set_sensitive(True)
+            cfg.update(location='',latitude='',longitude=''); selected.set_text('No location selected'); clear(results)
+            status.set_text('Location cleared. Save to apply.')
+        parent.pack_start(button('Clear weather location',remove),False,False,0)
+
     def card_settings(self,parent):
-        parent.pack_start(label('Choose cards for this profile. Adding or hiding a card resets this profile’s layout on the current display; other display layouts remain saved.',wrap=True),False,False,0)
+        parent.pack_start(label('Choose cards for this profile. New cards use free space first. If the dashboard is full, the cards in a column share the space. Hidden cards remember their slot.',wrap=True),False,False,0)
         for key,(title,description) in CARDS.items():
             check=Gtk.CheckButton.new_with_label(title); check.set_active(key in self.profile['visible'])
             check.set_tooltip_text(description)
-            check.connect('toggled',lambda widget,k=key:self.toggle_card(k,widget.get_active()))
+            def toggle(widget,k=key):
+                if self.toggle_card(k,widget.get_active()) is False:widget.set_active(k in self.profile['visible'])
+            check.connect('toggled',toggle)
             parent.pack_start(check,False,False,0)
         parent.pack_start(Gtk.Separator(),False,False,4)
         parent.pack_start(label('INTEGRATIONS','heading'),False,False,0)
         parent.pack_start(label('Optional cards make requests only when enabled and configured. Notes and tasks stay local.',wrap=True),False,False,0)
         integrations=self.data['integrations']
-        fields=[('Weather latitude','weather','latitude',False),('Weather longitude','weather','longitude',False),
-                ('RSS / Atom URLs (one per line)','feeds','urls',False),
+        self.weather_location_settings(parent,integrations['weather'])
+        fields=[('RSS / Atom URLs (one per line)','feeds','urls',False),
                 ('NAS JSON URL','nas','url',False),('NAS bearer token (optional)','nas','token',True),
                 ('Remote machine JSON URL','remote','url',False),('Remote bearer token (optional)','remote','token',True)]
         for title,card,field,secret in fields:
@@ -1224,13 +1411,51 @@ class Dashboard:
                 elif not widget.get_active() and name in monitored: monitored.remove(name)
             check.connect('toggled',changed); parent.pack_start(check,False,False,0)
 
-    def toggle_card(self,key,enabled):
+    def fit_cards_to_screen(self):
+        self.begin()
+        width,oldheight=self.canvas_size
+        height=max(1,self.board_view.get_allocated_height()-4)
+        gap=self.profile['appearance']['spacing']*self.profile['appearance'].get('scale',1)
+        minima={key:card.content.get_preferred_height()[0]+2 for key,card in self.cards.items()}
+        plan,height=fit_layout_height(self.layout,width,oldheight,height,gap,minima)
+        if plan is None:
+            self.message('The cards cannot fit at their minimum sizes. Hide a card or reduce the spacing.');return
         self.transaction.checkpoint()
+        self.canvas_size=(width,height);self.layout=plan;self.store_layout()
+        self.board.set_size_request(width,round(height));self.fixed.set_size_request(width,round(height))
+        self.reflow();self.edit_layout()
+        self.message('Cards fitted to the visible dashboard · Save to keep this layout')
+
+    def toggle_card(self,key,enabled):
         visible=self.profile['visible']
-        if enabled and key not in visible: visible.append(key)
-        elif not enabled and key in visible: visible.remove(key)
-        self.profile['layouts'].pop(self.display_key,None)
+        if enabled==(key in visible):return True
+        self.transaction.checkpoint()
+        self.store_layout()
+        saved=self.profile['layouts'][self.display_key]
+        if enabled:
+            width,height=self.canvas_size
+            viewport=max(1,self.board_view.get_allocated_height()-4)
+            plan=deepcopy(self.layout)
+            minima={name:card.content.get_preferred_height()[0]+2 for name,card in self.cards.items()}
+            probe=Card(self,key);minima[key]=probe.content.get_preferred_height()[0]+2;probe.destroy()
+            previous=saved.get(key)
+            gap=self.profile['appearance']['spacing']*self.profile['appearance'].get('scale',1)
+            if height>viewport+4:
+                plan,height=fit_layout_height(plan,width,height,viewport,gap,minima)
+            if plan is None:
+                self.message('Not enough room at the cards’ minimum sizes. Hide a card or reduce the spacing.');return False
+            if previous and previous[3]*height>=max(100,minima[key]) and valid_move(key,previous,plan) and all(spaced(previous,r,width,height,gap) for r in plan.values()):plan[key]=deepcopy(previous)
+            else:plan,height=insert_card(key,plan,width,height,gap,minimums=minima)
+            if plan is None:
+                self.message('Not enough room at the cards’ minimum sizes. Hide a card or reduce the spacing.');return False
+            self.canvas_size=(width,height)
+            self.board.set_size_request(width,round(height));self.fixed.set_size_request(width,round(height))
+            saved.update(plan)
+            self.profile.setdefault('layout_sizes',{})[self.display_key]=[width,height]
+            visible.append(key)
+        else:visible.remove(key)
         self.build_cards()
+        return True
 
     def profile_settings(self,parent):
         parent.pack_start(label('Profiles remember card visibility, refresh intervals, appearance and a separate layout for each monitor and resolution.',wrap=True),False,False,0)
@@ -1276,14 +1501,55 @@ class Dashboard:
     def reset_profile_layout(self):
         self.reset_layout(); self.open_settings('Profiles')
 
+    def card_interval_controls(self,parent,source,title):
+        line=box(False,6);line.pack_start(label(title),True,True,0)
+        controls=box(False,4)
+        entry=Gtk.Entry();entry.set_width_chars(5);entry.set_max_width_chars(6)
+        entry.set_alignment(.5);entry.set_input_purpose(Gtk.InputPurpose.DIGITS)
+        entry.set_text(str(self.profile['refresh'].get(source,REFRESH[source])))
+        entry.get_accessible().set_name(title+' refresh interval in seconds')
+        def change(delta):
+            value=self.profile['refresh'].get(source,REFRESH[source])
+            entry.set_text(str(max(1,min(86400,value+delta))))
+        minus=button('−',lambda:change(-1),'Refresh more often')
+        plus=button('+',lambda:change(1),'Refresh less often')
+        minus.get_accessible().set_name('Decrease '+title+' refresh interval')
+        plus.get_accessible().set_name('Increase '+title+' refresh interval')
+        def edited(widget):
+            text=widget.get_text().strip()
+            value=int(text) if text.isdecimal() and len(text)<=5 else 0
+            valid=1<=value<=86400
+            style=widget.get_style_context()
+            if valid:
+                self.set_interval(source,value);style.remove_class('warning')
+            else:style.add_class('warning')
+            current=self.profile['refresh'].get(source,REFRESH[source])
+            minus.set_sensitive(current>1);plus.set_sensitive(current<86400)
+        entry.connect('changed',edited)
+        entry.connect('focus-out-event',lambda widget,event:(widget.set_text(str(self.profile['refresh'].get(source,REFRESH[source]))),False)[1])
+        entry.set_tooltip_text('Seconds between updates · enter a value from 1 to 86400')
+        edited(entry)
+        for control in (minus,entry,plus,label('sec','muted')):controls.pack_start(control,False,False,0)
+        line.pack_end(controls,False,False,0);parent.pack_start(line,False,False,0)
+
     def card_menu(self,card):
-        content=self.drawer_page(CARDS[card.key][0]+' · actions',editable=False)
-        for title,callback in [('Refresh now',lambda:self.refresh_card(card.key)),
-                               ('Move / resize',self.edit_layout),('Refresh interval',lambda:self.open_settings('Refresh intervals')),
-                               ('Card library',lambda:self.open_settings('Cards'))]:
+        self.begin()
+        self.editing=False;self.toolbar.hide()
+        for item in self.cards.values():item.set_editing(False)
+        content=self.drawer_page(CARDS[card.key][0]+' · edit')
+        sources=SOURCES.get(card.key,())
+        if sources:
+            content.pack_start(label('REFRESH INTERVALS','heading'),False,False,0)
+            for source in sources:
+                self.card_interval_controls(content,source,SOURCE_TITLES.get(source,CARDS[card.key][0]))
+            content.pack_start(label('− refreshes more often; + refreshes less often. You can also type the number of seconds.',style='muted',wrap=True),False,False,0)
+            content.pack_start(button('Refresh now',lambda:self.refresh_card(card.key)),False,False,0)
+        else:content.pack_start(label('This card updates when you edit it; no refresh interval is needed.',style='muted',wrap=True),False,False,0)
+        for title,callback in [('Move / resize',self.edit_layout),('Card library',lambda:self.open_settings('Cards'))]:
             content.pack_start(button(title,callback),False,False,0)
-        if card.key=='arch': content.pack_start(button('Open update list',lambda:self.run('launch.sh','updates')),False,False,0)
+        if card.key=='arch':content.pack_start(button('Open update list',lambda:self.run('launch.sh','updates')),False,False,0)
         reveal(self.drawer)
+        self.status.show();self.status.set_text('Changes remain a preview until you Save · Cancel restores previous settings')
 
     def refresh_card(self,key):
         for source in SOURCES.get(key,()): self.engine.request(source)
@@ -1401,6 +1667,8 @@ class Dashboard:
         if self.closing: return False
         gate=payload.pop('_gate',None)
         if gate:
+            if gate['visible'] and not self.visible and self.calendar_selection is not None:
+                self.select_calendar_date(datetime.date.today())
             self.paused=gate['on_battery'] and not gate['visible']
             self.visible=gate['visible'] or self.preview_window or self.smoke
             if (self.root/'disabled').exists(): self.quit(); return False
@@ -1437,11 +1705,13 @@ class Dashboard:
                 if playing and 'spotify' in media.get('player','').lower() and uri: atomic_json(self.root/'state/spotify-last.json',{'uri':uri})
         if 'shares' in changed and self.display_key not in self.profile['layouts']:
             self.reflow()
+        if 'calendar' in changed and self.calendar_selection is not None:
+            self.select_calendar_date(self.calendar_selection)
         for key,card in self.cards.items():
             if changed.intersection(SOURCES.get(key,())) or (key=='system' and 'health' in changed): card.render()
             card.update_freshness()
         self.update_health()
-        self.diagnostic_payload=json.dumps({'profile':self.data['active_profile'],'visible':self.visible,'paused':self.paused,'canvas':self.canvas_size,'cards':list(self.cards),'zoom':self.profile['appearance'].get('scale',1),'samples':{key:{'updated':value.get('updated',0),'error':value.get('error','')} for key,value in self.samples.items()}})
+        self.diagnostic_payload=json.dumps({'backend':'eww' if self.host is not None else 'gtk','profile':self.data['active_profile'],'visible':self.visible,'paused':self.paused,'canvas':self.canvas_size,'cards':list(self.cards),'zoom':self.profile['appearance'].get('scale',1),'samples':{key:{'updated':value.get('updated',0),'error':value.get('error','')} for key,value in self.samples.items()}})
         return False
 
     def update_health(self):
@@ -1540,6 +1810,33 @@ class Dashboard:
             threading.Thread(target=read,daemon=True,name='poedash-'+name).start()
         except OSError: pass
 
+    def select_calendar_date(self,day):
+        if self.closing: return
+        self.calendar_generation+=1
+        generation=self.calendar_generation
+        if self.calendar_future: self.calendar_future.cancel()
+        self.calendar_selection=None if day==datetime.date.today() else day
+        self.calendar_day_data={'status':'Reading Thunderbird calendars','events':[]}
+        if 'calendar' in self.cards: self.cards['calendar'].render()
+        if self.calendar_selection is None: return
+        def read_day():
+            try:
+                result=subprocess.run([sys.executable,str(self.root/'scripts/thunderbird-calendar.py'),'--date',day.isoformat()],
+                                      capture_output=True,text=True,timeout=5,check=True)
+                return json.loads(result.stdout)
+            except (OSError,ValueError,subprocess.SubprocessError):
+                return {'status':'Thunderbird calendar unavailable','events':[]}
+        def ready(future):
+            if not future.cancelled(): GLib.idle_add(self.receive_calendar_day,generation,future.result())
+        self.calendar_future=self.calendar_pool.submit(read_day)
+        self.calendar_future.add_done_callback(ready)
+
+    def receive_calendar_day(self,generation,payload):
+        if self.closing or generation!=self.calendar_generation: return False
+        self.calendar_day_data=payload
+        if 'calendar' in self.cards: self.cards['calendar'].render()
+        return False
+
     def receive_workspace(self,visible):
         if self.closing: return False
         if isinstance(visible,bool):
@@ -1579,7 +1876,7 @@ class Dashboard:
     def receive_wave(self,payload):
         if self.closing: return False
         self.wave=payload
-        if 'player' in self.cards: self.cards['player'].update_wave()
+        if self.visible and 'player' in self.cards: self.cards['player'].update_wave()
         return False
 
     def poll_profile(self):
@@ -1593,7 +1890,7 @@ class Dashboard:
         if self.visible:
             self.clock.set_text(now.strftime('%H:%M\n%a %d %b'))
             for card in self.cards.values():
-                if card.key=='calendar' and card.calendar_date!=now.date(): card.render()
+                if card.key=='calendar' and card.calendar_date!=now.date(): self.select_calendar_date(now.date())
                 card.update_freshness()
                 for widget in card.body.get_children():
                     if isinstance(widget,Graph): widget.queue_draw()
@@ -1659,7 +1956,7 @@ class Dashboard:
                 dx=((target[0]+target[2]/2)-(origin[0]+origin[2]/2))*width
                 dy=((target[1]+target[3]/2)-(origin[1]+origin[3]/2))*height
                 card.motion(card.cover,SimpleNamespace(x_root=100+dx,y_root=100+dy))
-                card.release(card.cover,press)
+                card.release(card.cover,SimpleNamespace(x_root=100+dx,y_root=100+dy))
                 if self.layout['arch']!=original['system']: raise RuntimeError('Pointer-driven card swap failed')
                 self.undo()
                 if self.layout!=original: raise RuntimeError('Undo did not restore the layout')
@@ -1675,8 +1972,7 @@ class Dashboard:
             self.rename_profile('Smoke renamed')
             self.delete_profile()
             for key in ('notes','tasks','weather','feeds','containers','nas','remote'):
-                self.toggle_card(key,True)
-                self.cards[key].render()
+                if self.toggle_card(key,True):self.cards[key].render()
             self.cancel()
             before=deepcopy(self.settings.data)
             self.open_settings('Refresh intervals')
@@ -1722,6 +2018,7 @@ class Dashboard:
         if self.note_timer:
             GLib.source_remove(self.note_timer); self.save_note()
         self.window.hide()
+        self.calendar_pool.shutdown(wait=False,cancel_futures=True)
         if hasattr(self,'engine'): self.engine.close()
         for child in self.children:
             try: os.killpg(child.pid,signal.SIGTERM)
@@ -1733,7 +2030,10 @@ class Dashboard:
                 except ProcessLookupError: pass
         if hasattr(self,'server'): self.server.close(); self.ipc_path.unlink(missing_ok=True)
         self.history.close()
-        Gtk.main_quit()
+        if self.host is None:Gtk.main_quit()
+        else:
+            Gtk.StyleContext.remove_provider_for_screen(self.window.get_screen(),self.provider)
+            if hasattr(self,'host_lock'):self.host_lock.close()
         return False
 
 

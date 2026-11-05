@@ -92,7 +92,7 @@ def audio_command(directory, fps, prefer_cava=True):
     return None, 'Install libpulse or cava for audio visualization'
 
 
-async def main(root=ROOT):
+async def main(root=ROOT, native=False):
     runtime = os.environ.get('XDG_RUNTIME_DIR')
     directory = Path(runtime) / 'poedash-wave' if runtime else Path(tempfile.mkdtemp(prefix='poedash-wave-'))
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -114,7 +114,7 @@ async def main(root=ROOT):
         while not stop.is_set():
             now = time.monotonic()
             if now >= next_state:
-                allowed = not flag(root / 'state/refresh-paused')
+                allowed = not flag(root / 'state/refresh-paused') and (not native or flag(root / 'state/home-visible', True))
                 playing = flag(root / 'state/media-playing')
                 battery = flag(root / 'state/on-battery')
                 try:
@@ -122,7 +122,7 @@ async def main(root=ROOT):
                 except (OSError, ValueError):
                     pass
                 next_state = now + .5
-            fps = 12 if battery else 24
+            fps = (10 if battery else 15) if native else (12 if battery else 24)
             desired = fps if allowed and playing else None
             if process and (desired != mode or process.returncode is not None):
                 if process.returncode is None:
@@ -177,17 +177,26 @@ async def main(root=ROOT):
                 except (OSError, ValueError):
                     pass
                 next_theme = now + 2
-            document = svg(previous, accent, dimensions.get('width', 320), dimensions.get('height', 32), song_progress(timeline, now))
-            frame_path = directory / f'wave-{frame % 4}.svg'
             active = bool(desired and process)
-            payload = dict(path=str(frame_path), active=active, available=bool(command), backend=backend_name)
-            if active or document != emitted:
-                temporary = frame_path.with_suffix('.tmp')
-                temporary.write_text(document)
-                temporary.replace(frame_path)
-                print(json.dumps(payload), flush=True)
-                emitted = document
-                frame += 1
+            if native:
+                payload = dict(values=previous, progress=song_progress(timeline, now),
+                               active=bool(desired and process), available=bool(command), backend=backend_name)
+                document = json.dumps(payload)
+                if document != emitted:
+                    print(document, flush=True)
+                    emitted = document
+            else:
+                document = svg(previous, accent, dimensions.get('width', 320), dimensions.get('height', 32), song_progress(timeline, now))
+                frame_path = directory / f'wave-{frame % 4}.svg'
+                active = bool(desired and process)
+                payload = dict(path=str(frame_path), active=active, available=bool(command), backend=backend_name)
+                if active or document != emitted:
+                    temporary = frame_path.with_suffix('.tmp')
+                    temporary.write_text(document)
+                    temporary.replace(frame_path)
+                    print(json.dumps(payload), flush=True)
+                    emitted = document
+                    frame += 1
             await asyncio.sleep(0 if active and not backend.startswith('Cava') else 1 / fps if active else .5)
     finally:
         if process and process.returncode is None:
@@ -200,6 +209,6 @@ async def main(root=ROOT):
 
 if __name__ == '__main__':
     try:
-        asyncio.run(main())
+        asyncio.run(main(native='--native' in sys.argv))
     except (OSError, BrokenPipeError, KeyboardInterrupt):
         pass
