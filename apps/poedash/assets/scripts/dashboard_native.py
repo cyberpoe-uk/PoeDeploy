@@ -379,6 +379,21 @@ class Card(Gtk.EventBox):
             self.body.pack_start(legend,False,False,0)
 
     def render(self):
+        # Keep the pressed widget alive until GTK delivers the release. A
+        # collector can finish between mouse-down and mouse-up (or mid-seek).
+        if self.get_realized():
+            seat = self.get_display().get_default_seat()
+            pointer = seat.get_pointer() if seat else None
+            focus = self.app.window.get_focus()
+            pressed = pointer and self.get_window().get_device_position(pointer).mask & Gdk.ModifierType.BUTTON1_MASK
+            active = focus and focus.is_ancestor(self) and focus.get_state_flags() & Gtk.StateFlags.ACTIVE
+            if pressed or active:
+                if not getattr(self, 'render_pending', None):
+                    self.render_pending = GLib.timeout_add(100, self.retry_render)
+                return
+        if getattr(self, 'render_pending', None):
+            GLib.source_remove(self.render_pending)
+            self.render_pending = None
         # Keep text editing and process filtering stable while readings change.
         if self.key in ('notes','tasks') and self.body.get_children(): return
         if self.key == 'processes' and hasattr(self, 'process_list'):
@@ -408,7 +423,7 @@ class Card(Gtk.EventBox):
                 line.pack_start(key_label,False,False,0)
                 value=label(data.get(field,'—'),wrap=True); value.set_selectable(True)
                 line.pack_start(value,True,True,0); self.body.pack_start(line,False,False,0)
-            detail = Gtk.Expander(label='Storage and service health')
+            detail = self.details('Storage and service health')
             contents = box()
             for disk in self.value('health',{}).get('disks',[]): row(contents,disk['path'],f"{disk['free_gib']} GiB free · {disk['percent']}% used")
             for unit in failed_units(self.value('health',{}).get('failed',[])):
@@ -454,7 +469,7 @@ class Card(Gtk.EventBox):
             row(self.body,'Download',rate(network.get('rx_bps')),'metric-rx_bps')
             row(self.body,'Upload',rate(network.get('tx_bps')),'metric-tx_bps')
             self.chart([('rx_bps','Download'),('tx_bps','Upload')])
-            details=Gtk.Expander()
+            details=self.details('Interface, Tailscale IP and routes')
             details.set_label_widget(label('Interface, Tailscale IP and routes'))
             details.set_tooltip_text('Interface, Tailscale IP and routes')
             contents=box(True,4)
@@ -654,6 +669,20 @@ class Card(Gtk.EventBox):
         self.body.show_all()
         GLib.idle_add(lambda: (adjustment.set_value(min(position,adjustment.get_upper())),False)[1])
 
+    def retry_render(self):
+        self.render_pending = None
+        if not self.app.closing and self.app.cards.get(self.key) is self:
+            self.render()
+        return False
+
+    def details(self, title):
+        # Refresh the readings without collapsing the section under the user.
+        if not hasattr(self, 'expanded_details'): self.expanded_details = {}
+        widget = Gtk.Expander(label=title)
+        widget.set_expanded(self.expanded_details.get(title, False))
+        widget.connect('notify::expanded', lambda item, *_: self.expanded_details.update({title: item.get_expanded()}))
+        return widget
+
     def configure_hint(self):
         self.text('Choose Edit → Cards to configure this card.','muted')
         self.body.pack_start(button('Configure',lambda: self.app.open_settings('Cards')),False,False,0)
@@ -751,7 +780,9 @@ class Dashboard:
             GtkLayerShell.set_layer(self.window,GtkLayerShell.Layer.BOTTOM)
             GtkLayerShell.set_keyboard_mode(self.window,GtkLayerShell.KeyboardMode.ON_DEMAND)
             GtkLayerShell.set_monitor(self.window,self.monitor)
-            GtkLayerShell.set_exclusive_zone(self.window,-1)
+            # Respect panel reservations so the header sits below the status
+            # bar's input region and its controls receive pointer events.
+            GtkLayerShell.set_exclusive_zone(self.window,0)
             for edge in (GtkLayerShell.Edge.TOP,GtkLayerShell.Edge.BOTTOM,GtkLayerShell.Edge.LEFT,GtkLayerShell.Edge.RIGHT):
                 GtkLayerShell.set_anchor(self.window,edge,True)
         else:

@@ -170,6 +170,20 @@ Save/Cancel controls, refresh interval editing, appearance preview/cancel and
 layout saving. The pointer is restored and the temporary surface closes. The
 installed dashboard settings are not used or changed.
 
+To check the header against a top status bar's input region, run
+`python3 apps/poedash/tests/gui/check_header_wayland.py --run` in Hyprland.
+It checks Edit, Packages and zoom with real clicks, reproduces the old overlap,
+and verifies the corrected placement. It briefly visits workspace 1 and restores
+the original workspace and pointer; application launches are mocked.
+
+Card clicks, seeking and expanded details across refreshes can also be checked
+on a separate display without interacting with the desktop:
+
+```sh
+POEDASH_GUI_TEST=1 GDK_BACKEND=x11 xvfb-run -a -s '-screen 0 2560x1440x24' \
+    python3 -m unittest discover -s tests -p test_dashboard_buttons_ui.py -v
+```
+
 Weather locations are chosen in **Edit → Cards → Weather location**. Search for a town or city, select the matching region/country, then Save. Existing coordinate-based settings remain compatible. Search results are provided by Open-Meteo geocoding (GeoNames); locations must exist in its database.
 
 Weather shows original local SVG condition artwork, a condition-coloured current summary and a three-day forecast with high/low temperatures and precipitation probabilities. Clear nights use moon artwork. Icons are static and add no animation timers or image downloads.
