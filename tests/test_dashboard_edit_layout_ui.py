@@ -116,6 +116,66 @@ class EditLayoutGeometry(unittest.TestCase):
         self.assertEqual(self.app.canvas_size,canvas)
         self.assertEqual(self.geometry(),before)
 
+    def leave_excess_gaps(self):
+        width,height=self.app.canvas_size
+        for rect in self.app.profile['layouts'][self.app.display_key].values():
+            rect[2]-=40/width;rect[3]-=30/height
+        self.app.settings.save();self.app.reflow();self.pump()
+
+    def assert_fills_canvas(self):
+        origin=self.app.fixed.translate_coordinates(self.app.window,0,0)
+        width,height=self.app.canvas_size
+        bounds={key:(x-origin[0],y-origin[1],w,h) for key,(x,y,w,h) in self.geometry().items()}
+        self.assertEqual(min(r[0] for r in bounds.values()),0)
+        self.assertEqual(min(r[1] for r in bounds.values()),0)
+        for key,(x,y,w,h) in bounds.items():
+            right=width;bottom=height
+            for other,(ox,oy,ow,oh) in bounds.items():
+                if key==other:continue
+                if min(y+h,oy+oh)>max(y,oy) and ox>=x+w:right=min(right,ox-6)
+                if min(x+w,ox+ow)>max(x,ox) and oy>=y+h:bottom=min(bottom,oy-6)
+            self.assertLessEqual(abs(x+w-right),1,(key,bounds))
+            self.assertLessEqual(abs(y+h-bottom),1,(key,bounds))
+
+    def test_fit_fills_gaps_and_saves_in_one_click_from_the_menu(self):
+        self.leave_excess_gaps()
+        self.app.edit_menu()
+        self.app.edit_actions['Fit cards to screen'].clicked();self.pump()
+        self.assertIsNone(self.app.transaction)
+        self.assertFalse(self.app.editing)
+        self.assert_fills_canvas()
+        fitted=self.geometry()
+        self.app.reload();self.pump()
+        self.assertEqual(self.geometry(),fitted)
+        self.assertTrue(self.app.fit_cards_to_screen());self.pump()
+        self.assertEqual(self.geometry(),fitted)
+
+    def test_fit_in_an_existing_draft_supports_undo_redo_and_cancel(self):
+        self.leave_excess_gaps()
+        before=self.geometry();saved=(self.root/'dashboard.json').read_bytes()
+        self.app.edit_layout();self.pump()
+        self.assertTrue(self.app.fit_cards_to_screen());self.pump()
+        self.assert_fills_canvas()
+        fitted=self.geometry()
+        self.assertIsNotNone(self.app.transaction)
+        self.assertEqual((self.root/'dashboard.json').read_bytes(),saved)
+        self.app.undo();self.pump();self.assertEqual(self.geometry(),before)
+        self.app.redo();self.pump();self.assertEqual(self.geometry(),fitted)
+        self.app.cancel();self.pump();self.assertEqual(self.geometry(),before)
+        self.assertEqual((self.root/'dashboard.json').read_bytes(),saved)
+
+    def test_failed_fit_save_keeps_a_cancellable_preview(self):
+        self.leave_excess_gaps()
+        before=self.geometry();saved=(self.root/'dashboard.json').read_bytes()
+        with patch.object(self.app.settings,'save',side_effect=OSError('disk full')):
+            self.assertFalse(self.app.fit_cards_to_screen())
+        self.pump()
+        self.assertTrue(self.app.toolbar.get_mapped())
+        self.assertIn('Could not save',self.app.status.get_text())
+        self.assertEqual((self.root/'dashboard.json').read_bytes(),saved)
+        self.app.cancel();self.pump()
+        self.assertEqual(self.geometry(),before)
+
     def tearDown(self):
         with patch.object(self.native.Gtk,'main_quit'):
             self.app.quit();self.app.window.destroy()

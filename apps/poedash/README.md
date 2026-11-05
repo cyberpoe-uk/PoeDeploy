@@ -31,6 +31,14 @@ intact while layouts from older versions remain readable.
 
 The **Edit** button beside **Packages** provides:
 
+- **Fit cards to screen**: fills the available board and closes excess gaps to
+  the configured Card spacing. Space below the last card extends it downward,
+  leaving cards above unchanged. Space at the right extends the rightmost card.
+  Excess space between neighbors is shared equally between their widths or
+  heights. Existing rows and columns are retained where possible. Staggered
+  arrangements that cannot be filled as-is are packed in reading order.
+  From the Edit menu, Fit applies and saves in one click. During an existing
+  editing session it updates the draft, with Undo, Redo, Save and Cancel.
 - **Move & resize cards**: drag inside a card to move it; drag any edge or corner
   to resize. Only releasing within the central 65% of another card exchanges
   their slots, fitting each card to its new space; hovering or dropping on an

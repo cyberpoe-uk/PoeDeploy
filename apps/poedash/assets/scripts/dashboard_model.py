@@ -353,6 +353,117 @@ def fit_layout_height(layout,width,oldheight,height,gap=10,minimums=None):
     return best,height
 
 
+def fill_layout(layout,width,height,gap=10,minimums=None):
+    """Fill the canvas at exact spacing, keeping existing rows/columns when possible.
+
+    Interior excess gaps are shared equally between neighboring cells. Space
+    after the last cell extends that cell to the right/bottom, leaving earlier
+    cards alone. An unsliceable arrangement is packed in spatial reading order.
+    """
+    if not layout:return {}
+    if width<=0 or height<=0 or gap<0 or any(not valid_rect(r) for r in layout.values()):return None
+    minimums=minimums or {}
+    pixels={k:[r[0]*width,r[1]*height,r[2]*width,r[3]*height] for k,r in layout.items()}
+    floors={k:minimums.get(k,(80,100)) for k in layout}
+
+    def lengths(bases,limits,available,shared=0):
+        if available<sum(limits)-1e-7:return None
+        sizes=[max(base,limit) for base,limit in zip(bases,limits)]
+        delta=available-sum(sizes)
+        if delta>=0:
+            growth=min(shared,delta)
+            sizes=[size+growth/len(sizes) for size in sizes]
+            sizes[-1]+=delta-growth
+        else:
+            remaining=-delta
+            while remaining>1e-7:
+                active=[i for i,size in enumerate(sizes) if size>limits[i]+1e-7]
+                if not active:return None
+                step=min(remaining/len(active),min(sizes[i]-limits[i] for i in active))
+                for i in active:sizes[i]-=step
+                remaining-=step*len(active)
+        # Absorb roundoff at the outer edge so repeated fitting is stable.
+        sizes[-1]+=available-sum(sizes)
+        return sizes
+
+    def bounds(keys,axis):
+        return min(pixels[k][axis] for k in keys),max(pixels[k][axis]+pixels[k][axis+2] for k in keys)
+
+    def groups(keys,axis):
+        result=[];edge=-math.inf
+        for key in sorted(keys,key=lambda k:(pixels[k][axis],pixels[k][axis+2],k)):
+            start=pixels[key][axis];end=start+pixels[key][axis+2]
+            if not result or start>=edge-1e-7:result.append([key])
+            else:result[-1].append(key)
+            edge=max(edge,end)
+        return result
+
+    def tree(keys):
+        if len(keys)==1:return {'keys':keys,'minimum':floors[keys[0]]}
+        for axis in (0,1):
+            parts=groups(keys,axis)
+            if len(parts)==1:continue
+            children=[tree(part) for part in parts]
+            if any(child is None for child in children):return None
+            minimum=[0,0]
+            minimum[axis]=sum(child['minimum'][axis] for child in children)+gap*(len(children)-1)
+            minimum[1-axis]=max(child['minimum'][1-axis] for child in children)
+            return {'keys':keys,'axis':axis,'children':children,'minimum':minimum}
+        return None
+
+    def place(node,rect,result):
+        if rect[2]<node['minimum'][0]-1e-7 or rect[3]<node['minimum'][1]-1e-7:return False
+        if 'children' not in node:
+            result[node['keys'][0]]=rect
+            return True
+        axis=node['axis'];children=node['children']
+        spans=[bounds(child['keys'],axis) for child in children]
+        shared=sum(max(0,after[0]-before[1]-gap) for before,after in zip(spans,spans[1:]))
+        sizes=lengths([end-start for start,end in spans],[child['minimum'][axis] for child in children],
+                      rect[axis+2]-gap*(len(children)-1),shared)
+        if sizes is None:return False
+        offset=rect[axis]
+        for child,size in zip(children,sizes):
+            cell=list(rect);cell[axis]=offset;cell[axis+2]=size
+            if not place(child,cell,result):return False
+            offset+=size+gap
+        return True
+
+    def packed():
+        # Some staggered mosaics have no straight separator. Choose a feasible
+        # row packing with the least movement, rather than leaving empty holes.
+        keys=sorted(pixels,key=lambda k:(pixels[k][1],pixels[k][0],k))
+        options=[]
+        for columns in range(1,len(keys)+1):
+            rows=[keys[i:i+columns] for i in range(0,len(keys),columns)]
+            available=height-gap*(len(rows)-1)
+            heights=lengths([max(pixels[k][3] for k in row) for row in rows],
+                            [max(floors[k][1] for k in row) for row in rows],available,shared=max(0,available))
+            if heights is None:continue
+            result={};y=0
+            for row,h in zip(rows,heights):
+                available=width-gap*(len(row)-1)
+                widths=lengths([pixels[k][2] for k in row],[floors[k][0] for k in row],available,shared=max(0,available))
+                if widths is None:break
+                x=0
+                for key,w in zip(row,widths):result[key]=[x,y,w,h];x+=w+gap
+                y+=h+gap
+            if len(result)!=len(keys):continue
+            cost=sum(((r[0]+r[2]/2-pixels[k][0]-pixels[k][2]/2)/width)**2
+                     +((r[1]+r[3]/2-pixels[k][1]-pixels[k][3]/2)/height)**2 for k,r in result.items())
+            options.append((cost,result))
+        return min(options,key=lambda item:item[0])[1] if options else None
+
+    root=tree(list(layout));result={}
+    if root is None or not place(root,[0,0,width,height],result):result=packed()
+    if result is None:return None
+    fitted={key:[x/width,y/height,w/width,h/height] for key,(x,y,w,h) in result.items()}
+    if not all(valid_move(k,r,fitted) for k,r in fitted.items()):return None
+    if not all(spaced(a,b,width,height,gap) for i,a in enumerate(fitted.values()) for b in list(fitted.values())[i+1:]):return None
+    if all(abs(a-b)<1e-9 for k,r in fitted.items() for a,b in zip(r,layout[k])):return deepcopy(layout)
+    return fitted
+
+
 def central_drop_target(card,proposed,layout,point=None):
     """A swap requires a deliberate drop inside the target's central 65%."""
     cx,cy=point if point is not None else (proposed[0]+proposed[2]/2,proposed[1]+proposed[3]/2)

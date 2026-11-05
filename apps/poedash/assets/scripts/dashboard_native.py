@@ -26,7 +26,7 @@ from gi.repository import Gtk, Gdk, GLib, GLibUnix, GdkPixbuf, Pango, GtkLayerSh
 
 from dashboard_model import (CARDS, REFRESH, SOURCES, SOURCE_TITLES,
     DEFAULT_APPEARANCE, Settings, Transaction, History, atomic_json, read_json,
-    default_layout, valid_move, resolve_layout, insert_card, fit_layout_height, spaced, central_drop_target, measure_gaps, transform, validate)
+    default_layout, valid_move, resolve_layout, insert_card, fit_layout_height, fill_layout, spaced, central_drop_target, measure_gaps, transform, validate)
 from dashboard_collect import Engine, health_issues, search_weather_locations
 from service_health import failed_units, service_details
 from weather_visual import condition as weather_condition, icon_svg as weather_icon_svg
@@ -1166,7 +1166,9 @@ class Dashboard:
 
     def edit_menu(self):
         content=self.drawer_page('Edit dashboard',editable=bool(self.transaction))
-        content.pack_start(label('Choose what to change. Each editor has visible Save and Cancel controls.',wrap=True),False,False,0)
+        tip=('Fit adjusts the current draft. Save keeps changes; Cancel restores the previous settings.' if self.transaction else
+             'Fit fills and saves the layout immediately. Other editors have Save and Cancel controls.')
+        content.pack_start(label(tip,wrap=True),False,False,0)
         self.edit_actions={}
         for text,callback in [('Move & resize cards',self.edit_layout),('Fit cards to screen',self.fit_cards_to_screen),('Refresh intervals',lambda:self.open_settings('Refresh intervals')),
                               ('Appearance',lambda:self.open_settings('Appearance')),('Add / hide cards',lambda:self.open_settings('Cards')),
@@ -1453,19 +1455,30 @@ class Dashboard:
             check.connect('toggled',changed); parent.pack_start(check,False,False,0)
 
     def fit_cards_to_screen(self):
-        self.begin()
-        width,oldheight=self.canvas_size
+        width,_=self.canvas_size
         height=max(1,self.board_view.get_allocated_height()-4)
         gap=self.profile['appearance']['spacing']*self.profile['appearance'].get('scale',1)
-        minima={key:card.content.get_preferred_height()[0]+2 for key,card in self.cards.items()}
-        plan,height=fit_layout_height(self.layout,width,oldheight,height,gap,minima)
+        minima={key:(max(80,card.content.get_preferred_width()[0]+2),
+                     max(100,card.content.get_preferred_height()[0]+2)) for key,card in self.cards.items()}
+        plan=fill_layout(self.layout,width,height,gap,minima)
         if plan is None:
-            self.message('The cards cannot fit at their minimum sizes. Hide a card or reduce the spacing.');return
+            self.message('The cards cannot fit at their minimum sizes. Hide a card or reduce the spacing.');return False
+        autosave=self.transaction is None
+        self.begin()
         self.transaction.checkpoint()
         self.canvas_size=(width,height);self.layout=plan;self.store_layout()
         self.board.set_size_request(width,round(height));self.fixed.set_size_request(width,round(height))
-        self.reflow();self.edit_layout()
-        self.message('Cards fitted to the visible dashboard · Save to keep this layout')
+        self.reflow()
+        if autosave:
+            self.save()
+            if self.transaction is None:
+                self.message('Cards fitted and saved at the configured spacing');return True
+            error=self.status.get_text()
+            self.edit_layout();self.message(error)
+            return False
+        self.edit_layout()
+        self.message('Cards fitted at the configured spacing · Save to keep, or Undo to restore')
+        return True
 
     def toggle_card(self,key,enabled):
         visible=self.profile['visible']
