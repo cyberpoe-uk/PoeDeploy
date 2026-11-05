@@ -107,7 +107,7 @@ steps.append(resize_move)
 steps.append(lambda:send('u'))
 steps.append(lambda:expect(app.layout['performance'][2]<state['resize_before'][2] and app.layout['performance'][3]<state['resize_before'][3],'Actual corner drag resizes both dimensions'))
 steps.append(lambda:click(find_button(app.toolbar,'Cancel')))
-steps.append(lambda:expect(not app.editing and app.transaction is None and not app.toolbar.get_visible(),'Cancel exits editing mode'))
+steps.append(lambda:expect(not app.editing and app.transaction is None and not app.toolbar.get_mapped(),'Cancel exits editing mode'))
 steps.append(lambda:click(app.edit_button))
 steps.append(lambda:click(app.edit_actions['Refresh intervals']))
 def refresh_check():

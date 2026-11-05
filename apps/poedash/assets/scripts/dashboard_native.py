@@ -810,7 +810,7 @@ class Dashboard:
         self.header_controls.pack_start(button('Packages',lambda: self.run('packages.py','launch')),False,False,0)
         self.edit_button=button('Edit',self.edit_menu)
         self.header_controls.pack_start(self.edit_button,False,False,0)
-        self.clock=label('','clock'); self.header.pack_end(self.clock,False,False,0)
+        self.clock=label(datetime.datetime.now().strftime('%H:%M\n%a %d %b'),'clock'); self.header.pack_end(self.clock,False,False,0)
         self.surface.pack_start(self.header,False,False,0)
         self.healthbar=box(False,6)
         self.health_label=label('Checking system health…','muted')
@@ -822,8 +822,15 @@ class Dashboard:
         self.healthbar.pack_start(self.health_summary,True,True,0)
         self.health_button=button('Details',self.show_health)
         self.healthbar.pack_end(self.health_button,False,False,0)
-        self.surface.pack_start(self.healthbar,False,False,0)
-        self.toolbar=box(False,6); self.toolbar.set_no_show_all(True)
+        # Editing replaces the health strip instead of adding a row. Both
+        # pages remain measured so switching modes cannot resize the canvas.
+        self.control_stack=Gtk.Stack()
+        self.control_stack.set_hhomogeneous(False)
+        self.control_stack.set_vhomogeneous(True)
+        self.control_stack.set_transition_type(Gtk.StackTransitionType.NONE)
+        self.control_stack.add_named(self.healthbar,'health')
+        self.surface.pack_start(self.control_stack,False,False,0)
+        self.toolbar=box(False,6)
         for text,callback in [('Save',self.save),('Cancel',self.cancel),('Undo',self.undo),('Redo',self.redo),('Reset layout',self.reset_layout)]:
             control=button(text,callback); self.toolbar.pack_start(control,False,False,0)
             if text=='Undo': self.undo_button=control
@@ -831,7 +838,8 @@ class Dashboard:
         self.snap_check=Gtk.CheckButton.new_with_label('Snap & guides')
         self.snap_check.connect('toggled',self.snap_changed)
         self.toolbar.pack_end(self.snap_check,False,False,0)
-        self.surface.pack_start(self.toolbar,False,False,0)
+        self.control_stack.add_named(self.toolbar,'editing')
+        self.control_stack.set_visible_child(self.healthbar)
         self.main=box(False,10)
         self.rail_body=box(True,7)
         self.rail=scroll(self.rail_body); self.rail.set_size_request(94,-1)
@@ -850,7 +858,8 @@ class Dashboard:
         self.board_view.get_child().connect('size-allocate',self.schedule_allocate)
         self.main.pack_start(self.board_view,True,True,0)
         self.surface.pack_start(self.main,True,True,0)
-        self.status=label('','freshness'); self.status.set_no_show_all(True)
+        # An empty status line reserves the same height as a populated one.
+        self.status=label('','freshness')
         self.surface.pack_end(self.status,False,False,0)
         self.drawer=box(True,10)
         self.drawer.set_border_width(16)
@@ -872,7 +881,7 @@ class Dashboard:
         self.ipc_path=self.root/'state/native.sock'
         self.start_ipc()
         self.window.show_all()
-        self.toolbar.hide(); self.drawer.hide(); self.status.hide()
+        self.control_stack.set_visible_child(self.healthbar); self.drawer.hide()
         for card in self.cards.values(): card.set_editing(False)
         if not preview and (self.root/'state/home-visible').is_file() and (self.root/'state/home-visible').read_text().strip()=='false':
             self.window.hide()
@@ -1170,7 +1179,7 @@ class Dashboard:
     def edit_layout(self):
         self.begin(); self.drawer.hide()
         self.editing=True
-        reveal(self.toolbar); self.status.show()
+        self.control_stack.set_visible_child(self.toolbar); self.status.show()
         self.snap_check.set_active(self.profile['appearance']['snap'])
         self.store_layout()
         for card in self.cards.values(): card.set_editing(True)
@@ -1234,7 +1243,7 @@ class Dashboard:
     def finish_edit(self):
         self.editing=False; self.guides=[]; self.preview=None
         self.swap_hint=None;self.gap_guides=[]
-        self.toolbar.hide(); self.drawer.hide()
+        self.control_stack.set_visible_child(self.healthbar); self.drawer.hide()
         self.populate_profiles(); self.apply_appearance(); self.build_cards()
         self.guide_layer.queue_draw()
 
@@ -1277,7 +1286,7 @@ class Dashboard:
     def open_settings(self,section):
         self.begin()
         # Switching panels does not discard a pending layout draft.
-        self.editing=False; self.toolbar.hide()
+        self.editing=False; self.control_stack.set_visible_child(self.healthbar)
         for card in self.cards.values(): card.set_editing(False)
         content=self.drawer_page(section)
         if section=='Refresh intervals': self.refresh_settings(content)
@@ -1566,7 +1575,7 @@ class Dashboard:
 
     def card_menu(self,card):
         self.begin()
-        self.editing=False;self.toolbar.hide()
+        self.editing=False;self.control_stack.set_visible_child(self.healthbar)
         for item in self.cards.values():item.set_editing(False)
         content=self.drawer_page(CARDS[card.key][0]+' · edit')
         sources=SOURCES.get(card.key,())
@@ -1974,7 +1983,7 @@ class Dashboard:
                 GLib.timeout_add(400,self.smoke_test)
                 return False
             self.edit_layout()
-            if not self.toolbar.get_visible(): raise RuntimeError('Editing toolbar is hidden')
+            if not self.toolbar.get_mapped(): raise RuntimeError('Editing toolbar is hidden')
             for control in self.toolbar.get_children():
                 if not control.get_visible(): raise RuntimeError('Editing control is hidden')
             if not all(card.cover.get_visible() for card in self.cards.values()): raise RuntimeError('Drag overlay is hidden')

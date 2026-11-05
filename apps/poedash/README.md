@@ -22,6 +22,11 @@ is enough room; zoom alone does not replace it.
 Resolution changes update the view live. Saved layouts are separate for each
 display, resolution and display scale.
 
+Entering and leaving layout editing keeps the card area the same size. Save
+preserves the positions, sizes and gaps shown in the preview, including after
+reloading the dashboard. Extra available height leaves existing card spacing
+intact while layouts from older versions remain readable.
+
 ## Edit
 
 The **Edit** button beside **Packages** provides:

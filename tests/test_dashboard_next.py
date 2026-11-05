@@ -411,6 +411,22 @@ class FitCardsWithinScreen(unittest.TestCase):
 
 
 class FixedCanvasRegression(unittest.TestCase):
+    def test_canvas_growth_preserves_pixel_positions_heights_and_custom_gaps(self):
+        layout={'arch':[0,13/800,.49,150/800],
+                'system':[0,169/800,.49,300/800],
+                'connectivity':[0,486/800,.49,250/800],
+                'player':[.51,13/800,.49,600/800]}
+        result,height=model.fit_layout_height(layout,1000,800,880,6)
+        for key,(x,y,w,h) in result.items():
+            self.assertAlmostEqual(y*height,layout[key][1]*800)
+            self.assertAlmostEqual(h*height,layout[key][3]*800)
+            self.assertEqual((x,w),(layout[key][0],layout[key][2]))
+        self.assertAlmostEqual((result['system'][1]-sum(result['arch'][1::2]))*height,6)
+        self.assertAlmostEqual((result['connectivity'][1]-sum(result['system'][1::2]))*height,17)
+        restored,_=model.fit_layout_height(result,1000,height,800,6)
+        for key,rect in restored.items():
+            for actual,expected in zip(rect,layout[key]):self.assertAlmostEqual(actual,expected)
+
     def test_refitting_an_already_valid_layout_is_exactly_stable(self):
         layout={'arch':[0,0,.4,.3],'system':[0,.31,.4,.3]}
         result,height=model.fit_layout_height(layout,1000,1000,1000,10)

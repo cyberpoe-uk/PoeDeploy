@@ -317,13 +317,18 @@ def insert_card(card,layout,width,height,gap=10,minimums=None):
 
 
 def fit_layout_height(layout,width,oldheight,height,gap=10,minimums=None):
-    """Share height reductions while preserving columns, order and fixed gaps."""
+    """Keep saved pixel geometry when it fits; otherwise share height reductions."""
     if not layout:return {},height
     minimums=minimums or {}
     pixels={key:[r[0]*width,r[1]*oldheight,r[2]*width,r[3]*oldheight] for key,r in layout.items()}
     order=sorted(pixels,key=lambda k:pixels[k][1])
     floors={k:max(100,minimums.get(k,100)) for k in pixels}
-    if abs(oldheight-height)<.01 and all(r[3]*height>=floors[k]-.01 and valid_move(k,r,layout) for k,r in layout.items()) and all(spaced(a,b,width,height,gap) for i,a in enumerate(layout.values()) for b in list(layout.values())[i+1:]):return deepcopy(layout),height
+    # Extra room must not move card origins while keeping their heights fixed:
+    # that stretches each gap by a different amount. Keep the saved pixel
+    # geometry whenever it still fits, including layouts saved by older editors.
+    unchanged=deepcopy(layout) if abs(oldheight-height)<.01 else {
+        key:[x,y*oldheight/height,w,h*oldheight/height] for key,(x,y,w,h) in layout.items()}
+    if all(r[3]*height>=floors[k]-.01 and valid_move(k,r,unchanged) for k,r in unchanged.items()) and all(spaced(a,b,width,height,gap) for i,a in enumerate(unchanged.values()) for b in list(unchanged.values())[i+1:]):return unchanged,height
     def attempt(scale):
         plan={};bottoms={}
         for key in order:
