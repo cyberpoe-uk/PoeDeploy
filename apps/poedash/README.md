@@ -1,16 +1,30 @@
 # PoeDash
 
-PoeDash is a local desktop dashboard for Hyprland. The editable surface uses
-GTK 3 and GTK Layer Shell and keeps the existing PoeDash collectors, calendar,
-media controls, recent apps, idle manager and power-profile integration. Eww
-remains available as a fallback when GTK desktop support is unavailable.
+PoeDash is a local desktop dashboard for Hyprland. Choose either a standalone
+GTK window or an Eww-owned window hosting the same GTK card/editor tree. Both
+backends share `dashboard.json`, collectors, profiles, calendar, weather, card
+interval controls, layout rules, history, idle and power integration.
+
+```bash
+poedash backend gtk
+poedash backend eww
+poedash backend status
+```
+
+Save pending edits before switching: the command restarts the surface. The
+choice is preserved by dashboard updates. Eww mode requires Eww plus the common
+`python-gobject`, `python-cairo`, `gtk-layer-shell` and GTK 3 dependencies, and
+`gcc`/`pkgconf` to compile its small local host adapter. The installer includes
+these packages. The adapter is cached per Python/platform/library version and
+rebuilt when necessary. It does not hook global input or emulate a second UI.
+There is no automatic downgrade to the older, feature-limited Eww renderer.
 
 ## Zoom
 
 Use **− / percentage / +** beside the profile selector to scale the dashboard
 from 50% to 200% in 5% steps. **↶** restores 100%. Cards stay within the screen
-width and reflow into fewer columns as text and controls grow. Scroll vertically
-to reach the remaining cards. The header stays compact so zoom and profile
+width and fit within the visible board. Card contents can scroll inside a
+card; adding a card never extends the dashboard vertically. The header stays compact so zoom and profile
 controls remain accessible. Zoom is saved per profile. During an editing session
 it remains a preview until Save. Your saved card arrangement returns when there
 is enough room; zoom alone does not replace it.
@@ -23,8 +37,13 @@ display, resolution and display scale.
 The **Edit** button beside **Packages** provides:
 
 - **Move & resize cards**: drag inside a card to move it; drag any edge or corner
-  to resize. Dropping onto another card swaps their slots. Snap and alignment
-  guides are optional. Invalid overlaps roll back. Use **Save**, **Cancel**,
+  to resize. Only releasing within the central 65% of another card exchanges
+  their slots, fitting each card to its new space; hovering or dropping on an
+  edge does not swap cards. Expanding an edge into a neighbour shrinks that
+  neighbour along the affected side. Resizing stops at usable minimum sizes.
+  Nearby edge/gap snapping and alignment guides are optional. Moving/resizing
+  uses the configured card spacing as the minimum gap; live measurements show
+  when the spacing matches. Invalid placements roll back. Use **Save**, **Cancel**,
   **Undo**, **Redo**, or **Reset layout**. Ctrl+Z and Ctrl+Shift+Z/Ctrl+Y work in
   layout mode; Escape cancels the editing session.
 - **Refresh intervals**: each card lists its data sources with seconds and
@@ -61,12 +80,17 @@ VPNs in Edit → Cards. Monitoring a VPN is opt-in.
 Hover over a card's ↻ button to see its last update time. Collection errors and
 stale readings change the button to a warning indicator, with details on hover.
 Cards reserve their full body height for content, without an update footer.
-The native audio visualiser pauses whenever the dashboard is hidden. While
+The shared audio visualiser pauses whenever the dashboard is hidden. While
 visible, it draws orange, red, purple and blue waveforms directly at 15 fps on
-AC or 10 fps on battery, avoiding per-frame SVG file decoding. The Eww fallback
-retains its SVG renderer. On battery, collectors also pause while the dashboard
+AC or 10 fps on battery in both backends, avoiding per-frame SVG file decoding.
+On battery, collectors also pause while the dashboard
 is hidden. On AC, collection continues. Custom refresh intervals are retained
 across power-source changes. A card's ↻ button requests an immediate update.
+
+Click a calendar date to show cached Thunderbird events for that day. Clicking
+today restores the next-two-weeks agenda. Returning to the dashboard workspace
+automatically returns the calendar to today. Date selection is temporary and
+does not change Thunderbird or your saved dashboard settings.
 
 ## Card actions
 
@@ -145,3 +169,37 @@ compositor. It checks card actions, Health, drag/swap, corner resize, visible
 Save/Cancel controls, refresh interval editing, appearance preview/cancel and
 layout saving. The pointer is restored and the temporary surface closes. The
 installed dashboard settings are not used or changed.
+
+Weather locations are chosen in **Edit → Cards → Weather location**. Search for a town or city, select the matching region/country, then Save. Existing coordinate-based settings remain compatible. Search results are provided by Open-Meteo geocoding (GeoNames); locations must exist in its database.
+
+Weather shows original local SVG condition artwork, a condition-coloured current summary and a three-day forecast with high/low temperatures and precipitation probabilities. Clear nights use moon artwork. Icons are static and add no animation timers or image downloads.
+
+Each card’s ⋯ editor includes inline − / + refresh controls for that card only, with a directly editable seconds value and Save/Cancel. The complete interval list remains under the dashboard’s top-right **Edit → Refresh intervals**. Cards such as Notes and Tasks need no polling interval.
+
+Adding or hiding cards preserves the existing layout, including narrow custom cards. New cards use free space first. On a full dashboard, cards in the chosen column share the height reduction equally. Adding a card does not extend the scroll area; additions are refused if minimum usable sizes cannot be maintained. **Edit → Fit cards to screen** compacts an existing tall layout while retaining columns and gaps. Hidden cards remember their previous slot and return there when it is still free.
+
+
+## Backend parity checks
+
+Both frontends instantiate the same `Dashboard`, `Card`, calendar/weather editors
+and layout model, rather than maintaining parallel implementations. Automated
+checks cover configuration migration, backend persistence and startup locks.
+The GTK offscreen check exercises fixed-height fitting; the Eww integration
+check runs the actual shared UI in a separate, transparent, input-pass-through
+Eww window and verifies card controls, weather search/Save, calendar dates,
+workspace reset, release-only swaps/Undo and close/reopen cleanup.
+
+```bash
+python3 apps/poedash/tests/gui/check_fitted_layout.py --size 1440x960
+python3 apps/poedash/tests/gui/check_eww_shared.py --run --startup
+```
+
+On another workstation, check out the feature branch and install it as your
+normal desktop user (the installer backs up the existing dashboard):
+
+```bash
+python3 apps/poedash/poedash.py install --non-interactive
+poedash backend gtk
+# Save your edits, then compare the other backend:
+poedash backend eww
+```

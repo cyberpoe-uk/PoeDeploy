@@ -20,7 +20,7 @@ THEME_BEGIN, THEME_END = '# BEGIN POEDASH', '# END POEDASH'
 PACKAGES = ['hyprland', 'jq', 'python', 'iproute2', 'util-linux', 'procps-ng',
             'coreutils', 'glib2', 'gawk', 'sed', 'grep', 'bash', 'pacman-contrib', 'kitty',
             'btop', 'nvtop', 'rofi', 'libnotify', 'ttf-jetbrains-mono-nerd',
-            'matugen', 'playerctl', 'socat', 'libpulse', 'python-gobject', 'python-cairo', 'gtk-layer-shell']
+            'matugen', 'playerctl', 'socat', 'libpulse', 'python-gobject', 'python-cairo', 'gtk-layer-shell', 'gtk3', 'gcc', 'pkgconf']
 REQUIRED = ['hyprctl', 'eww', 'jq', 'python3', 'ip', 'cal', 'flock', 'free',
             'timeout', 'gio', 'checkupdates', 'kitty', 'btop', 'nvtop', 'rofi', 'notify-send', 'matugen', 'playerctl', 'socat', 'parec']
 
@@ -76,10 +76,19 @@ def monitor_info(monitor):
         return None
 
 
+def surface_backend(root):
+    path=Path(root)/'surface-backend'
+    backend=os.environ.get('POEDASH_BACKEND') or (path.read_text().strip() if path.is_file() else 'gtk')
+    if backend not in ('gtk','eww'):raise ValueError('PoeDash backend must be gtk or eww')
+    return backend
+
+
 def render(root):
     cfg = settings(root)
     monitor = monitor_info(cfg['monitor'])
-    yuck = (root / 'templates/eww.yuck').read_text()
+    backend=surface_backend(root)
+    template='eww-shared' if backend=='eww' else 'eww'
+    yuck = (root / ('templates/'+template+'.yuck')).read_text()
     dashboard_name = json.dumps(cfg['name'], ensure_ascii=False).replace('${', r'\${')
     yuck = yuck.replace('"@@DASHBOARD_NAME@@"', dashboard_name)
     selector = cfg['monitor']
@@ -89,7 +98,7 @@ def render(root):
         matchers.append(monitor.get('_index', 0))
         selector = json.dumps(matchers)
     yuck = yuck.replace(':monitor 0', ':monitor ' + json.dumps(selector))
-    css = (root / 'templates/eww.scss').read_text()
+    css = (root / ('templates/'+template+'.scss')).read_text()
     start = shlex.join([str(root / 'scripts/start.sh')])
     lua = (root / 'templates/hyprland.lua').read_text().replace('@@START@@', json.dumps(start, ensure_ascii=False))
     # Validate everything before replacing any generated file.
@@ -128,6 +137,10 @@ def dependencies(dry_run=False):
 
 def doctor(root):
     failures = []
+    print('Backend: '+surface_backend(root))
+    if surface_backend(root)=='eww':
+        for command in ('cc','pkg-config'):
+            if not shutil.which(command):failures.append('Eww host requires '+command)
     for command in REQUIRED:
         found = shutil.which(command)
         print(f'{"OK" if found else "MISSING"}: {command}')
@@ -231,7 +244,7 @@ def install(args, root):
         parsed = tomllib.loads(matugen_text)
     preserved = {}
     legacy_backup = backup / 'retired-legacy-eww'
-    for preserved_name in ('settings.json', 'colors.scss', 'disabled', 'layout.json', 'dashboard.json'):
+    for preserved_name in ('settings.json', 'colors.scss', 'disabled', 'layout.json', 'dashboard.json', 'surface-backend'):
         path = root / preserved_name
         if path.is_file():
             preserved[preserved_name] = path.read_bytes()
@@ -261,6 +274,8 @@ def install(args, root):
     atomic(root / 'dashboard-id', 'poedash\n', 0o600)
     for filename in ('colors.scss', 'settings.example.json', 'media-placeholder.svg'):
         shutil.copy2(assets / filename, root / filename)
+    if 'surface-backend' in preserved:
+        (root/'surface-backend').write_bytes(preserved['surface-backend'])
     if 'colors.scss' in preserved:
         (root / 'colors.scss').write_bytes(preserved['colors.scss'])
     if 'settings.json' in preserved:
@@ -379,12 +394,22 @@ def main():
         sub.add_parser(name)
     sub.add_parser('theme').add_argument('wallpaper')
     sub.add_parser('power', help='manage automatic power profiles').add_argument('power_action', choices=['status', 'enable', 'disable'])
+    sub.add_parser('backend',help='select the standalone GTK or Eww-hosted shared dashboard').add_argument('surface',choices=['status','gtk','eww'],nargs='?',default='status')
     args = parser.parse_args()
     root = args.root.expanduser().resolve()
     if args.action == 'install':
         if os.geteuid() == 0:
             raise RuntimeError('Run as your desktop user, without sudo. Only package installation uses sudo.')
         install(args, root)
+    elif args.action == 'backend':
+        if args.surface=='status':print(surface_backend(root));return 0
+        if args.surface=='eww':
+            run([sys.executable,root/'scripts/eww-host.py'],stdout=subprocess.DEVNULL)
+        run([sys.executable,root/'scripts/dashboard_native.py','--check'],stdout=subprocess.DEVNULL)
+        atomic(root/'surface-backend',args.surface+'\n',0o600)
+        native_control(root,'quit')
+        if shutil.which('eww'):subprocess.run(['eww','--config',str(root),'kill'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False)
+        run([root/'scripts/start.sh'])
     elif args.action == 'doctor':
         return doctor(root)
     elif args.action in ('render', 'reload'):

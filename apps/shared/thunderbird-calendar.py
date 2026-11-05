@@ -148,9 +148,9 @@ def occurrences(start, lines, lower, upper):
         yield item
 
 
-def _database_events(path, enabled, now, local):
-    end = now + timedelta(days=14)
-    lower = now.replace(hour=0, minute=0, second=0, microsecond=0)
+def _database_events(path, enabled, now, local, window=None):
+    lower, end = window if window else (now.replace(hour=0, minute=0, second=0, microsecond=0), now + timedelta(days=14))
+    cutoff = lower if window else now
     events, partial = [], False
     with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=0.2)) as connection:
         connection.row_factory = sqlite3.Row
@@ -194,7 +194,7 @@ def _database_events(path, enabled, now, local):
                 if row.get('recurrence_id') is None and (row['cal_id'], row['id'], occurrence) in overrides:
                     continue
                 last = occurrence + duration
-                if occurrence >= end or (last <= now and not (duration == timedelta(0) and occurrence >= now)):
+                if occurrence >= end or (last <= cutoff and not (duration == timedelta(0) and occurrence >= cutoff)):
                     continue
                 displayed = occurrence.astimezone(local)
                 day = 'Today' if displayed.date() == now.date() else displayed.strftime('%a %d %b')
@@ -220,9 +220,9 @@ def fingerprint(paths):
     return result
 
 
-def database_events(path, enabled, now, local):
+def database_events(path, enabled, now, local, window=None):
     try:
-        return _database_events(path, enabled, now, local)
+        return _database_events(path, enabled, now, local, window)
     except sqlite3.OperationalError as exc:
         if getattr(exc, 'sqlite_errorcode', 0) & 0xff not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
             raise
@@ -248,7 +248,7 @@ def database_events(path, enabled, now, local):
             with closing(sqlite3.connect(copied)) as connection:
                 if connection.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
                     raise sqlite3.DatabaseError('Calendar snapshot failed integrity check')
-            return _database_events(copied, enabled, now, local)
+            return _database_events(copied, enabled, now, local, window)
     raise sqlite3.OperationalError('Calendar changed while copying. Retry next refresh')
 
 
@@ -369,10 +369,14 @@ def check_offline_cache(home=None, state=None):
         return changed
 
 
-def reading(home=None, now=None):
+def reading(home=None, now=None, selected_date=None):
     home = Path.home() if home is None else home
     local = local_zone()
     now = datetime.now(local) if now is None else now.astimezone(local)
+    window = None
+    if selected_date is not None:
+        lower = datetime.combine(selected_date, datetime.min.time(), tzinfo=local)
+        window = (lower, lower + timedelta(days=1))
     selected = profile(home)
     enabled = calendars(selected) if selected else {}
     if not enabled:
@@ -383,14 +387,17 @@ def reading(home=None, now=None):
         if not path.is_file():
             continue
         try:
-            events, failed = database_events(path, enabled, now, local)
+            events, failed = database_events(path, enabled, now, local, window)
             partial = partial or failed
             for event in events:
                 values[event['key']] = event
         except (OSError, sqlite3.Error):
             partial = True
-    events = sorted(values.values(), key=lambda event: event['sort'])[:8]
+    events = sorted(values.values(), key=lambda event: event['sort'])
+    if selected_date is None: events = events[:8]
     status = 'Thunderbird · next 14 days' if events else 'No cached events · next 14 days'
+    if selected_date is not None:
+        status = 'Thunderbird · ' + selected_date.strftime('%a %d %b %Y') if events else 'No cached events for this day'
     if uncached_calendars(enabled):
         status = 'Enable Thunderbird offline support · remote events missing'
     if partial:
@@ -405,6 +412,8 @@ if __name__ == '__main__':
                         help='opt in to remote calendar caching on the next Thunderbird restart')
     parser.add_argument('--check-offline-cache', action='store_true',
                         help='check installed Thunderbird and request approval for uncached calendars')
+    parser.add_argument('--date', type=lambda value: datetime.strptime(value, '%Y-%m-%d').date(),
+                        help='show all cached events overlapping this local date')
     args = parser.parse_args()
     try:
         if args.check_offline_cache:
@@ -419,6 +428,6 @@ if __name__ == '__main__':
             raise TimeoutError('Calendar poll exceeded its time budget')
         signal.signal(signal.SIGALRM, timeout)
         signal.alarm(4)
-        print(json.dumps(reading()))
+        print(json.dumps(reading(selected_date=args.date)))
     except (OSError, ValueError, sqlite3.Error, TimeoutError, subprocess.SubprocessError):
         print(json.dumps({'connected': False, 'status': 'Thunderbird calendar unavailable', 'events': []}))

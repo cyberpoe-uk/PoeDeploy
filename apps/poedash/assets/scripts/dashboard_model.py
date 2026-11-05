@@ -25,7 +25,7 @@ CARDS = {
     'calendar': ('Calendar', 'Month and Thunderbird agenda'),
     'notes': ('Notes', 'A private note saved on this machine'),
     'tasks': ('Tasks', 'A local checklist'),
-    'weather': ('Weather', 'Forecast for coordinates you choose'),
+    'weather': ('Weather', 'Forecast for a town or city you choose'),
     'feeds': ('RSS Feeds', 'Headlines from your RSS or Atom feeds'),
     'containers': ('Containers', 'Local Docker container status'),
     'nas': ('NAS', 'Storage and status from a configured JSON endpoint'),
@@ -87,7 +87,7 @@ def defaults():
         profiles[name] = {'visible': visible, 'layouts': {}, 'refresh': deepcopy(REFRESH),
                           'appearance': deepcopy(DEFAULT_APPEARANCE)}
     return {'version': 1, 'active_profile': 'Daily', 'profiles': profiles,
-            'integrations': {'weather': {'latitude': '', 'longitude': ''},
+            'integrations': {'weather': {'latitude': '', 'longitude': '', 'location': ''},
                              'feeds': {'urls': ''}, 'nas': {'url': '', 'token': ''},
                              'remote': {'url': '', 'token': ''}},
             'expected_shares': [], 'expected_vpns': [], 'notes': '', 'tasks': []}
@@ -132,6 +132,10 @@ def validate(data):
             for card, rect in layout.items():
                 if card not in CARDS or not valid_rect(rect):
                     raise ValueError('Invalid card position or size')
+        sizes=profile.get('layout_sizes',{})
+        if not isinstance(sizes,dict):raise ValueError('Invalid layout canvas sizes')
+        for display,size in sizes.items():
+            if not isinstance(display,str) or not isinstance(size,(list,tuple)) or len(size)!=2 or not all(number(v,1,1000000) for v in size):raise ValueError('Invalid layout canvas size')
     integrations = data.get('integrations', {})
     for key in ('nas', 'remote'):
         cfg = integrations.get(key, {})
@@ -141,6 +145,8 @@ def validate(data):
         if not isinstance(cfg.get('token', ''), str) or len(cfg.get('token', '')) > 4096:
             raise ValueError('Invalid endpoint token')
     weather = integrations.get('weather', {})
+    if not isinstance(weather.get('location',''),str) or len(weather.get('location',''))>300:
+        raise ValueError('Invalid weather location')
     for key, low, high in [('latitude', -90, 90), ('longitude', -180, 180)]:
         value = weather.get(key, '')
         if value != '':
@@ -245,7 +251,177 @@ def swap_target(card, proposed, layout):
     return target if all(valid_move(key,rect,result) for key,rect in result.items()) else None
 
 
-def transform(rect, dx, dy, edge, width, height, grid=0, others=()):
+def spaced(a,b,width,height,gap):
+    """Whether two rectangles leave at least the configured physical gap."""
+    gx,gy=gap/max(1,width),gap/max(1,height)
+    return (a[0]+a[2]+gx<=b[0]+.5/max(1,width) or b[0]+b[2]+gx<=a[0]+.5/max(1,width)
+            or a[1]+a[3]+gy<=b[1]+.5/max(1,height) or b[1]+b[3]+gy<=a[1]+.5/max(1,height))
+
+
+def insert_card(card,layout,width,height,gap=10,minimums=None):
+    """Use free space or share height across a column without growing the canvas."""
+    result=deepcopy(layout)
+    if card in result:return result,height
+    minimums=minimums or {}
+    minw,minh=min(220,width),min(max(100,minimums.get(card,100)),height)
+    preferredw,preferredh=min(360,width),max(minh,min(280,height))
+    pixels=[[r[0]*width,r[1]*height,r[2]*width,r[3]*height] for r in result.values()]
+    xs=sorted({0.0,*[r[0]+r[2]+gap for r in pixels]})
+    ys=sorted({0.0,*[r[1]+r[3]+gap for r in pixels]})
+    for y in ys:
+        for x in xs:
+            widths={min(preferredw,width-x),minw}
+            heights={min(preferredh,height-y),minh}
+            widths.update(min(preferredw,r[0]-gap-x) for r in pixels if r[0]>x)
+            heights.update(min(preferredh,r[1]-gap-y) for r in pixels if r[1]>y)
+            candidates=[]
+            for w in widths:
+                for h in heights:
+                    rect=[x/width,y/height,w/width,h/height]
+                    if w>=minw and h>=minh and valid_rect(rect) and all(spaced(rect,r,width,height,gap) for r in result.values()):candidates.append(rect)
+            if candidates:
+                result[card]=max(candidates,key=lambda r:r[2]*r[3]);return result,height
+    # Distribute the reduction equally across a suitable column,
+    # respecting each card's minimum and keeping its horizontal position.
+    columns={}
+    for key,rect in result.items():columns.setdefault((round(rect[0]*width),round(rect[2]*width)),[]).append(key)
+    options=[]
+    for (x,w),keys in columns.items():
+        if w<minw:continue
+        keys.sort(key=lambda k:result[k][1]);top=result[keys[0]][1]*height
+        heights=[result[k][3]*height for k in keys]
+        floors=[min(h,max(100,minimums.get(key,100))) for key,h in zip(keys,heights)]
+        room=height-top-gap*len(keys)
+        if room<sum(floors)+minh:continue
+        newh=min(preferredh,max(minh,room/(len(keys)+1)))
+        reductions=[0.0]*len(keys);remaining=max(0,sum(heights)+newh-room)
+        for _ in keys:
+            active=[i for i,h in enumerate(heights) if h-reductions[i]>floors[i]+1e-7]
+            if not active or remaining<1e-7:break
+            amount=min(remaining/len(active),min(heights[i]-reductions[i]-floors[i] for i in active))
+            for i in active:reductions[i]+=amount
+            remaining-=amount*len(active)
+        if remaining>1e-5:continue
+        plan=deepcopy(result);y=top
+        for i,key in enumerate(keys):
+            plan[key]=[result[key][0],y/height,result[key][2],(heights[i]-reductions[i])/height]
+            y+=heights[i]-reductions[i]+gap
+        plan[card]=[result[keys[0]][0],y/height,result[keys[0]][2],newh/height]
+        if all(valid_move(k,r,plan) for k,r in plan.items()) and valid_rect(plan[card]):options.append((sum(reductions),plan))
+    if options:return min(options,key=lambda item:item[0])[1],height
+    return None,height
+
+
+def fit_layout_height(layout,width,oldheight,height,gap=10,minimums=None):
+    """Share height reductions while preserving columns, order and fixed gaps."""
+    if not layout:return {},height
+    minimums=minimums or {}
+    pixels={key:[r[0]*width,r[1]*oldheight,r[2]*width,r[3]*oldheight] for key,r in layout.items()}
+    order=sorted(pixels,key=lambda k:pixels[k][1])
+    floors={k:max(100,minimums.get(k,100)) for k in pixels}
+    if abs(oldheight-height)<.01 and all(r[3]*height>=floors[k]-.01 and valid_move(k,r,layout) for k,r in layout.items()) and all(spaced(a,b,width,height,gap) for i,a in enumerate(layout.values()) for b in list(layout.values())[i+1:]):return deepcopy(layout),height
+    def attempt(scale):
+        plan={};bottoms={}
+        for key in order:
+            x,original_y,w,h=pixels[key]
+            h=floors[key]+scale*max(0,h-floors[key])
+            y=original_y*height/oldheight
+            for previous in plan:
+                ox,oy,ow,oh=pixels[previous]
+                if min(x+w,ox+ow)>max(x,ox) and oy+oh<=original_y+.5:y=max(y,bottoms[previous]+gap)
+            if y+h>height+.01:return None
+            plan[key]=[x/width,y/height,w/width,h/height];bottoms[key]=y+h
+        return plan if all(valid_move(k,r,plan) for k,r in plan.items()) else None
+    complete=attempt(1)
+    if complete is not None:return complete,height
+    best=attempt(0)
+    if best is None:return None,height
+    low,high=0.0,1.0
+    for _ in range(25):
+        mid=(low+high)/2;candidate=attempt(mid)
+        if candidate is None:high=mid
+        else:low=mid;best=candidate
+    return best,height
+
+
+def central_drop_target(card,proposed,layout,point=None):
+    """A swap requires a deliberate drop inside the target's central 65%."""
+    cx,cy=point if point is not None else (proposed[0]+proposed[2]/2,proposed[1]+proposed[3]/2)
+    for key,(x,y,w,h) in layout.items():
+        if key!=card and overlaps(proposed,layout[key]) and x+.175*w<=cx<=x+.825*w and y+.175*h<=cy<=y+.825*h:return key
+    return None
+
+
+def measure_gaps(card,rect,layout,width,height,maximum=120):
+    """Nearest visible horizontal/vertical gap in each direction, in pixels."""
+    x,y,w,h=[rect[0]*width,rect[1]*height,rect[2]*width,rect[3]*height]
+    nearest={}
+    for key,other in layout.items():
+        if key==card:continue
+        ox,oy,ow,oh=other[0]*width,other[1]*height,other[2]*width,other[3]*height
+        choices=[]
+        if min(y+h,oy+oh)>max(y,oy):
+            middle=(max(y,oy)+min(y+h,oy+oh))/2
+            if ox>=x+w:choices.append(('e',x+w,middle,ox,middle,ox-x-w))
+            if x>=ox+ow:choices.append(('w',ox+ow,middle,x,middle,x-ox-ow))
+        if min(x+w,ox+ow)>max(x,ox):
+            middle=(max(x,ox)+min(x+w,ox+ow))/2
+            if oy>=y+h:choices.append(('s',middle,y+h,middle,oy,oy-y-h))
+            if y>=oy+oh:choices.append(('n',middle,oy+oh,middle,y,y-oy-oh))
+        for direction,*values in choices:
+            if values[-1]<=maximum and (direction not in nearest or values[-1]<nearest[direction][-1]):nearest[direction]=values
+    return list(nearest.values())
+
+
+def resolve_layout(card, proposed, layout, edge, width, height, gap=10, allow_swap=True, drop_point=None):
+    """Plan a whole drag without mutating saved layout; preserve usable neighbours."""
+    if card not in layout or not valid_rect(proposed): return None
+    original=layout[card]
+    def valid(plan):
+        return all(valid_move(key,rect,plan) for key,rect in plan.items())
+    if not edge:
+        result=deepcopy(layout);result[card]=list(proposed)
+        if valid(result) and all(spaced(proposed,r,width,height,gap) for key,r in layout.items() if key!=card):return result
+        if not allow_swap:return None
+        target=central_drop_target(card,proposed,layout,drop_point)
+        if target is None:return None
+        result=deepcopy(layout);result[card],result[target]=list(layout[target]),list(original)
+        # Exchanging existing slots preserves their geometry and existing gaps.
+        return result if valid(result) else None
+    gx,gy=gap/max(1,width),gap/max(1,height)
+    def attempt(rect):
+        result=deepcopy(layout);result[card]=list(rect)
+        for key,other in layout.items():
+            if key==card or spaced(rect,other,width,height,gap):continue
+            x,y,w,h=other; right,bottom=x+w,y+h
+            candidates=[]
+            if 'e' in edge and x>=original[0]+original[2]-.001:
+                left=rect[0]+rect[2]+gx;candidates.append([left,y,right-left,h])
+            if 'w' in edge and right<=original[0]+.001:
+                candidates.append([x,y,rect[0]-gx-x,h])
+            if 's' in edge and y>=original[1]+original[3]-.001:
+                top=rect[1]+rect[3]+gy;candidates.append([x,top,w,bottom-top])
+            if 'n' in edge and bottom<=original[1]+.001:
+                candidates.append([x,y,w,rect[1]-gy-y])
+            candidates=[r for r in candidates if valid_rect(r) and r[2]>=min(180/max(1,width),w)-1e-8 and r[3]>=min(100/max(1,height),h)-1e-8]
+            if not candidates:return None
+            result[key]=max(candidates,key=lambda r:r[2]*r[3])
+        return result if valid(result) and all(spaced(rect,r,width,height,gap) for key,r in result.items() if key!=card) else None
+    result=attempt(proposed)
+    if result is not None:return result
+    # Stop the dragged edge at the neighbours' usable minimum instead of rejecting it.
+    lower,upper=0.0,1.0;best=attempt(original)
+    if best is None:return None
+    for _ in range(24):
+        middle=(lower+upper)/2
+        rect=[a+(b-a)*middle for a,b in zip(original,proposed)]
+        candidate=attempt(rect)
+        if candidate is None:upper=middle
+        else:lower=middle;best=candidate
+    return best
+
+
+def transform(rect, dx, dy, edge, width, height, grid=0, others=(), gap=0):
     """Move/resize in pixels, snap edges, return a bounded normalised rectangle."""
     x, y, w, h = [rect[0]*width, rect[1]*height, rect[2]*width, rect[3]*height]
     left, top, right, bottom = x, y, x+w, y+h
@@ -258,24 +434,37 @@ def transform(rect, dx, dy, edge, width, height, grid=0, others=()):
         if 's' in edge: bottom += dy
     guides = []
     if grid:
-        anchors_x, anchors_y = [0, width], [0, height]
+        # Snap only nearby, spatially relevant edges. Do not round free motion to a grid.
+        tolerance=grid/2
+        lefts,rights,tops,bottoms=[0],[width],[0],[height]
         for other in others:
-            anchors_x += [other[0]*width, (other[0]+other[2])*width]
-            anchors_y += [other[1]*height, (other[1]+other[3])*height]
-        def snap(value, anchors, axis):
-            nearest = min(anchors, key=lambda p: abs(value-p))
-            if abs(nearest-value) <= 7:
-                guides.append((axis, nearest))
-                return nearest
-            return round(value/grid)*grid
+            ox,oy,ow,oh=other[0]*width,other[1]*height,other[2]*width,other[3]*height
+            vertical=min(bottom,oy+oh)-max(top,oy)
+            horizontal=min(right,ox+ow)-max(left,ox)
+            if vertical>0:
+                lefts.append(ox+ow+gap);rights.append(ox-gap)
+            elif -vertical<=gap+tolerance:
+                lefts.append(ox);rights.append(ox+ow)
+            if horizontal>0:
+                tops.append(oy+oh+gap);bottoms.append(oy-gap)
+            elif -horizontal<=gap+tolerance:
+                tops.append(oy);bottoms.append(oy+oh)
+        def adjust(pairs):
+            options=[(abs(anchor-value),anchor-value,anchor) for value,anchors in pairs for anchor in anchors]
+            distance,delta,anchor=min(options)
+            return (delta,anchor) if distance<=tolerance else (0,None)
         if not edge:
-            sx, sy = snap(left, anchors_x, 'x'), snap(top, anchors_y, 'y')
-            right += sx-left; bottom += sy-top; left, top = sx, sy
+            sx,gx=adjust(((left,lefts),(right,rights)));sy,gy=adjust(((top,tops),(bottom,bottoms)))
+            left+=sx;right+=sx;top+=sy;bottom+=sy
         else:
-            if 'w' in edge: left = snap(left, anchors_x, 'x')
-            if 'e' in edge: right = snap(right, anchors_x, 'x')
-            if 'n' in edge: top = snap(top, anchors_y, 'y')
-            if 's' in edge: bottom = snap(bottom, anchors_y, 'y')
+            sx,gx=adjust(((left,lefts),)) if 'w' in edge else adjust(((right,rights),)) if 'e' in edge else (0,None)
+            sy,gy=adjust(((top,tops),)) if 'n' in edge else adjust(((bottom,bottoms),)) if 's' in edge else (0,None)
+            if 'w' in edge:left+=sx
+            if 'e' in edge:right+=sx
+            if 'n' in edge:top+=sy
+            if 's' in edge:bottom+=sy
+        if gx is not None:guides.append(('x',gx))
+        if gy is not None:guides.append(('y',gy))
     minw, minh = min(180, width), min(100, height)
     if not edge:
         left = min(max(0, left), max(0, width-w)); top = min(max(0, top), max(0, height-h))

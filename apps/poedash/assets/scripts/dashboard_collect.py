@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import queue
@@ -39,6 +40,24 @@ def fetch(url, token='', raw=False):
     if len(payload) > 2_000_000: raise ValueError('Response exceeds 2 MB')
     if raw: return payload
     return json.loads(payload)
+
+
+def search_weather_locations(query):
+    query=query.strip()
+    if not 2<=len(query)<=120: raise ValueError('Enter a town or city name (2–120 characters)')
+    params=urlencode({'name':query,'count':10,'language':'en','format':'json'})
+    data=fetch('https://geocoding-api.open-meteo.com/v1/search?'+params)
+    locations=[]
+    for item in data.get('results',[])[:10]:
+        try:
+            latitude,longitude=float(item['latitude']),float(item['longitude'])
+            if not (math.isfinite(latitude) and math.isfinite(longitude) and -90<=latitude<=90 and -180<=longitude<=180): continue
+            name=str(item.get('name','')).strip()
+            if not name: continue
+            parts=list(dict.fromkeys(str(item[key]).strip() for key in ('name','admin1','country') if item.get(key)))
+            locations.append({'location':', '.join(parts)[:300],'latitude':str(latitude),'longitude':str(longitude)})
+        except (KeyError,TypeError,ValueError): continue
+    return locations
 
 
 def feed_items(payload):
@@ -166,8 +185,8 @@ class Collectors:
             if cfg.get('latitude', '') == '' or cfg.get('longitude', '') == '':
                 return {'configured': False}
             params = urlencode({'latitude': float(cfg['latitude']), 'longitude': float(cfg['longitude']),
-                                'current': 'temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m',
-                                'daily': 'temperature_2m_max,temperature_2m_min,precipitation_probability_max',
+                                'current': 'temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day',
+                                'daily': 'temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code',
                                 'timezone': 'auto', 'forecast_days': 3})
             return {'configured': True, **fetch('https://api.open-meteo.com/v1/forecast?' + params)}
         if source == 'feeds':

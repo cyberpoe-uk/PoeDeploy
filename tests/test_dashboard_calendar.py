@@ -59,6 +59,35 @@ class ThunderbirdCalendar(unittest.TestCase):
         with patch.object(calendar, 'local_zone', return_value=tz):
             return calendar.reading(self.home, now)
 
+    def test_selected_past_day_includes_finished_events_and_excludes_neighbors(self):
+        day=NOW.date()-timedelta(days=4)
+        start=datetime.combine(day,datetime.min.time(),tzinfo=UTC)
+        self.event(start+timedelta(hours=9),id='chosen',title='Chosen day')
+        self.event(start-timedelta(hours=3),end=start,id='ends-at-boundary',title='Previous day')
+        self.event(start+timedelta(days=1),id='next',title='Next day')
+        with patch.object(calendar,'local_zone',return_value=UTC):
+            result=calendar.reading(self.home,NOW,selected_date=day)
+        self.assertEqual([e['title'] for e in result['events']],['Chosen day'])
+
+    def test_selected_day_is_not_limited_to_upcoming_eight_events(self):
+        day=NOW.date()+timedelta(days=24)
+        start=datetime.combine(day,datetime.min.time(),tzinfo=UTC)
+        for hour in range(10):self.event(start+timedelta(hours=hour),id=str(hour))
+        with patch.object(calendar,'local_zone',return_value=UTC):
+            result=calendar.reading(self.home,NOW,selected_date=day)
+        self.assertEqual(len(result['events']),10)
+        self.assertEqual(self.read()['events'],[])
+
+    def test_selected_day_includes_overnight_and_recurring_occurrences(self):
+        day=NOW.date()+timedelta(days=20)
+        start=datetime.combine(day,datetime.min.time(),tzinfo=UTC)
+        self.event(start-timedelta(hours=1),end=start+timedelta(hours=1),id='overnight',title='Overnight')
+        self.event(NOW.replace(hour=10),title='Daily',flags=16)
+        self.recurrence('RRULE:FREQ=DAILY;COUNT=30')
+        with patch.object(calendar,'local_zone',return_value=UTC):
+            result=calendar.reading(self.home,NOW,selected_date=day)
+        self.assertEqual([e['title'] for e in result['events']],['Overnight','Daily'])
+
     def test_install_default_profile_wins_over_legacy_profile_default(self):
         self.assertEqual(calendar.profile(self.home), self.profile)
 

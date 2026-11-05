@@ -106,6 +106,15 @@ class Installation(unittest.TestCase):
             self.install()
         launch.assert_called_once_with(self.root)
 
+    def test_eww_backend_choice_and_shared_host_survive_upgrade(self):
+        self.install()
+        (self.root/'surface-backend').write_text('eww\n')
+        self.install()
+        self.assertEqual((self.root/'surface-backend').read_text(),'eww\n')
+        self.assertIn('poedash-shared-host',(self.root/'eww.yuck').read_text())
+        for name in ('eww-host.py','eww_embed.py','eww-host-module.c'):
+            self.assertTrue((self.root/'scripts'/name).is_file())
+
     def test_startup_uses_installed_directory(self):
         self.install()
         self.assertIn('cd "$root"', (self.root / 'scripts/start.sh').read_text())
