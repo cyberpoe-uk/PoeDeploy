@@ -110,25 +110,42 @@ def resume_spotify():
     existing = any(name.lower().startswith('spotify') for name, _ in players())
     if not existing and not launch_spotify():
         return False
+    try:
+        saved = json.loads((ROOT / 'state/spotify-last.json').read_text())
+        saved = saved.get('uri', '') if isinstance(saved, dict) else ''
+    except (OSError, ValueError):
+        saved = ''
+    if not isinstance(saved, str) or not saved.startswith(('spotify:track:', 'spotify:playlist:', 'https://open.spotify.com/')):
+        saved = ''
+    opened = False
+    seen = False
     for _ in range(60):
-        for name, _ in players():
+        for name, status in players():
             if not name.lower().startswith('spotify'):
                 continue
-            call('playerctl', '-p', name, 'play')
+            seen = True
+            if status == 'Playing':
+                return True
+            # Spotify advertises MPRIS before playback is ready. A failed Play
+            # must not abort startup or prevent restoring the saved context.
+            try:
+                call('playerctl', '-p', name, 'play')
+            except (OSError, subprocess.SubprocessError):
+                pass
             time.sleep(.5)
-            if call('playerctl', '-p', name, 'status') != 'Playing':
-                try:
-                    saved = json.loads((ROOT / 'state/spotify-last.json').read_text()).get('uri', '')
-                except (OSError, ValueError):
-                    saved = ''
-                if isinstance(saved, str) and saved.startswith(('spotify:track:', 'spotify:playlist:', 'https://open.spotify.com/')):
+            try:
+                if call('playerctl', '-p', name, 'status') == 'Playing':
+                    return True
+                if saved and not opened:
                     call('playerctl', '-p', name, 'open', saved)
-                    call('playerctl', '-p', name, 'play')
-                else:
-                    notify('Spotify opened. Sign in and play a track once so it has a saved playback context.')
-            return True
+                    opened = True
+            except (OSError, subprocess.SubprocessError):
+                continue
         time.sleep(.5)
-    notify('Spotify is starting or needs sign-in. Press Play again when it is ready.')
+    if seen and not saved:
+        notify('Spotify opened. Sign in and play a track once so it has a saved playback context.')
+    else:
+        notify('Spotify is starting or needs sign-in. Press Play again when it is ready.')
     return False
 
 

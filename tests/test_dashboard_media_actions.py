@@ -4,6 +4,7 @@ import asyncio
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
@@ -76,9 +77,72 @@ class MediaActions(unittest.TestCase):
             (root / 'state/spotify-last.json').write_text(json.dumps({'uri': 'spotify:track:example'}))
             with patch.object(actions, 'ROOT', root), \
                  patch.object(actions, 'players', return_value=[('spotify', 'Stopped')]), \
-                 patch.object(actions, 'call', return_value='Stopped') as call, patch.object(actions.time, 'sleep'):
-                actions.resume_spotify()
-                self.assertIn(('playerctl', '-p', 'spotify', 'open', 'spotify:track:example'), [c.args for c in call.call_args_list])
+                 patch.object(actions, 'call', side_effect=['', 'Stopped', '', '', 'Playing']) as call, \
+                 patch.object(actions.time, 'sleep'), patch.object(actions, 'notify') as notify:
+                self.assertTrue(actions.resume_spotify())
+                self.assertEqual([c.args for c in call.call_args_list].count(
+                    ('playerctl', '-p', 'spotify', 'open', 'spotify:track:example')), 1)
+                notify.assert_not_called()
+
+    def test_cold_start_retries_play_failure_until_playback_is_ready(self):
+        failure = subprocess.CalledProcessError(1, ['playerctl', '-p', 'spotify', 'play'])
+        with tempfile.TemporaryDirectory() as tmp, patch.object(actions, 'ROOT', Path(tmp)), \
+             patch.object(actions, 'players', side_effect=[[], [('spotify', 'Stopped')], [('spotify', 'Paused')]]), \
+             patch.object(actions, 'launch_spotify', return_value=True) as launch, \
+             patch.object(actions, 'call', side_effect=[failure, 'Stopped', '', 'Playing']) as call, \
+             patch.object(actions.time, 'sleep'), patch.object(actions, 'notify') as notify:
+            self.assertTrue(actions.resume_spotify())
+            launch.assert_called_once()
+            self.assertEqual(sum(c.args[-1] == 'play' for c in call.call_args_list), 2)
+            notify.assert_not_called()
+
+    def test_failed_play_still_restores_saved_context_and_retries_failed_open(self):
+        failure = subprocess.CalledProcessError(1, ['playerctl'])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'state').mkdir()
+            (root / 'state/spotify-last.json').write_text(json.dumps({'uri': 'spotify:track:example'}))
+            with patch.object(actions, 'ROOT', root), \
+                 patch.object(actions, 'players', return_value=[('spotify', 'Stopped')]), \
+                 patch.object(actions, 'call', side_effect=[failure, 'Stopped', failure,
+                     failure, 'Stopped', '', '', 'Playing']) as call, \
+                 patch.object(actions.time, 'sleep'), patch.object(actions, 'notify') as notify:
+                self.assertTrue(actions.resume_spotify())
+                self.assertEqual(sum('open' in c.args for c in call.call_args_list), 2)
+                notify.assert_not_called()
+
+    def test_transient_status_failure_does_not_abort_resume(self):
+        failure = subprocess.TimeoutExpired(['playerctl'], 3)
+        with tempfile.TemporaryDirectory() as tmp, patch.object(actions, 'ROOT', Path(tmp)), \
+             patch.object(actions, 'players', return_value=[('spotify', 'Paused')]), \
+             patch.object(actions, 'call', side_effect=['', failure, '', 'Playing']), \
+             patch.object(actions.time, 'sleep'), patch.object(actions, 'notify') as notify:
+            self.assertTrue(actions.resume_spotify())
+            notify.assert_not_called()
+
+    def test_persistent_startup_failure_is_bounded_and_explained(self):
+        failure = subprocess.CalledProcessError(1, ['playerctl', '-p', 'spotify', 'play'])
+        with tempfile.TemporaryDirectory() as tmp, patch.object(actions, 'ROOT', Path(tmp)), \
+             patch.object(actions, 'players', return_value=[('spotify', 'Stopped')]), \
+             patch.object(actions, 'call', side_effect=failure) as call, \
+             patch.object(actions.time, 'sleep'), patch.object(actions, 'notify') as notify:
+            self.assertFalse(actions.resume_spotify())
+            self.assertEqual(call.call_count, 120)
+            notify.assert_called_once()
+            self.assertIn('Sign in and play a track once', notify.call_args.args[0])
+
+    def test_saved_context_is_opened_once_and_requires_confirmed_playback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'state').mkdir()
+            (root / 'state/spotify-last.json').write_text(json.dumps({'uri': 'spotify:track:example'}))
+            with patch.object(actions, 'ROOT', root), \
+                 patch.object(actions, 'players', return_value=[('spotify', 'Stopped')]), \
+                 patch.object(actions, 'call', return_value='Stopped') as call, \
+                 patch.object(actions.time, 'sleep'), patch.object(actions, 'notify') as notify:
+                self.assertFalse(actions.resume_spotify())
+                self.assertEqual(sum('open' in c.args for c in call.call_args_list), 1)
+                notify.assert_called_once()
 
 
 class Wave(unittest.TestCase):
