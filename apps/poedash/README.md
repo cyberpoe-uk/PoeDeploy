@@ -219,3 +219,29 @@ Only the upgrade code recognises older Eww installations so it can stop and
 retire the dashboard safely. It never installs Eww or changes unrelated widgets.
 Recovery snapshots remain outside the checkout under
 `~/.local/state/poedash/backups`.
+
+## Timeshift snapshots
+
+Add **Snapshots** from **Edit → Add / hide cards**. The card shows the configured
+Timeshift mode, free space on its snapshot device, enabled schedule levels,
+and the last loaded snapshot count and date. **Manage snapshots** lists dates,
+descriptions and schedule tags. **Create** makes a manual snapshot;
+deletion requires confirmation for the selected snapshot. **Open Timeshift**
+opens the existing system application. Dashboard restore is not implemented.
+
+**Schedule** controls monthly, weekly, daily, hourly and boot snapshots, with
+1–100 snapshots retained per level. Apply requires administrator authentication,
+preserves unrelated Timeshift settings and saves a dated copy of the previous
+configuration beside `/etc/timeshift/timeshift.json`. Concurrent configuration
+changes are rejected; close Timeshift and reopen Schedule before trying again.
+Lower retention limits take effect during subsequent Timeshift runs.
+
+Timeshift and a running cron scheduler must already be configured. PoeDash does
+not install either or alter their services. Background status checks never
+authenticate, mount snapshot devices or create snapshots. Loading or refreshing
+the snapshot list requires authentication, as do Create, Delete and Apply
+schedule. The list is cached with its check time; refresh it to include changes
+from Timeshift or scheduled jobs. Completed Create/Delete requests refresh the
+list within the same authenticated operation. Cancelling authentication preserves
+the last successful list. No passwordless privilege rules or root services are
+installed. The normal dashboard continues to run as your user.

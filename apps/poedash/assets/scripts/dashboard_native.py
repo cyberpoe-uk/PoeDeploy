@@ -30,6 +30,8 @@ from dashboard_model import (CARDS, REFRESH, SOURCES, SOURCE_TITLES,
 from dashboard_collect import Engine, health_issues, search_weather_locations
 from service_health import failed_units, service_details
 from weather_visual import condition as weather_condition, icon_svg as weather_icon_svg
+from snapshots import status as snapshot_status, perform as snapshot_perform
+from snapshots_admin import LEVELS as SNAPSHOT_LEVELS
 
 ROOT = Path(__file__).resolve().parent.parent
 GRAPH_COLORS = ((.80,.69,.98),(.45,.82,.74),(.95,.69,.45))
@@ -224,7 +226,8 @@ class Card(Gtk.EventBox):
         heading = box(False, 6)
         self.title = label(CARDS[key][0].upper(), 'heading')
         heading.pack_start(self.title, True, True, 0)
-        self.refresh_button = button('↻', lambda: app.refresh_card(key), 'Refresh this card now')
+        self.refresh_button = button('↻', lambda: app.refresh_card(key),
+                                     'Refresh snapshot list (administrator authentication)' if key=='snapshots' else 'Refresh this card now')
         heading.pack_end(self.refresh_button, False, False, 0)
         self.menu_button=button('⋯', lambda: app.card_menu(self), 'Card details and settings')
         heading.pack_end(self.menu_button, False, False, 0)
@@ -235,6 +238,10 @@ class Card(Gtk.EventBox):
         if key=='player':
             self.player_controls=box(True,round(7*app.profile['appearance'].get('scale',1)))
             self.content.pack_end(self.player_controls,False,False,0)
+        if key=='snapshots':
+            self.snapshot_controls=box(True,5)
+            self.snapshot_controls.set_homogeneous(True)
+            self.content.pack_end(self.snapshot_controls,False,False,0)
         self.cover = Gtk.EventBox()
         self.cover.set_visible_window(True)
         self.cover.set_above_child(True)
@@ -658,6 +665,8 @@ class Card(Gtk.EventBox):
             for item in items:
                 self.text(item.get('Names','Container'))
                 self.text(item.get('Status','Unknown'),'muted')
+        elif key == 'snapshots':
+            self.render_snapshots()
         elif key in ('nas','remote'):
             data=self.value(key,{})
             if not data.get('configured'): self.configure_hint()
@@ -667,6 +676,42 @@ class Card(Gtk.EventBox):
                     self.text(str(name).replace('_',' ').title(),'freshness',False); self.text(str(value)[:1000])
         self.body.show_all()
         GLib.idle_add(lambda: (adjustment.set_value(min(position,adjustment.get_upper())),False)[1])
+
+    def render_snapshots(self):
+        clear(self.snapshot_controls)
+        data=self.value('snapshots',{})
+        if not data:
+            self.text('Loading snapshot status…','muted'); return
+        if not data.get('available'):
+            self.text('Install Timeshift to manage system snapshots.','muted'); return
+        ready=data.get('configured',False)
+        row(self.body,'Backend','Timeshift · '+data.get('mode','—'))
+        if data.get('free_gib') is not None:
+            row(self.body,'Snapshot disk',str(data['free_gib'])+' GiB free')
+        if data.get('list_loaded'):
+            items=data.get('items',[])
+            row(self.body,'Snapshots',len(items))
+            row(self.body,'Latest',items[0]['name'].replace('_',' ') if items else 'None found')
+            checked=datetime.datetime.fromtimestamp(data['checked']).strftime('%d %b %H:%M')
+            self.text('List checked '+checked+(' · refresh needed' if data.get('stale') else ''),'freshness')
+        else: self.text('Load the snapshot list to check existing snapshots.','muted')
+        enabled=[level.title() for level,item in data.get('schedule',{}).items() if item['enabled']]
+        self.text('Scheduled: '+(', '.join(enabled) if enabled else 'Off'),'muted')
+        if enabled and data.get('scheduler')!='active': self.text('Snapshot scheduler is not confirmed running.','warning')
+        if data.get('error'): self.text(data['error'],'warning')
+        busy=getattr(self.app,'snapshot_busy',False)
+        message='Snapshot operation in progress…' if busy else getattr(self.app,'snapshot_notice','')
+        if message: self.text(message,'muted')
+        for actions in ((('Manage snapshots',self.app.show_snapshots),('Create',self.app.show_snapshot_create)),
+                        (('Schedule',self.app.show_snapshot_schedule),('Open Timeshift',self.app.open_timeshift))):
+            controls=box(False,5)
+            controls.set_homogeneous(True)
+            for title,callback in actions:
+                control=button(title,callback)
+                control.set_sensitive(not busy and (ready or title=='Open Timeshift'))
+                controls.pack_start(control,True,True,0)
+            self.snapshot_controls.pack_start(controls,False,False,0)
+        self.snapshot_controls.show_all()
 
     def retry_render(self):
         self.render_pending = None
@@ -710,7 +755,7 @@ class Card(Gtk.EventBox):
         sources=SOURCES.get(self.key,())
         samples=[(source,self.app.samples.get(source,{})) for source in sources]
         icon='↻'; warning=False
-        self.refresh_button.set_sensitive(bool(sources))
+        self.refresh_button.set_sensitive(bool(sources) and not (self.key=='snapshots' and getattr(self.app,'snapshot_busy',False)))
         if not sources:
             message='Saved locally'
         elif self.app.paused:
@@ -729,7 +774,8 @@ class Card(Gtk.EventBox):
         style=self.refresh_button.get_style_context()
         if warning: style.add_class('warning')
         else: style.remove_class('warning')
-        self.refresh_button.set_tooltip_text(message+('\nRefresh this card now' if sources else ''))
+        action='Refresh snapshot list (administrator authentication)' if self.key=='snapshots' else 'Refresh this card now'
+        self.refresh_button.set_tooltip_text(message+('\n'+action if sources else ''))
 
 
 class Dashboard:
@@ -742,6 +788,8 @@ class Dashboard:
         self.preview=None
         self.guides=[]
         self.samples={}
+        self.snapshot_busy=False
+        self.snapshot_notice=''
         self.diagnostic_payload='{}'
         self.cards={}
         self.wave={}
@@ -1606,7 +1654,155 @@ class Dashboard:
         self.status.show();self.status.set_text('Changes remain a preview until you Save · Cancel restores previous settings')
 
     def refresh_card(self,key):
+        if key=='snapshots':
+            self.snapshot_action('list'); return
         for source in SOURCES.get(key,()): self.engine.request(source)
+
+    def snapshot_page(self,title):
+        if self.transaction:
+            self.message('Save or cancel your dashboard edits before managing snapshots.'); return None
+        if self.snapshot_busy:
+            self.message('Wait for the current snapshot operation to finish.'); return None
+        parent=self.drawer_page(title,editable=False)
+        self.snapshot_form=parent
+        reveal(self.drawer)
+        return parent
+
+    def snapshot_data(self):
+        return self.samples.get('snapshots',{}).get('value') or {}
+
+    def open_timeshift(self):
+        if self.snapshot_busy:
+            self.message('Wait for the current snapshot operation to finish.'); return
+        try:
+            subprocess.Popen(['/usr/bin/timeshift-launcher'],stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL,start_new_session=True)
+        except OSError as exc: self.message('Could not open Timeshift: '+str(exc))
+
+    def show_snapshots(self):
+        parent=self.snapshot_page('Snapshots')
+        if parent is None:return
+        data=self.snapshot_data()
+        if data.get('list_loaded'):
+            checked=datetime.datetime.fromtimestamp(data['checked']).strftime('%d %b %Y, %H:%M:%S')
+            parent.pack_start(label('Snapshot list checked '+checked+'. Refresh to include changes made by Timeshift or its scheduler.','muted',True),False,False,0)
+        else:
+            parent.pack_start(label('Load the snapshot list using administrator authentication. Background checks never request a password.',wrap=True),False,False,0)
+        parent.pack_start(button('Refresh snapshot list',lambda:self.snapshot_action('list')),False,False,0)
+        controls=box(False,6)
+        controls.set_homogeneous(True)
+        controls.pack_start(button('Create snapshot',self.show_snapshot_create),True,True,0)
+        controls.pack_start(button('Schedule',self.show_snapshot_schedule),True,True,0)
+        parent.pack_start(controls,False,False,0)
+        if data.get('list_loaded') and not data.get('items'):
+            parent.pack_start(label('No snapshots found on the configured snapshot device.','muted',True),False,False,0)
+        for item in data.get('items',[]):
+            entry=box(True,4)
+            entry.pack_start(label(item['name'].replace('_',' '),'heading'),False,False,0)
+            entry.pack_start(label(item.get('description') or 'No description',wrap=True),False,False,0)
+            tags={'O':'Manual','B':'Boot','H':'Hourly','D':'Daily','W':'Weekly','M':'Monthly'}
+            entry.pack_start(label(' · '.join(tags.get(tag,tag) for tag in item.get('tags','').split()),'muted'),False,False,0)
+            entry.pack_start(button('Delete snapshot',lambda item=deepcopy(item):self.confirm_snapshot_delete(item)),False,False,0)
+            parent.pack_start(entry,False,False,4)
+        parent.pack_start(button('Open Timeshift',self.open_timeshift),False,False,0)
+        parent.show_all()
+
+    def show_snapshot_create(self):
+        parent=self.snapshot_page('Create snapshot')
+        if parent is None:return
+        parent.pack_start(label('Create a manual snapshot on your configured Timeshift device. Administrator authentication is required.',wrap=True),False,False,0)
+        entry=Gtk.Entry();entry.set_placeholder_text('Description, e.g. Before updating packages')
+        entry.set_max_length(200);entry.get_accessible().set_name('Snapshot description')
+        parent.pack_start(entry,False,False,0)
+        parent.pack_start(button('Create snapshot',lambda:self.snapshot_action('create',{'description':entry.get_text()})),False,False,0)
+        parent.pack_start(button('Back to snapshots',self.show_snapshots),False,False,0)
+        parent.show_all();entry.grab_focus()
+
+    def confirm_snapshot_delete(self,item):
+        parent=self.snapshot_page('Delete snapshot?')
+        if parent is None:return
+        parent.pack_start(label(item['name'].replace('_',' '),'heading'),False,False,0)
+        parent.pack_start(label(item.get('description') or 'No description',wrap=True),False,False,0)
+        parent.pack_start(label('This permanently removes this snapshot and its recovery point. Your current files are kept. Administrator authentication is required.',wrap=True),False,False,0)
+        parent.pack_start(button('Permanently delete snapshot',lambda:self.snapshot_action('delete',{'name':item['name']})),False,False,0)
+        parent.pack_start(button('Keep snapshot',self.show_snapshots),False,False,0)
+        parent.show_all()
+
+    def show_snapshot_schedule(self):
+        parent=self.snapshot_page('Snapshot schedule')
+        if parent is None:return
+        data=deepcopy(self.snapshot_data())
+        if not data.get('configured'):
+            parent.pack_start(label('Finish Timeshift setup before editing its schedule.',wrap=True),False,False,0)
+            parent.pack_start(button('Open Timeshift',self.open_timeshift),False,False,0)
+            parent.show_all();return
+        parent.pack_start(label('Choose automatic snapshots and how many to keep at each level. Timeshift checks hourly and creates snapshots when due; boot snapshots are delayed after startup.',wrap=True),False,False,0)
+        controls={}
+        for level in SNAPSHOT_LEVELS:
+            item=data['schedule'][level]
+            line=box(False,6)
+            enabled=Gtk.CheckButton(label=level.title());enabled.set_active(item['enabled'])
+            keep=Gtk.SpinButton.new_with_range(1,100,1);keep.set_value(item['keep'])
+            keep.get_accessible().set_name(level.title()+' snapshots to keep')
+            keep.set_sensitive(item['enabled'])
+            enabled.connect('toggled',lambda check,spin=keep:spin.set_sensitive(check.get_active()))
+            line.pack_start(enabled,True,True,0);line.pack_end(keep,False,False,0)
+            line.pack_end(label('Keep','muted'),False,False,0)
+            parent.pack_start(line,False,False,0);controls[level]=(enabled,keep)
+        scheduler=data.get('scheduler','unknown')
+        parent.pack_start(label('Scheduler: '+('running' if scheduler=='active' else 'not confirmed running — check Timeshift and the cron service'),
+                                'muted' if scheduler=='active' else 'warning',True),False,False,0)
+        if data.get('mode')=='Btrfs':
+            parent.pack_start(label('Home snapshots: '+('included' if data.get('home_backup') else 'excluded')+
+                                    ' · Home restoration: '+('enabled' if data.get('home_restore') else 'disabled'),'muted',True),False,False,0)
+        parent.pack_start(label('Saving changes Timeshift’s system schedule after authentication. Lower retention limits can remove older scheduled snapshots on a later Timeshift run. Manual snapshots are managed separately.',wrap=True),False,False,0)
+        def apply():
+            schedule={level:{'enabled':enabled.get_active(),'keep':keep.get_value_as_int()}
+                      for level,(enabled,keep) in controls.items()}
+            self.snapshot_action('schedule',{'schedule':schedule,'expected':data['fingerprint'],
+                                             'repository':data['repository']})
+        parent.pack_start(button('Apply schedule',apply),False,False,0)
+        parent.pack_start(button('Back to snapshots',self.show_snapshots),False,False,0)
+        parent.show_all()
+
+    def snapshot_action(self,action,payload=None):
+        if self.transaction:
+            self.message('Save or cancel your dashboard edits before managing snapshots.'); return
+        if self.snapshot_busy:
+            self.message('Wait for the current snapshot operation to finish.'); return
+        data=self.snapshot_data()
+        if not data.get('available') or not data.get('configured'):
+            self.message('Open Timeshift to finish setup first.');self.engine.request('snapshots');return
+        request={'repository':data['repository'],**(payload or {})}
+        self.snapshot_busy=True;self.snapshot_notice='Waiting for authentication or Timeshift…'
+        generation=getattr(self,'drawer_generation',0)
+        form=getattr(self,'snapshot_form',None)
+        if form is not None:form.set_sensitive(False)
+        if 'snapshots' in self.cards:self.cards['snapshots'].render()
+        self.message(self.snapshot_notice)
+        def work():
+            try:
+                result=snapshot_perform(self.root,action,request)
+                error=''
+            except (OSError,ValueError,RuntimeError) as exc:
+                result={};error=str(exc)
+            try:reading=snapshot_status(self.root)
+            except (OSError,ValueError):reading=None
+            GLib.idle_add(finished,result,error,reading)
+        def finished(result,error,reading):
+            if self.closing:return False
+            self.snapshot_busy=False
+            self.snapshot_notice=error or result.get('message','Snapshot operation finished.')
+            if result.get('refresh_error'):self.snapshot_notice+=' '+result['refresh_error']
+            if reading is not None:
+                self.receive({'snapshots':{'value':reading,'updated':time.time(),'error':''}})
+            elif 'snapshots' in self.cards:self.cards['snapshots'].render()
+            if getattr(self,'drawer_generation',0)==generation:
+                if form is not None:form.set_sensitive(True)
+                if not error and self.drawer.get_visible():self.show_snapshots()
+            self.message(self.snapshot_notice)
+            return False
+        threading.Thread(target=work,daemon=True,name='poedash-snapshots').start()
 
     def run(self,script,*arguments):
         path=self.root/'scripts'/script

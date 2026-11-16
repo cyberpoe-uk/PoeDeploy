@@ -162,6 +162,9 @@ class Collectors:
         if source == 'shares':
             output = self.run(['findmnt', '--json', '--types', 'cifs,nfs,nfs4,smb3', '--output', 'SOURCE,TARGET,FSTYPE'], allow_empty=True)
             return mounted_shares(json.loads(output)) if output else []
+        if source == 'snapshots':
+            from snapshots import status
+            return status(self.root)
         if source == 'health':
             import shutil
             disks = []

@@ -30,6 +30,7 @@ CARDS = {
     'containers': ('Containers', 'Local Docker container status'),
     'nas': ('NAS', 'Storage and status from a configured JSON endpoint'),
     'remote': ('Remote Machine', 'Metrics from a configured JSON endpoint'),
+    'snapshots': ('Snapshots', 'Timeshift snapshots, storage and schedules'),
 }
 BASE_CARDS = list(CARDS)[:10]
 REFRESH = {'cpu': 2, 'cpu_temperature': 5, 'ram': 3, 'gpu': 5,
@@ -37,20 +38,21 @@ REFRESH = {'cpu': 2, 'cpu_temperature': 5, 'ram': 3, 'gpu': 5,
            'shares': 15, 'arch': 60, 'media': 5, 'system_info': 300,
            'packages': 1800, 'updates': 1800, 'calendar': 60, 'session': 5,
            'health': 30, 'weather': 900, 'feeds': 600, 'containers': 15,
-           'nas': 30, 'remote': 30}
+           'nas': 30, 'remote': 30, 'snapshots': 60}
 SOURCES = {
     'arch': ('arch', 'packages', 'updates'), 'system': ('system_info',),
     'performance': ('cpu', 'cpu_temperature', 'ram', 'gpu'),
     'processes': ('processes',), 'connectivity': ('network', 'vpn'),
     'player': ('media',), 'shares': ('shares',), 'session': ('session',),
     'power': ('power',), 'calendar': ('calendar',),
-    **{key: (key,) for key in ('weather', 'feeds', 'containers', 'nas', 'remote')},
+    **{key: (key,) for key in ('weather', 'feeds', 'containers', 'nas', 'remote', 'snapshots')},
 }
 SOURCE_TITLES = {'cpu': 'CPU usage', 'cpu_temperature': 'CPU temperature', 'ram': 'RAM',
                  'gpu': 'GPU usage / temperature', 'network': 'Network / traffic',
                  'vpn': 'VPNs', 'arch': 'Kernel / uptime', 'packages': 'Package count',
                  'updates': 'Available updates', 'media': 'Player metadata',
-                 'system_info': 'Specifications', 'calendar': 'Agenda', 'health': 'Health checks'}
+                 'system_info': 'Specifications', 'calendar': 'Agenda', 'health': 'Health checks',
+                 'snapshots': 'Snapshot status'}
 DEFAULT_APPEARANCE = {'scale': 1.0, 'opacity': .70, 'font_size': 14, 'spacing': 10, 'graphs': True,
                       'history_minutes': 15, 'snap': True, 'grid_size': 12,
                       'recent_text_size': 14, 'recent_icon_size': 40}
