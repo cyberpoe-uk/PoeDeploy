@@ -26,6 +26,23 @@ class Configuration(unittest.TestCase):
             self.assertEqual(store.path.stat().st_mode & 0o777,0o600)
             self.assertEqual(store.profile['refresh']['cpu'],2)
 
+    def test_card_colours_and_dashboard_size_roundtrip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store=model.Settings(tmp)
+            store.profile['card_colors']={'arch':'#28456a'}
+            store.profile['appearance'].update(dashboard_width=80,dashboard_height=90)
+            store.save()
+            loaded=model.Settings(tmp)
+            self.assertEqual(loaded.profile['card_colors'],{'arch':'#28456a'})
+            self.assertEqual(loaded.profile['appearance']['dashboard_width'],80)
+            self.assertNotIn('card_colors',loaded.data['profiles']['Minimal'])
+        for colours in [{'arch':'red'},{'arch':'#123456; }'},{'unknown':'#123456'},[]]:
+            data=model.defaults();data['profiles']['Daily']['card_colors']=colours
+            with self.assertRaises(ValueError):model.validate(data)
+        for key,value in [('dashboard_width',39),('dashboard_height',101),('dashboard_width',True)]:
+            data=model.defaults();data['profiles']['Daily']['appearance'][key]=value
+            with self.assertRaises(ValueError):model.validate(data)
+
     def test_invalid_settings_are_preserved_before_recovery(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'dashboard.json'; path.write_text('{"version":99}')

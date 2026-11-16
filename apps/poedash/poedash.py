@@ -180,6 +180,7 @@ def install(args, root):
     config_home = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config'))
     hypr = Path(args.hyprland_config).expanduser().resolve() if args.hyprland_config else config_home / 'hypr/hyprland.lua'
     binpath = Path.home() / '.local/bin/poedash'
+    launcher = Path(os.environ.get('XDG_DATA_HOME', Path.home() / '.local/share')) / 'applications/poedash-settings.desktop'
     matugen = config_home / 'matugen/config.toml'
     matugen_text = matugen.read_text() if matugen.exists() else ''
     name = chosen_name(args, root)
@@ -209,6 +210,8 @@ def install(args, root):
         shutil.copytree(root, backup / 'config', ignore=shutil.ignore_patterns('native.sock', '__pycache__', '*.pyc'))
     if binpath.exists():
         shutil.copy2(binpath, backup / 'poedash-command')
+    if launcher.exists():
+        shutil.copy2(launcher, backup / launcher.name)
     if not args.no_integrate:
         shutil.copy2(hypr, backup / 'hyprland.lua')
         if matugen.exists():
@@ -277,7 +280,12 @@ def install(args, root):
     atomic(binpath, cli, 0o755)
     manifest_path = root / 'install.json'
     manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
-    manifest.update({'bin': str(binpath), 'backup': str(backup)})
+    launcher_command = ' '.join(json.dumps(str(value), ensure_ascii=False).replace('%', '%%')
+                                for value in (sys.executable, root / 'scripts/display-settings.py'))
+    atomic(launcher, '[Desktop Entry]\nType=Application\nName=PoeDash Settings\n'
+           'Comment=Change dashboard size and appearance\nExec=' + launcher_command +
+           '\nIcon=preferences-desktop-display\nTerminal=false\nCategories=Settings;DesktopSettings;\n')
+    manifest.update({'bin': str(binpath), 'backup': str(backup), 'settings_launcher': str(launcher)})
     if not args.no_integrate:
         previous = hypr.read_text()
         atomic(hypr, without_hook(previous).rstrip() + '\n\n' + hook_text(root) + '\n', hypr.stat().st_mode & 0o777)
@@ -326,6 +334,10 @@ def uninstall(root):
         if matugen.exists():
             text = re.sub(r'(?ms)^# BEGIN POEDASH\n.*?^# END POEDASH\n?', '', matugen.read_text())
             atomic(matugen, text)
+    if manifest.get('settings_launcher'):
+        launcher = Path(manifest['settings_launcher'])
+        if launcher.exists() and str(root / 'scripts/display-settings.py') in launcher.read_text():
+            launcher.unlink()
     binary = Path(manifest['bin'])
     if binary.exists() and str(root / 'poedash.py') in binary.read_text():
         binary.unlink()

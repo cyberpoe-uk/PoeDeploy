@@ -218,19 +218,28 @@ class Card(Gtk.EventBox):
         super().__init__()
         self.app, self.key = app, key
         self.get_style_context().add_class('card')
+        self.get_style_context().add_class('card-'+key)
         self.overlay = Gtk.Overlay()
         self.add(self.overlay)
         self.content = box(True, round(7*app.profile['appearance'].get('scale',1)))
         self.content.set_border_width(round(12*app.profile['appearance'].get('scale',1)))
         self.overlay.add(self.content)
         heading = box(False, 6)
-        self.title = label(CARDS[key][0].upper(), 'heading')
-        heading.pack_start(self.title, True, True, 0)
+        self.title = label(CARDS[key][0].upper(), 'card-title')
+        self.title.set_xalign(.5)
+        heading.set_center_widget(self.title)
+        actions = box(False, 6)
+        spacer = box(False, 0)
+        balance = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
+        balance.add_widget(spacer)
+        balance.add_widget(actions)
+        heading.pack_start(spacer, False, False, 0)
+        heading.pack_end(actions, False, False, 0)
         self.refresh_button = button('↻', lambda: app.refresh_card(key),
                                      'Refresh snapshot list (administrator authentication)' if key=='snapshots' else 'Refresh this card now')
-        heading.pack_end(self.refresh_button, False, False, 0)
+        actions.pack_end(self.refresh_button, False, False, 0)
         self.menu_button=button('⋯', lambda: app.card_menu(self), 'Card details and settings')
-        heading.pack_end(self.menu_button, False, False, 0)
+        actions.pack_end(self.menu_button, False, False, 0)
         self.content.pack_start(heading, False, False, 0)
         self.body = box(True, round((4 if key in ('system','connectivity','power') else 7)*app.profile['appearance'].get('scale',1)))
         self.body_scroll = scroll(self.body)
@@ -965,6 +974,7 @@ class Dashboard:
     def monitor_changed(self,*_):
         self.choose_monitor()
         self.layout={}
+        self.apply_dashboard_size()
         self.reflow()
 
     def change_zoom(self,delta=0,reset=False):
@@ -1030,6 +1040,7 @@ class Dashboard:
         .edit-cover {{ background: rgba(180,150,240,.035); }}
         .card:hover {{ border-color: {colors['muted']}; }}
         .heading {{ color: {colors['accent']}; font-weight: bold; }}
+        .card-title {{ color: {colors['accent']}; font-size: {round((appearance['font_size']+2)*zoom)}px; font-weight: 800; }}
         .dashboard-header * {{ font-size: {appearance['font_size']}px; }}
         .hostname, .clock {{ font-size: {appearance['font_size']+12}px; font-weight: bold; }}
         .media-title {{ font-size: {round((appearance['font_size']+5)*zoom)}px; font-weight: bold; }}
@@ -1068,6 +1079,10 @@ class Dashboard:
         popover, menu {{ background: {colors['background']}; color: {colors['foreground']}; }}
         scrollbar slider {{ min-width: 5px; min-height: 20px; background: {colors['border']}; border-radius: 3px; }}
         '''
+        for key, value in self.profile.get('card_colors', {}).items():
+            rgb=','.join(str(int(value[i:i+2],16)) for i in (1,3,5))
+            css+=f"\n.card-{key} {{ background: rgba({rgb},{min(1,appearance['opacity']+.12)}); }}"
+        self.apply_dashboard_size()
         self.provider.load_from_data(css.encode())
         self.surface.set_spacing(round(appearance['spacing']*zoom))
         self.main.set_spacing(round(appearance['spacing']*zoom)) if hasattr(self,'main') else None
@@ -1078,6 +1093,17 @@ class Dashboard:
         if getattr(self,'app_lists',None): self.receive_apps(self.app_lists)
         if hasattr(self,'cards'):
             for card in self.cards.values(): card.queue_draw()
+
+    def apply_dashboard_size(self):
+        if self.preview_window or self.smoke or not GtkLayerShell.is_layer_window(self.window): return
+        bounds=self.monitor.get_geometry()
+        appearance=self.profile['appearance']
+        horizontal=round(bounds.width*(1-appearance.get('dashboard_width',100)/100)/2)
+        vertical=round(bounds.height*(1-appearance.get('dashboard_height',100)/100)/2)
+        for edge in (GtkLayerShell.Edge.LEFT,GtkLayerShell.Edge.RIGHT):
+            GtkLayerShell.set_margin(self.window,edge,horizontal)
+        for edge in (GtkLayerShell.Edge.TOP,GtkLayerShell.Edge.BOTTOM):
+            GtkLayerShell.set_margin(self.window,edge,vertical)
 
     def build_cards(self):
         saved=self.profile['layouts'].get(self.display_key)
@@ -1219,7 +1245,8 @@ class Dashboard:
         content.pack_start(label(tip,wrap=True),False,False,0)
         self.edit_actions={}
         for text,callback in [('Move & resize cards',self.edit_layout),('Fit cards to screen',self.fit_cards_to_screen),('Refresh intervals',lambda:self.open_settings('Refresh intervals')),
-                              ('Appearance',lambda:self.open_settings('Appearance')),('Add / hide cards',lambda:self.open_settings('Cards')),
+                              ('Appearance',lambda:self.open_settings('Appearance')),
+                              ('Dashboard size & appearance',lambda:self.open_settings('Appearance')),('Add / hide cards',lambda:self.open_settings('Cards')),
                               ('Profiles',lambda:self.open_settings('Profiles'))]:
             control=button(text,callback)
             self.edit_actions[text]=control
@@ -1379,6 +1406,21 @@ class Dashboard:
         parent.pack_start(label('Changes preview immediately. Appearance is saved separately for each profile.',wrap=True),False,False,0)
         appearance=self.profile['appearance']
         parent.pack_start(label('Dashboard zoom: use − / + beside the profile selector; ↶ resets it to 100%. Zoom is saved per profile.',wrap=True),False,False,0)
+        for title,key,low,high in [('Dashboard width (%)','dashboard_width',40,100),
+                                   ('Dashboard height (%)','dashboard_height',40,100),
+                                   ('Content size (%)','scale',50,200)]:
+            line=box(False,8);line.pack_start(label(title),True,True,0)
+            spin=Gtk.SpinButton.new_with_range(low,high,1)
+            spin.set_numeric(True)
+            spin.set_value(round(appearance.get(key,1)*100) if key=='scale' else appearance.get(key,100))
+            spin.get_accessible().set_name(title)
+            def resized(widget,k=key):
+                self.transaction.checkpoint()
+                appearance[k]=widget.get_value_as_int()/(100 if k=='scale' else 1)
+                self.apply_appearance()
+                if k=='scale':self.build_cards()
+            spin.connect('value-changed',resized)
+            line.pack_end(spin,False,False,0);parent.pack_start(line,False,False,0)
         for title,key,low,high,step in [('Background opacity','opacity',.15,1,.05),('Font size','font_size',9,24,1),
                                        ('Recent Apps text size','recent_text_size',9,24,1),
                                        ('Recent Apps icon size','recent_icon_size',16,80,1),
@@ -1639,6 +1681,30 @@ class Dashboard:
         self.editing=False;self.control_stack.set_visible_child(self.healthbar)
         for item in self.cards.values():item.set_editing(False)
         content=self.drawer_page(CARDS[card.key][0]+' · edit')
+        content.pack_start(label('BACKGROUND COLOUR','heading'),False,False,0)
+        colour=Gtk.ColorChooserWidget()
+        colour.set_use_alpha(False)
+        rgba=Gdk.RGBA()
+        rgba.parse(self.profile.get('card_colors',{}).get(card.key,self.theme['card']))
+        colour.set_rgba(rgba)
+        colour.get_accessible().set_name('Card background colour')
+        def chosen(widget):
+            value=widget.get_rgba()
+            self.set_card_color(card.key,'#{:02x}{:02x}{:02x}'.format(
+                round(value.red*255),round(value.green*255),round(value.blue*255)))
+        palette_apply=button('Preview colour',lambda:chosen(colour))
+        line=box(False,8)
+        palette=Gtk.Expander(label='Choose background colour')
+        palette_body=box(True,6)
+        palette_body.pack_start(colour,False,False,0)
+        palette_body.pack_start(palette_apply,False,False,0)
+        palette.add(palette_body)
+        content.pack_start(palette,False,False,0)
+        def reset():
+            self.set_card_color(card.key,None)
+            rgba=Gdk.RGBA();rgba.parse(self.theme['card']);colour.set_rgba(rgba)
+        line.pack_start(button('Use theme default',reset),False,False,0)
+        content.pack_start(line,False,False,0)
         sources=SOURCES.get(card.key,())
         if sources:
             content.pack_start(label('REFRESH INTERVALS','heading'),False,False,0)
@@ -1652,6 +1718,14 @@ class Dashboard:
         if card.key=='arch':content.pack_start(button('Open update list',lambda:self.run('launch.sh','updates')),False,False,0)
         reveal(self.drawer)
         self.status.show();self.status.set_text('Changes remain a preview until you Save · Cancel restores previous settings')
+
+    def set_card_color(self,key,value):
+        self.transaction.checkpoint()
+        colours=self.profile.setdefault('card_colors',{})
+        if value is None: colours.pop(key,None)
+        else: colours[key]=value
+        self.apply_appearance()
+        self.update_edit_buttons()
 
     def refresh_card(self,key):
         if key=='snapshots':
@@ -2164,7 +2238,9 @@ class Dashboard:
                     with connection:
                         connection.settimeout(1)
                         command=connection.recv(100).decode(errors='replace').strip()
-                        if command=='quit': GLib.idle_add(self.quit); connection.sendall(b'ok\n')
+                        if command=='open-appearance':
+                            GLib.idle_add(self.open_settings,'Appearance');connection.sendall(b'ok\n')
+                        elif command=='quit': GLib.idle_add(self.quit); connection.sendall(b'ok\n')
                         elif command=='status': connection.sendall(b'active\n')
                         elif command=='diagnostics': connection.sendall(self.diagnostic_payload.encode()+b'\n')
                         elif command=='reload': GLib.idle_add(self.reload); connection.sendall(b'ok\n')

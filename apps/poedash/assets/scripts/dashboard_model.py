@@ -6,6 +6,7 @@ checked without a running compositor.
 from copy import deepcopy
 import json
 import math
+import re
 import os
 from pathlib import Path
 import sqlite3
@@ -117,7 +118,16 @@ def validate(data):
         for source, seconds in profile.get('refresh', {}).items():
             if source not in REFRESH or type(seconds) is not int or not 1 <= seconds <= 86400:
                 raise ValueError('Refresh intervals must be whole seconds from 1 to 86400')
+        card_colors=profile.get('card_colors',{})
+        if not isinstance(card_colors,dict) or any(
+                key not in CARDS or not isinstance(value,str) or
+                not re.fullmatch(r'#[0-9a-fA-F]{6}',value)
+                for key,value in card_colors.items()):
+            raise ValueError('Card backgrounds must use six-digit hex colours for known cards')
         appearance = profile.get('appearance', {})
+        for dimension in ('dashboard_width','dashboard_height'):
+            if not number(appearance.get(dimension,100),40,100):
+                raise ValueError('Dashboard width and height must be between 40 and 100 percent')
         appearance.setdefault('scale', 1.0)
         appearance.setdefault('recent_text_size', appearance.get('font_size', 14))
         appearance.setdefault('recent_icon_size', DEFAULT_APPEARANCE['recent_icon_size'])

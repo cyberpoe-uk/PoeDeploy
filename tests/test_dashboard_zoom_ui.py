@@ -61,6 +61,37 @@ class ProfileZoom(unittest.TestCase):
             self.assertEqual(app.profile['layouts'],saved)
             self.assertLessEqual(app.canvas_size[1],app.board_view.get_allocated_height())
 
+    def test_card_heading_and_appearance_drafts(self):
+        app=self.app
+        card=next(iter(app.cards.values()))
+        key=card.key
+        title=card.title.get_allocation()
+        heading=card.title.get_parent().get_allocation()
+        self.assertAlmostEqual(title.x+title.width/2,heading.x+heading.width/2,delta=2)
+        app.card_menu(card)
+        app.set_card_color(key,'#28456a')
+        app.save();self.pump()
+        self.assertEqual(self.native.Settings(app.root).profile['card_colors'][key],'#28456a')
+        app.card_menu(app.cards[key]);app.set_card_color(key,'#bb2244');app.cancel();self.pump()
+        self.assertEqual(app.profile['card_colors'][key],'#28456a')
+        app.card_menu(app.cards[key]);app.set_card_color(key,None);app.save();self.pump()
+        self.assertNotIn(key,self.native.Settings(app.root).profile['card_colors'])
+        app.open_settings('Appearance')
+        def descendants(widget):
+            yield widget
+            if isinstance(widget,self.native.Gtk.Container):
+                for child in widget.get_children():yield from descendants(child)
+        controls={widget.get_accessible().get_name():widget for widget in descendants(app.drawer)
+                  if isinstance(widget,self.native.Gtk.SpinButton)}
+        controls['Dashboard width (%)'].set_value(80)
+        controls['Dashboard height (%)'].set_value(90)
+        controls['Content size (%)'].set_value(110)
+        self.assertEqual(app.profile['appearance']['dashboard_width'],80)
+        self.assertEqual(app.profile['appearance']['scale'],1.1)
+        app.cancel();self.pump()
+        self.assertEqual(app.profile['appearance'].get('dashboard_width',100),100)
+        self.assertEqual(app.profile['appearance']['scale'],1)
+
     def tearDown(self):
         with patch.object(self.native.Gtk,'main_quit'):
             self.app.quit();self.app.window.destroy()

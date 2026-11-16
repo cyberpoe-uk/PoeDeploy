@@ -245,3 +245,7 @@ from Timeshift or scheduled jobs. Completed Create/Delete requests refresh the
 list within the same authenticated operation. Cancelling authentication preserves
 the last successful list. No passwordless privilege rules or root services are
 installed. The normal dashboard continues to run as your user.
+
+Card titles are centred and emphasized. Use a card’s ⋯ menu to choose its background colour inside the dashboard; Preview colour applies it to the draft and Use theme default resets it. Save keeps changes and Cancel restores the previous appearance.
+
+Open **PoeDash Settings** from your app launcher or **Edit → Dashboard size & appearance** for width, height, content size and opacity. The launcher switches to the dashboard workspace and opens the settings drawer there. Width and height range from 40–100% of the monitor; appearance and card colours are stored per profile.

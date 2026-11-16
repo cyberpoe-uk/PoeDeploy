@@ -21,7 +21,7 @@ class Installation(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix='poedash test ')
         self.home = Path(self.temp.name)
         self.env = patch.dict(os.environ, {'HOME': str(self.home), 'XDG_CONFIG_HOME': str(self.home / '.config'),
-            'XDG_STATE_HOME': str(self.home / '.local/state'), 'XDG_CACHE_HOME': str(self.home / '.cache')})
+            'XDG_DATA_HOME': str(self.home / '.local/share'), 'XDG_STATE_HOME': str(self.home / '.local/state'), 'XDG_CACHE_HOME': str(self.home / '.cache')})
         self.env.start()
         self.root = self.home / '.config/poedash'
         self.hypr = self.home / '.config/hypr/hyprland.lua'
@@ -68,6 +68,9 @@ class Installation(unittest.TestCase):
         self.assertEqual((self.root / 'dashboard.json').stat().st_mode & 0o777, 0o600)
         self.assertEqual((self.root / 'state/history.fixture').read_text(), 'saved history')
         self.assertTrue((self.root / 'scripts/dashboard_native.py').is_file())
+        launcher = self.home / '.local/share/applications/poedash-settings.desktop'
+        self.assertIn('display-settings.py', launcher.read_text())
+        self.assertIn('Name=PoeDash Settings', launcher.read_text())
         self.assertTrue((self.root / 'scripts/workspace.py').stat().st_mode & 0o111)
         self.assertEqual((self.root / 'dashboard-id').read_text(), 'poedash\n')
         self.assertEqual((self.home / '.config/poedeploy/dashboard').read_text(), 'poedash\n')
@@ -82,6 +85,7 @@ class Installation(unittest.TestCase):
         self.assertNotIn('poedash', theme.read_text())
         self.assertTrue((self.root / 'settings.json').exists())
         self.assertFalse((self.home / '.local/bin/poedash').exists())
+        self.assertFalse(launcher.exists())
         self.assertEqual(len(list((self.home / '.local/state/poedash/backups').iterdir())), 2)
 
     def test_dry_run_writes_nothing(self):
